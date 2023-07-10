@@ -55,6 +55,17 @@ def build_traversal_graph(V, F):
         np.stack([F[:, 2], F[:, 0]], -1)
     ], 1).reshape(-1, 2)
 
+    # Not sure if there is a more efficient approach
+    E2Eid = dict([(f"{e[0]}_{e[1]}", e_id) for e, e_id in zip(E, edge_id)])
+
+    def opposite_edge_id(e_id):
+        v0, v1 = E[e_id]
+        key = f"{v1}_{v0}"
+        return E2Eid[key] if key in E2Eid else -1
+
+    E2E = -np.ones(F.size, dtype=np.int64)
+    E2E[edge_id] = list(map(opposite_edge_id, edge_id))
+
     V_boundary = np.full((len(V)), False)
     V_manifold = np.full((len(V)), True)
 
@@ -78,7 +89,7 @@ def build_traversal_graph(V, F):
         np.concatenate([el, -np.ones(pad_width - len(el))]) for el in V2E_list
     ]).astype(np.int64)
 
-    return V, F, E, V2E, V_boundary, V_manifold
+    return V, F, E, V2E, E2E, V_boundary, V_manifold
 
 
 @jit
@@ -303,7 +314,7 @@ def principal_curvature(T, TM):
 if __name__ == '__main__':
     V, F = igl.read_triangle_mesh("data/bunny.obj")
 
-    V, F, E, V2E, V_boundary, V_manifold = build_traversal_graph(V, F)
+    V, F, E, V2E, E2E, V_boundary, V_manifold = build_traversal_graph(V, F)
     FN, T_f = per_face_basis(V[F])
     VN, T_v = per_vertex_basis(V, E, V2E, FN)
     TfM, TvM = fit_curvature_tensor(V, F, E, V2E, FN, T_f, VN, T_v)
