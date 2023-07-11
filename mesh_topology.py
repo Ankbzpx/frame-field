@@ -247,8 +247,21 @@ def transform_face_metric(e_id, T_v, E, VN, FN, T_f, TfM):
     return TM
 
 
+# Reference: https://en.wikipedia.org/wiki/Heron%27s_formula
 @jit
-def triangle_area(a, b, c):
+def area(verts):
+    v0, v1, v2 = verts
+
+    a = jnp.linalg.norm(v1 - v0)
+    b = jnp.linalg.norm(v2 - v0)
+    c = jnp.linalg.norm(v2 - v1)
+
+    area_2 = (a + (b + c)) * (c - (a - b)) * (c + (a - b)) * (a + (b - c))
+    return jnp.sqrt(area_2) / 4
+
+
+@jit
+def _vertex_area(a, b, c):
     e0 = a - b
     e1 = a - c
     e2 = b - c
@@ -278,7 +291,33 @@ def triangle_area(a, b, c):
 def vertex_area(e_id, E, V):
     cur_edge = E[e_id]
     prev_edge = E[prev_edge_id(e_id)]
-    return triangle_area(V[cur_edge[0]], V[cur_edge[1]], V[prev_edge[0]])
+    return _vertex_area(V[cur_edge[0]], V[cur_edge[1]], V[prev_edge[0]])
+
+
+@jit
+def cotangent(ei, ej, E, V):
+    A = V[E[ej][0]]
+    B = V[E[ej][1]]
+    C = V[E[ei][1]]
+
+    len2 = lambda x: jnp.einsum('i,i', x, x)
+
+    a = len2(B - C)
+    b = len2(A - C)
+    c = len2(B - A)
+
+    return b + c - a
+
+
+@jit
+def cotangent_weight(e_id, E, E2E, V, FA):
+    area_a = FA[e_id // 3]
+    cot_a = 0.25 * cotangent(e_id, prev_edge_id(e_id), E, V) / area_a
+
+    e_id_op = E2E[e_id]
+    area_b = FA[e_id_op // 3]
+    cot_b = 0.25 * cotangent(e_id_op, prev_edge_id(e_id_op), E, V) / area_b
+    return 0.5 * (cot_a + cot_b)
 
 
 # "Estimating Curvatures and Their Derivatives on Triangle Meshes" by Szymon Rusinkiewicz
@@ -318,6 +357,14 @@ if __name__ == '__main__':
     FN, T_f = per_face_basis(V[F])
     VN, T_v = per_vertex_basis(V, E, V2E, FN)
     TfM, TvM = fit_curvature_tensor(V, F, E, V2E, FN, T_f, VN, T_v)
+    FA = vmap(area)(V[F])
+
+    Ws = one_ring_traversal(
+        V2E, jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA),
+        0.)
+
+    ic(Ws.shape, V2E.shape)
+    exit()
 
     _, pvecs_f = principal_curvature(T_f, TfM)
     _, pvecs_v = principal_curvature(T_v, TvM)
