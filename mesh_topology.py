@@ -4,6 +4,7 @@ import jax
 from jax import Array, vmap, jit, numpy as jnp
 from typing import Callable
 from functools import partial
+import scipy
 
 # enable 64 bit precision
 from jax.config import config
@@ -354,16 +355,81 @@ if __name__ == '__main__':
     V, F = igl.read_triangle_mesh("data/bunny.obj")
 
     V, F, E, V2E, E2E, V_boundary, V_manifold = build_traversal_graph(V, F)
+    NV = len(V)
     FN, T_f = per_face_basis(V[F])
     VN, T_v = per_vertex_basis(V, E, V2E, FN)
     TfM, TvM = fit_curvature_tensor(V, F, E, V2E, FN, T_f, VN, T_v)
     FA = vmap(area)(V[F])
 
+    # Projection matrix to tangent plane
+    Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
+        'bi,bj->bij', VN, VN)
+
+    # Local coordinate
+    key = jax.random.PRNGKey(0)
+    # Random tangent vector
+    alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
+    alpha = vmap(normalize)(alpha)
+    beta = vmap(jnp.cross)(alpha, VN)
+
     Ws = one_ring_traversal(
         V2E, jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA),
         0.)
 
-    ic(Ws.shape, V2E.shape)
+    @jit
+    def dirichlet(ws, e_ids, E, alpha, beta, NV):
+        edges = E[e_ids]
+
+        vid = edges[0, 0]
+        vid_next = vid + NV
+        w_sum = jnp.sum(ws)
+
+        vid_i = edges[:, 0]
+        vid_i_next = vid_i + NV
+        vid_j = edges[:, 1]
+        vid_j_next = vid_j + NV
+
+        alpha_i = alpha[vid_i]
+        alpha_j = alpha[vid_j]
+        beta_i = beta[vid_i]
+        beta_j = beta[vid_j]
+
+        inner_ii = jnp.einsum('bi,bi->b', alpha_i, alpha_j)
+        inner_ij = jnp.einsum('bi,bi->b', alpha_i, beta_j)
+        inner_ji = jnp.einsum('bi,bi->b', beta_i, alpha_j)
+        inner_jj = jnp.einsum('bi,bi->b', beta_i, beta_j)
+
+        idx_i = jnp.concatenate(
+            [jnp.array([vid, vid_next]), vid_i, vid_i_next, vid_i, vid_i_next])
+
+        idx_j = jnp.concatenate(
+            [jnp.array([vid, vid_next]), vid_j, vid_j, vid_j_next, vid_j_next])
+
+        weights = jnp.concatenate([
+            jnp.array([w_sum, w_sum]), -inner_ii * ws, -inner_ij * ws,
+            -inner_ji * ws, -inner_jj * ws
+        ])
+
+        return idx_i, idx_j, weights
+
+    idx_i, idx_j, weights = vmap(dirichlet,
+                                 in_axes=(0, 0, None, None, None,
+                                          None))(Ws, V2E, E, alpha, beta, NV)
+
+    idx_i = idx_i.reshape(-1)
+    idx_j = idx_j.reshape(-1)
+    weights = weights.reshape(-1)
+
+    valid_mask = weights != 0
+    idx_i = idx_i[valid_mask]
+    idx_j = idx_j[valid_mask]
+    weights = weights[valid_mask]
+
+    A = scipy.sparse.coo_array((weights, (idx_i, idx_j)),
+                               shape=(2 * NV, 2 * NV))
+
+    ic(A)
+
     exit()
 
     _, pvecs_f = principal_curvature(T_f, TfM)
