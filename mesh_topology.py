@@ -5,6 +5,7 @@ from jax import Array, vmap, jit, numpy as jnp
 from typing import Callable
 from functools import partial
 import scipy
+import scipy.sparse.linalg
 
 # enable 64 bit precision
 from jax.config import config
@@ -36,7 +37,7 @@ def per_face_basis(verts):
 
 
 # Use half edge graph for traversal
-# TODO: deal with crease normal
+# TODO: Add crease normal
 def build_traversal_graph(V, F):
     V_unique, V_unique_idx, V_unique_idx_inv = np.unique(F.flatten(),
                                                          return_index=True,
@@ -68,12 +69,17 @@ def build_traversal_graph(V, F):
     E2E[edge_id] = list(map(opposite_edge_id, edge_id))
 
     V_boundary = np.full((len(V)), False)
-    V_manifold = np.full((len(V)), True)
+    V_nonmanifold = np.full((len(V)), False)
 
-    # Check boundary, manifold for undirected edge
-    ue, ue_count = np.unique(np.sort(E, axis=1), axis=0, return_counts=True)
-    V_boundary[ue[ue_count == 1]] = True
-    V_manifold[ue[ue_count > 2]] = False
+    # Row-wise unique
+    E_row_sorted = np.sort(E, axis=1)
+    _, ue_inv, ue_count = np.unique(np.array(
+        [f"{edge[0]}_{edge[1]}" for edge in E_row_sorted]),
+                                    axis=0,
+                                    return_counts=True,
+                                    return_inverse=True)
+    V_boundary[list(np.unique(E[(ue_count == 1)[ue_inv]][:, 0]))] = True
+    V_nonmanifold[list(np.unique(E[(ue_count > 2)[ue_inv]][:, 0]))] = True
 
     edge_sort_idx = np.argsort(E[:, 0])
     edge_sorted = E[edge_sort_idx]
@@ -87,20 +93,24 @@ def build_traversal_graph(V, F):
     split_indices = np.cumsum(e_count)[:-1]
     V2E_list = np.split(edge_id_sorted, split_indices)
     V2E = np.array([
-        np.concatenate([el, -np.ones(pad_width - len(el))]) for el in V2E_list
+        np.concatenate(
+            [el[np.argsort(E[el][:, 1])], -np.ones(pad_width - len(el))])
+        for el in V2E_list
     ]).astype(np.int64)
 
-    return V, F, E, V2E, E2E, V_boundary, V_manifold
+    return V, F, E, V2E, E2E, V_boundary, V_nonmanifold
 
 
 @jit
 def prev_edge_id(e_id):
-    return jnp.where(e_id % 3 == 0, e_id + 2, e_id - 1)
+    prev_id = jnp.where(e_id % 3 == 0, e_id + 2, e_id - 1)
+    return jnp.where(e_id == -1, -1, prev_id)
 
 
 @jit
 def next_edge_id(e_id):
-    return jnp.where(e_id % 3 == 2, e_id - 2, e_id + 1)
+    next_id = jnp.where(e_id % 3 == 2, e_id - 2, e_id + 1)
+    return jnp.where(e_id == -1, -1, next_id)
 
 
 @jit
@@ -314,9 +324,8 @@ def cotangent(ei, ej, E, V):
 def cotangent_weight(e_id, E, E2E, V, FA):
     area_a = FA[e_id // 3]
     cot_a = 0.25 * cotangent(e_id, prev_edge_id(e_id), E, V) / area_a
-
     e_id_op = E2E[e_id]
-    area_b = FA[e_id_op // 3]
+    area_b = jnp.where(e_id == -1, 0, FA[e_id_op // 3])
     cot_b = 0.25 * cotangent(e_id_op, prev_edge_id(e_id_op), E, V) / area_b
     return 0.5 * (cot_a + cot_b)
 
@@ -353,8 +362,11 @@ def principal_curvature(T, TM):
 
 if __name__ == '__main__':
     V, F = igl.read_triangle_mesh("data/bunny.obj")
+    # V, F = igl.read_triangle_mesh("data/terrain.obj")
+    # V, F = igl.read_triangle_mesh("data/fandisk.ply")
+    # V, F = igl.read_triangle_mesh("data/rocker_arm.ply")
 
-    V, F, E, V2E, E2E, V_boundary, V_manifold = build_traversal_graph(V, F)
+    V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)
     FN, T_f = per_face_basis(V[F])
     VN, T_v = per_vertex_basis(V, E, V2E, FN)
@@ -372,16 +384,21 @@ if __name__ == '__main__':
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
 
+    # # TODO: Handles boundary vertices
     Ws = one_ring_traversal(
         V2E, jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA),
         0.)
 
     @jit
-    def dirichlet(ws, e_ids, E, alpha, beta, NV):
-        edges = E[e_ids]
+    def dirichlet(ws, e_ids, E, E2E, FA, alpha, beta, NV):
+        f_areas = jnp.where(e_ids == -1, 0, FA[e_ids // 3])
+        opp_e_ids = E2E[e_ids]
+        opp_f_areas = jnp.where(e_ids == -1, 0, FA[opp_e_ids // 3])
+        ms = 0.5 * (f_areas + opp_f_areas)
+        m_sum = jnp.sum(f_areas)
 
+        edges = E[e_ids]
         vid = edges[0, 0]
-        vid_next = vid + NV
         w_sum = jnp.sum(ws)
 
         vid_i = edges[:, 0]
@@ -400,35 +417,60 @@ if __name__ == '__main__':
         inner_jj = jnp.einsum('bi,bi->b', beta_i, beta_j)
 
         idx_i = jnp.concatenate(
-            [jnp.array([vid, vid_next]), vid_i, vid_i_next, vid_i, vid_i_next])
+            [jnp.array([vid, vid + NV]), vid_i, vid_i, vid_i_next, vid_i_next])
 
         idx_j = jnp.concatenate(
-            [jnp.array([vid, vid_next]), vid_j, vid_j, vid_j_next, vid_j_next])
+            [jnp.array([vid, vid + NV]), vid_j, vid_j_next, vid_j, vid_j_next])
 
         weights = jnp.concatenate([
             jnp.array([w_sum, w_sum]), -inner_ii * ws, -inner_ij * ws,
             -inner_ji * ws, -inner_jj * ws
         ])
 
-        return idx_i, idx_j, weights
+        mass = jnp.concatenate([
+            jnp.array([m_sum, m_sum]), inner_ii * ms, inner_ij * ms,
+            inner_ji * ms, inner_jj * ms
+        ])
 
-    idx_i, idx_j, weights = vmap(dirichlet,
-                                 in_axes=(0, 0, None, None, None,
-                                          None))(Ws, V2E, E, alpha, beta, NV)
+        return idx_i, idx_j, weights, mass
+
+    idx_i, idx_j, weights, mass = vmap(dirichlet,
+                                       in_axes=(0, 0, None, None, None, None,
+                                                None, None))(Ws, V2E, E, E2E,
+                                                             FA, alpha, beta,
+                                                             NV)
 
     idx_i = idx_i.reshape(-1)
     idx_j = idx_j.reshape(-1)
     weights = weights.reshape(-1)
+    mass = mass.reshape(-1)
 
     valid_mask = weights != 0
-    idx_i = idx_i[valid_mask]
-    idx_j = idx_j[valid_mask]
+    idx_i = np.int32(idx_i[valid_mask])
+    idx_j = np.int32(idx_j[valid_mask])
     weights = weights[valid_mask]
+    mass = mass[valid_mask]
 
     A = scipy.sparse.coo_array((weights, (idx_i, idx_j)),
-                               shape=(2 * NV, 2 * NV))
+                               shape=(2 * NV, 2 * NV)).tocsc()
 
-    ic(A)
+    M = scipy.sparse.coo_array((mass, (idx_i, idx_j)),
+                               shape=(2 * NV, 2 * NV)).tocsc()
+
+    eigvals, eigvecs = scipy.sparse.linalg.eigsh(M, k=1, M=A)
+
+    ic(eigvecs.T @ A @ eigvecs)
+    # exit()
+
+    a = eigvecs[:NV, 0]
+    b = eigvecs[NV:, 0]
+
+    cross = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
+
+    ps.init()
+    mesh_viz = ps.register_surface_mesh("bunny", V, F)
+    mesh_viz.add_vector_quantity("cross", np.array(cross), enabled=True)
+    ps.show()
 
     exit()
 
