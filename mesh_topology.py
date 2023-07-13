@@ -457,13 +457,17 @@ if __name__ == '__main__':
     M = scipy.sparse.coo_array((mass, (idx_i, idx_j)),
                                shape=(2 * NV, 2 * NV)).tocsc()
 
-    eigvals, eigvecs = scipy.sparse.linalg.eigsh(M, k=1, M=A)
+    # Positive definite least eigenvector
+    # Reference: https://github.com/adshhzy/SMI2016_Extrinsic/blob/8b0c61f321a3f2f5951455b6e84ea9744048e9e2/src/ESDF_Core.cpp#L177
+    X = np.random.randn(2 * NV, 1)
+    solve = scipy.sparse.linalg.factorized(A)
 
-    ic(eigvecs.T @ A @ eigvecs)
-    # exit()
+    for _ in range(30):
+        X = solve(M @ X)
+        X /= X.T @ M @ X
 
-    a = eigvecs[:NV, 0]
-    b = eigvecs[NV:, 0]
+    a = X[:NV, 0]
+    b = X[NV:, 0]
 
     cross = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
 
