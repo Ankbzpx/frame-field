@@ -5,7 +5,6 @@ from jax import Array, vmap, jit, numpy as jnp
 from typing import Callable
 from functools import partial
 import scipy
-import scipy.sparse.linalg
 
 # enable 64 bit precision
 from jax.config import config
@@ -39,16 +38,17 @@ def per_face_basis(verts):
 # Use half edge graph for traversal
 # TODO: Add crease normal
 def build_traversal_graph(V, F):
+    # Remove unreference vertices and assign new vertex indices
     V_unique, V_unique_idx, V_unique_idx_inv = np.unique(F.flatten(),
                                                          return_index=True,
                                                          return_inverse=True)
-
-    V_map = V_unique[np.argsort(V_unique_idx)]
+    V_id_new = np.arange(len(V_unique))
+    V_map = V_id_new[np.argsort(V_unique_idx)]
     V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
-    V_map_inv[V_map] = V_unique
+    V_map_inv[V_map] = V_id_new
 
     F = V_map_inv[V_unique_idx_inv].reshape(F.shape)
-    V = V[V_map]
+    V = V[V_unique][V_map]
 
     edge_id = np.arange(F.size)
     E = np.stack([
@@ -78,6 +78,7 @@ def build_traversal_graph(V, F):
                                     axis=0,
                                     return_counts=True,
                                     return_inverse=True)
+
     V_boundary[list(np.unique(E[(ue_count == 1)[ue_inv]][:, 0]))] = True
     V_nonmanifold[list(np.unique(E[(ue_count > 2)[ue_inv]][:, 0]))] = True
 
@@ -362,6 +363,7 @@ def principal_curvature(T, TM):
 
 if __name__ == '__main__':
     V, F = igl.read_triangle_mesh("data/bunny.obj")
+    # V, F = igl.read_triangle_mesh("data/stanford-bunny.obj")
     # V, F = igl.read_triangle_mesh("data/terrain.obj")
     # V, F = igl.read_triangle_mesh("data/fandisk.ply")
     # V, F = igl.read_triangle_mesh("data/rocker_arm.ply")
