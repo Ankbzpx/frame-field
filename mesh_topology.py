@@ -362,8 +362,8 @@ def principal_curvature(T, TM):
 
 
 if __name__ == '__main__':
-    V, F = igl.read_triangle_mesh("data/bunny.obj")
-    # V, F = igl.read_triangle_mesh("data/stanford-bunny.obj")
+    V, F = igl.read_triangle_mesh("data/rbf_two_stars.obj")
+    # V, F = igl.read_triangle_mesh("data/bunny.obj")
     # V, F = igl.read_triangle_mesh("data/terrain.obj")
     # V, F = igl.read_triangle_mesh("data/fandisk.ply")
     # V, F = igl.read_triangle_mesh("data/rocker_arm.ply")
@@ -461,6 +461,7 @@ if __name__ == '__main__':
 
     # Positive definite least eigenvector
     # Reference: https://github.com/adshhzy/SMI2016_Extrinsic/blob/8b0c61f321a3f2f5951455b6e84ea9744048e9e2/src/ESDF_Core.cpp#L177
+    np.random.seed(0)
     X = np.random.randn(2 * NV, 1)
     solve = scipy.sparse.linalg.factorized(A)
 
