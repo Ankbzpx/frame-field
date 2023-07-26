@@ -6,11 +6,6 @@ from typing import Callable
 from functools import partial
 import scipy
 
-# enable 64 bit precision
-from jax.config import config
-
-config.update("jax_enable_x64", True)
-
 import polyscope as ps
 from icecream import ic
 
@@ -362,17 +357,16 @@ def principal_curvature(T, TM):
 
 
 if __name__ == '__main__':
-    V, F = igl.read_triangle_mesh("data/rbf_two_stars.obj")
-    # V, F = igl.read_triangle_mesh("data/bunny.obj")
-    # V, F = igl.read_triangle_mesh("data/terrain.obj")
-    # V, F = igl.read_triangle_mesh("data/fandisk.ply")
-    # V, F = igl.read_triangle_mesh("data/rocker_arm.ply")
+    # enable 64 bit precision
+    from jax.config import config
+    config.update("jax_enable_x64", True)
+
+    V, F = igl.read_triangle_mesh("data/mesh/bunny.obj")
 
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)
-    FN, T_f = per_face_basis(V[F])
-    VN, T_v = per_vertex_basis(V, E, V2E, FN)
-    TfM, TvM = fit_curvature_tensor(V, F, E, V2E, FN, T_f, VN, T_v)
+    FN, _ = per_face_basis(V[F])
+    VN = per_vertex_normal(V, E, V2E, FN)
     FA = vmap(area)(V[F])
 
     # Projection matrix to tangent plane
@@ -477,17 +471,4 @@ if __name__ == '__main__':
     ps.init()
     mesh_viz = ps.register_surface_mesh("bunny", V, F)
     mesh_viz.add_vector_quantity("cross", np.array(cross), enabled=True)
-    ps.show()
-
-    exit()
-
-    _, pvecs_f = principal_curvature(T_f, TfM)
-    _, pvecs_v = principal_curvature(T_v, TvM)
-
-    ps.init()
-    sur = ps.register_surface_mesh("sur", V, F)
-    sur.add_vector_quantity('pf0', pvecs_f[:, 0], defined_on='faces')
-    sur.add_vector_quantity('pf1', pvecs_f[:, 1], defined_on='faces')
-    sur.add_vector_quantity('pv0', pvecs_v[:, 0])
-    sur.add_vector_quantity('pv1', pvecs_v[:, 1])
     ps.show()
