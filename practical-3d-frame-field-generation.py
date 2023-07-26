@@ -12,6 +12,7 @@ import polyscope as ps
 from icecream import ic
 
 # Supplementary of https://dl.acm.org/doi/abs/10.1145/3366786
+# yapf: disable
 Lx = jnp.array([[0, 0, 0, 0, 0, 0, 0, -jnp.sqrt(2), 0],
                 [0, 0, 0, 0, 0, 0, -jnp.sqrt(7 / 2), 0, -jnp.sqrt(2)],
                 [0, 0, 0, 0, 0, -3 / jnp.sqrt(2), 0, -jnp.sqrt(7 / 2), 0],
@@ -19,21 +20,17 @@ Lx = jnp.array([[0, 0, 0, 0, 0, 0, 0, -jnp.sqrt(2), 0],
                 [0, 0, 0, jnp.sqrt(10), 0, 0, 0, 0, 0],
                 [0, 0, 3 / jnp.sqrt(2), 0, 0, 0, 0, 0, 0],
                 [0, jnp.sqrt(7 / 2), 0, 3 / jnp.sqrt(2), 0, 0, 0, 0, 0],
-                [jnp.sqrt(2), 0,
-                 jnp.sqrt(7 / 2), 0, 0, 0, 0, 0, 0],
+                [jnp.sqrt(2), 0, jnp.sqrt(7 / 2), 0, 0, 0, 0, 0, 0],
                 [0, jnp.sqrt(2), 0, 0, 0, 0, 0, 0, 0]])
 
 Ly = jnp.array([[0, jnp.sqrt(2), 0, 0, 0, 0, 0, 0, 0],
-                [-jnp.sqrt(2), 0,
-                 jnp.sqrt(7 / 2), 0, 0, 0, 0, 0, 0],
+                [-jnp.sqrt(2), 0, jnp.sqrt(7 / 2), 0, 0, 0, 0, 0, 0],
                 [0, -jnp.sqrt(7 / 2), 0, 3 / jnp.sqrt(2), 0, 0, 0, 0, 0],
                 [0, 0, -3 / jnp.sqrt(2), 0, 0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0, -jnp.sqrt(10), 0, 0, 0],
-                [0, 0, 0, 0,
-                 jnp.sqrt(10), 0, -3 / jnp.sqrt(2), 0, 0],
+                [0, 0, 0, 0, jnp.sqrt(10), 0, -3 / jnp.sqrt(2), 0, 0],
                 [0, 0, 0, 0, 0, 3 / jnp.sqrt(2), 0, -jnp.sqrt(7 / 2), 0],
-                [0, 0, 0, 0, 0, 0,
-                 jnp.sqrt(7 / 2), 0, -jnp.sqrt(2)],
+                [0, 0, 0, 0, 0, 0, jnp.sqrt(7 / 2), 0, -jnp.sqrt(2)],
                 [0, 0, 0, 0, 0, 0, 0, jnp.sqrt(2), 0]])
 
 Lz = jnp.array([
@@ -48,27 +45,34 @@ Lz = jnp.array([
     [-4., 0, 0, 0, 0, 0, 0, 0, 0],
 ])
 
+# jax.scipy.linalg.expm(jnp.pi / 2 *Lx)
+R_x90 = jnp.array(
+    [[0, 0, 0, 0, 0, jnp.sqrt(7 / 2) / 2, 0, -1 / (2 * jnp.sqrt(2)), 0],
+     [0, -3 / 4, 0, jnp.sqrt(7) / 4, 0, 0, 0, 0, 0],
+     [0, 0, 0, 0, 0, 1 / (2 * jnp.sqrt(2)), 0, jnp.sqrt(7 / 2) / 2, 0],
+     [0, jnp.sqrt(7) / 4, 0, 3 / 4, 0, 0, 0, 0, 0],
+     [0, 0, 0, 0, 3 / 8, 0, jnp.sqrt(5) / 4, 0, jnp.sqrt(35) / 8],
+     [-jnp.sqrt(7 / 2) / 2, 0, -1 / (2 * jnp.sqrt(2)), 0, 0, 0, 0, 0, 0],
+     [0, 0, 0, 0, jnp.sqrt(5) / 4, 0, 1 / 2, 0, -jnp.sqrt(7) / 4],
+     [1 / (2 * jnp.sqrt(2)), 0, -jnp.sqrt(7 / 2) / 2, 0, 0, 0, 0, 0, 0],
+     [0, 0, 0, 0, jnp.sqrt(35) / 8, 0, -jnp.sqrt(7) / 4, 0, 1 / 8]])
 
+f_0 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, jnp.sqrt(5 / 12)])
+
+# jax.scipy.linalg.expm(theta *Lz)
 def R_z(theta):
     return jnp.array([
-        [jnp.cos(4 * theta), 0, 0, 0, 0, 0, 0, 0,
-         jnp.sin(4 * theta)],
-        [0, jnp.cos(3 * theta), 0, 0, 0, 0, 0,
-         jnp.sin(3 * theta), 0],
-        [0, 0, jnp.cos(2 * theta), 0, 0, 0,
-         jnp.sin(2 * theta), 0, 0],
-        [0, 0, 0, jnp.cos(theta), 0,
-         jnp.sin(theta), 0, 0, 0],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0],
-        [0, 0, 0, -jnp.sin(theta), 0,
-         jnp.cos(theta), 0, 0, 0],
-        [0, 0, -jnp.sin(2 * theta), 0, 0, 0,
-         jnp.cos(2 * theta), 0, 0],
-        [0, -jnp.sin(3 * theta), 0, 0, 0, 0, 0,
-         jnp.cos(3 * theta), 0],
-        [-jnp.sin(4 * theta), 0, 0, 0, 0, 0, 0, 0,
-         jnp.cos(4 * theta)],
+        [jnp.cos(4 * theta), 0, 0, 0, 0, 0, 0, 0, jnp.sin(4 * theta)],
+        [0, jnp.cos(3 * theta), 0, 0, 0, 0, 0, jnp.sin(3 * theta), 0],
+        [0, 0, jnp.cos(2 * theta), 0, 0, 0, jnp.sin(2 * theta), 0, 0],
+        [0, 0, 0, jnp.cos(theta), 0, jnp.sin(theta), 0, 0, 0],
+        [0, 0, 0, 0, 1, 0, 0, 0, 0],
+        [0, 0, 0, -jnp.sin(theta), 0, jnp.cos(theta), 0, 0, 0],
+        [0, 0, -jnp.sin(2 * theta), 0, 0, 0, jnp.cos(2 * theta), 0, 0],
+        [0, -jnp.sin(3 * theta), 0, 0, 0, 0, 0, jnp.cos(3 * theta), 0],
+        [-jnp.sin(4 * theta), 0, 0, 0, 0, 0, 0, 0, jnp.cos(4 * theta)],
     ])
+# yapf: enable
 
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
@@ -99,4 +103,6 @@ if __name__ == '__main__':
     dir_seg = np.random.randn(3)
     n = normalize(np.random.randn(3) - np.random.randn(3))
 
-    ic(rotvec_to_R3(rotvec_to_z(n)) @ n)
+    R_zn = rotvec_to_R3(rotvec_to_z(n))
+
+    ic(R_zn @ n)
