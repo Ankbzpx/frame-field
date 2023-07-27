@@ -191,12 +191,6 @@ if __name__ == '__main__':
     FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
     VN[sharp_vid] = FN[V2F[sharp_vid]]
 
-    # Uniform weights
-    # A = igl.adjacency_matrix(T)
-    # a_sum = np.sum(A, axis=1)
-    # A_diag = scipy.sparse.spdiags(a_sum.squeeze(-1), 0, NV, NV)
-    # U = A - A_diag
-
     # Cotangent weights
     L = igl.cotmatrix(V, T)
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN[boundary_vid]))
