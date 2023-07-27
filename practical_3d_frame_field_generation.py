@@ -2,6 +2,8 @@ import igl
 import numpy as np
 import jax
 from jax import Array, vmap, jit, numpy as jnp, value_and_grad
+from jax.experimental import sparse
+from jaxopt import LBFGS
 from functools import partial
 
 # Facilitate vscode intellisense
@@ -104,6 +106,11 @@ def rotvec_to_R9(rotvec):
     return jax.scipy.linalg.expm(A)
 
 
+@jit
+def rotvec_to_sh4(rotvec):
+    return rotvec_to_R9(rotvec) @ sh4_canonical
+
+
 # TODO: Adjust the threshold since the input may not be valid SH4 coefficients
 @jit
 def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
@@ -119,9 +126,7 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
 
     @jit
     def loss_func(params):
-        return jnp.power(
-            rotvec_to_R9(params['rotvec']) @ sh4_canonical - sh4_target,
-            2).mean()
+        return jnp.power(rotvec_to_sh4(params['rotvec']) - sh4_target, 2).mean()
 
     @jit
     def condition_func(state):
@@ -164,7 +169,7 @@ def vis_oct_field(rotvecs, V, T, scale=0.1):
 
 
 if __name__ == '__main__':
-    V, T, _ = igl.read_off('data/tet/join.off')
+    V, T, _ = igl.read_off('data/tet/bunny.off')
     F = igl.boundary_facets(T)
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
@@ -186,6 +191,13 @@ if __name__ == '__main__':
     FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
     VN[sharp_vid] = FN[V2F[sharp_vid]]
 
+    # Uniform weights
+    # A = igl.adjacency_matrix(T)
+    # a_sum = np.sum(A, axis=1)
+    # A_diag = scipy.sparse.spdiags(a_sum.squeeze(-1), 0, NV, NV)
+    # U = A - A_diag
+
+    # Cotangent weights
     L = igl.cotmatrix(V, T)
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN[boundary_vid]))
 
@@ -222,12 +234,42 @@ if __name__ == '__main__':
     x, _ = scipy.sparse.linalg.cg(A.T @ A, A.T @ b)
     sh4_opt = x[:NV * 9].reshape(NV, 9)
 
+    # Project to acquire initialize
     rotvecs = vmap(proj_sh4_to_rotvec)(sh4_opt)
+
+    # Optimize field via non-linear objective function
+    sh4_n_pad = jnp.zeros((NV, 9))
+    sh4_n_pad = sh4_n_pad.at[boundary_vid].set(sh4_n)
+
+    boundary_mask = np.zeros(NV)
+    boundary_mask[boundary_vid] = 1
+
+    V_cot_adj_coo = scipy.sparse.coo_array(L)
+
+    L_jax = sparse.BCOO((V_cot_adj_coo.data,
+                         jnp.stack([V_cot_adj_coo.row, V_cot_adj_coo.col], -1)),
+                        shape=(NV, NV))
 
     V_vis, F_vis = vis_oct_field(rotvecs, V, T)
 
+    @jit
+    def loss_func(rotvec, align_weight=100):
+        a = vmap(rotvec_to_sh4)(rotvec)
+        l_smooth = jnp.trace(a.T @ -L_jax @ a)
+        l_align = jnp.where(boundary_mask,
+                            (7 / 12 - jnp.einsum('ni,ni->n', a, sh4_n_pad)),
+                            0).sum()
+
+        return l_smooth + align_weight * l_align
+
+    lbfgs = LBFGS(loss_func)
+    rotvecs_opt = lbfgs.run(rotvecs).params
+
+    V_vis_opt, F_vis_opt = vis_oct_field(rotvecs_opt, V, T)
+
     ps.init()
     tet = ps.register_volume_mesh("tet", V, T)
-    ps.register_surface_mesh("Oct", V_vis, F_vis)
-    tet.add_vector_quantity("VN", VN, enabled=True)
+    ps.register_surface_mesh("Oct", V_vis, F_vis, enabled=False)
+    ps.register_surface_mesh("Oct_opt", V_vis_opt, F_vis_opt)
+    tet.add_vector_quantity("VN", VN)
     ps.show()
