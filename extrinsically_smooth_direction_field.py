@@ -369,23 +369,23 @@ if __name__ == '__main__':
     VN = per_vertex_normal(V, E, V2E, FN)
     FA = vmap(area)(V[F])
 
-    # Projection matrix to tangent plane
+    # Projection matrix to tangent plane (I - n n^T)
     Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
         'bi,bj->bij', VN, VN)
 
-    # Local coordinate
+    # Local coordinate with random tangent vector
     key = jax.random.PRNGKey(0)
-    # Random tangent vector
     alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
 
-    # # TODO: Handles boundary vertices
+    # FIXME: Fix boundary vertices weight
     Ws = one_ring_traversal(
         V2E, jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA),
         0.)
 
     @jit
+    @partial(vmap, in_axes=(0, 0, None, None, None, None, None, None))
     def dirichlet(ws, e_ids, E, E2E, FA, alpha, beta, NV):
         f_areas = jnp.where(e_ids == -1, 0, FA[e_ids // 3])
         opp_e_ids = E2E[e_ids]
@@ -430,11 +430,8 @@ if __name__ == '__main__':
 
         return idx_i, idx_j, weights, mass
 
-    idx_i, idx_j, weights, mass = vmap(dirichlet,
-                                       in_axes=(0, 0, None, None, None, None,
-                                                None, None))(Ws, V2E, E, E2E,
-                                                             FA, alpha, beta,
-                                                             NV)
+    idx_i, idx_j, weights, mass = dirichlet(Ws, V2E, E, E2E, FA, alpha, beta,
+                                            NV)
 
     idx_i = idx_i.reshape(-1)
     idx_j = idx_j.reshape(-1)

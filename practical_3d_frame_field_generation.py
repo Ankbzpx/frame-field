@@ -3,8 +3,13 @@ import numpy as np
 import jax
 from jax import Array, vmap, jit, numpy as jnp, value_and_grad
 from functools import partial
+
+# Facilitate vscode intellisense
 import scipy
 import scipy.linalg
+import scipy.sparse
+import scipy.sparse.linalg
+
 from scipy.spatial.transform import Rotation as R
 from extrinsically_smooth_direction_field import normalize
 import optax
@@ -58,7 +63,7 @@ R_x90 = jnp.array(
      [1 / (2 * jnp.sqrt(2)), 0, -jnp.sqrt(7 / 2) / 2, 0, 0, 0, 0, 0, 0],
      [0, 0, 0, 0, jnp.sqrt(35) / 8, 0, -jnp.sqrt(7) / 4, 0, 1 / 8]])
 
-f_0 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, jnp.sqrt(5 / 12)])
+sh4_canonical = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, jnp.sqrt(5 / 12)])
 
 # jax.scipy.linalg.expm(theta *Lz)
 def R_z(theta):
@@ -99,6 +104,7 @@ def rotvec_to_R9(rotvec):
     return jax.scipy.linalg.expm(A)
 
 
+# TODO: Adjust the threshold since the input may not be valid SH4 coefficients
 @jit
 def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     # Should I use different key for each function call?
@@ -112,8 +118,10 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     state = {"loss": 100., "iter": 0, "opt_state": opt_state, "params": params}
 
     @jit
-    def loss_func(params, f):
-        return jnp.power(rotvec_to_R9(params['rotvec']) @ f_0 - f, 2).mean()
+    def loss_func(params):
+        return jnp.power(
+            rotvec_to_R9(params['rotvec']) @ sh4_canonical - sh4_target,
+            2).mean()
 
     @jit
     def condition_func(state):
@@ -121,7 +129,7 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
 
     @jit
     def body_func(state):
-        loss, grads = value_and_grad(loss_func)(state["params"], sh4_target)
+        loss, grads = value_and_grad(loss_func)(state["params"])
         updates, state["opt_state"] = optimizer.update(grads,
                                                        state["opt_state"])
         state["params"] = optax.apply_updates(state["params"], updates)
@@ -134,32 +142,79 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     return state["params"]["rotvec"]
 
 
+def vis_oct_field(rotvecs, V, T, scale=0.1):
+    V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
+                       [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1]])
+
+    F_cube = np.array([[7, 6, 2], [2, 3, 7], [0, 4, 5], [5, 1, 0], [0, 2, 6],
+                       [6, 4, 0], [7, 3, 1], [1, 5, 7], [3, 2, 0], [0, 1, 3],
+                       [4, 6, 7], [7, 5, 4]])
+
+    NV = len(V)
+    F_vis = (np.repeat(F_cube[None, ...], NV, 0) +
+             (len(V_cube) * np.arange(NV))[:, None, None]).reshape(-1, 3)
+
+    size = scale * igl.avg_edge_length(V, T)
+
+    R3s = vmap(rotvec_to_R3)(rotvecs)
+    V_vis = (V[:, None, :] +
+             np.einsum('nij,bj->nbi', R3s, size * V_cube)).reshape(-1, 3)
+
+    return V_vis, F_vis
+
 if __name__ == '__main__':
-    V, T, _ = igl.read_off('data/tet/bunny.off')
+    V, T, _ = igl.read_off('data/tet/join.off')
     F = igl.boundary_facets(T)
+
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
-    VN = igl.per_vertex_normals(V, F)
+    boundary_vid = np.unique(F)
+    VN = igl.per_vertex_normals(V, F)[boundary_vid]
 
-    np.random.seed(0)
-    rotvec_target = np.random.randn(10, 3)
-    f_target = jnp.einsum('nij,j->ni', vmap(rotvec_to_R9)(rotvec_target), f_0)
+    NV = len(V)
+    NB = len(boundary_vid)
 
-    rotvec = vmap(proj_sh4_to_rotvec)(f_target)
+    L = igl.cotmatrix(V, T)
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
 
-    vis_idx = 7
-    vec_vis = np.array([0, 1, 0])
-    vec_vis_opt = R.from_rotvec(rotvec[vis_idx]).as_matrix() @ vec_vis
-    vec_vis_target = R.from_rotvec(rotvec_target[vis_idx]).as_matrix() @ vec_vis
+    sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
+    sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
+    sh8 = jnp.array([0, 0, 0, 0, 0, 0, 0, 0, jnp.sqrt(5 / 12)])
 
+    # R9_zn a = sh4 + c0 sh0 + c1 sh8
+    # => a = R9_zn.T @ sh4 + c0 R9_zn.T @ sh0 + c1 R9_zn.T @ sh8
+    sh0_n = jnp.einsum('bji,j->bi', R9_zn, sh0)
+    sh4_n = jnp.einsum('bji,j->bi', R9_zn, sh4)
+    sh8_n = jnp.einsum('bji,j->bi', R9_zn, sh8)
+
+    # Build system
+    # NV x 9 + NB x 2, have to unroll...
+    A_tl = scipy.sparse.block_diag([L] * 9)
+    A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
+    boundary_scaling = 100.
+    A_bl = scipy.sparse.coo_array(
+        (boundary_scaling * np.ones(9 * NB), (np.arange(9 * NB),
+                           ((9 * boundary_vid)[..., None] +
+                            np.arange(9)[None, ...]).reshape(-1))),
+        shape=(9 * NB, 9 * NV)).tocsc()
+    A_br = scipy.sparse.block_diag(boundary_scaling * np.stack([sh0_n, sh8_n], -1))
+    A = scipy.sparse.vstack(
+        [scipy.sparse.hstack([A_tl, A_tr]),
+         scipy.sparse.hstack([A_bl, A_br])])
+    b = np.concatenate([np.zeros((NV * 9,)), boundary_scaling * sh4_n.reshape(-1,)])
+
+    # A @ x = b
+    # => (A.T @ A) @ x = A.T @ b
+    x, _ = scipy.sparse.linalg.cg(A.T @ A, A.T @ b)
+    sh4_opt = x[:NV * 9].reshape(NV, 9)
+
+    rotvecs = vmap(proj_sh4_to_rotvec)(sh4_opt)
+
+    V_vis, F_vis = vis_oct_field(rotvecs, V, T)
+    
     ps.init()
-    pc = ps.register_point_cloud("o", np.array([0, 0, 0])[None, ...])
-    pc.add_vector_quantity("src_opt",
-                           vec_vis_opt[None, ...],
-                           enabled=True,
-                           length=0.1)
-    pc.add_vector_quantity("tar",
-                           vec_vis_target[None, ...],
-                           enabled=True,
-                           length=0.1)
+    ps.register_volume_mesh("tet", V, T)
+    ps.register_surface_mesh("Oct", V_vis, F_vis)
+    verts_vis = ps.register_point_cloud('v', V[boundary_vid], radius=1e-4)
+    verts_vis.add_vector_quantity("VN", VN, enabled=True)
     ps.show()
