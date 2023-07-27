@@ -162,20 +162,32 @@ def vis_oct_field(rotvecs, V, T, scale=0.1):
 
     return V_vis, F_vis
 
+
 if __name__ == '__main__':
     V, T, _ = igl.read_off('data/tet/join.off')
     F = igl.boundary_facets(T)
-
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
     boundary_vid = np.unique(F)
-    VN = igl.per_vertex_normals(V, F)[boundary_vid]
 
     NV = len(V)
     NB = len(boundary_vid)
 
+    VN = igl.per_vertex_normals(V, F)
+
+    # For vertex belongs to sharp edges, current implementation simply pick a random adjacent face normal
+    # FIXME: Duplicate vertices to handle sharp edge
+    Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
+    V2F = np.zeros(NV, dtype=np.int64)
+    V2F[F.reshape(-1,)] = Fid.reshape(-1,)
+
+    SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
+    sharp_vid = np.unique(SE)
+    FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
+    VN[sharp_vid] = FN[V2F[sharp_vid]]
+
     L = igl.cotmatrix(V, T)
-    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN[boundary_vid]))
 
     sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
     sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
@@ -191,17 +203,19 @@ if __name__ == '__main__':
     # NV x 9 + NB x 2, have to unroll...
     A_tl = scipy.sparse.block_diag([L] * 9)
     A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
-    boundary_scaling = 100.
+    boundary_weight = 100.
     A_bl = scipy.sparse.coo_array(
-        (boundary_scaling * np.ones(9 * NB), (np.arange(9 * NB),
-                           ((9 * boundary_vid)[..., None] +
-                            np.arange(9)[None, ...]).reshape(-1))),
+        (boundary_weight * np.ones(9 * NB),
+         (np.arange(9 * NB), ((9 * boundary_vid)[..., None] +
+                              np.arange(9)[None, ...]).reshape(-1))),
         shape=(9 * NB, 9 * NV)).tocsc()
-    A_br = scipy.sparse.block_diag(boundary_scaling * np.stack([sh0_n, sh8_n], -1))
+    A_br = scipy.sparse.block_diag(boundary_weight *
+                                   np.stack([sh0_n, sh8_n], -1))
     A = scipy.sparse.vstack(
         [scipy.sparse.hstack([A_tl, A_tr]),
          scipy.sparse.hstack([A_bl, A_br])])
-    b = np.concatenate([np.zeros((NV * 9,)), boundary_scaling * sh4_n.reshape(-1,)])
+    b = np.concatenate(
+        [np.zeros((NV * 9,)), boundary_weight * sh4_n.reshape(-1,)])
 
     # A @ x = b
     # => (A.T @ A) @ x = A.T @ b
@@ -211,10 +225,9 @@ if __name__ == '__main__':
     rotvecs = vmap(proj_sh4_to_rotvec)(sh4_opt)
 
     V_vis, F_vis = vis_oct_field(rotvecs, V, T)
-    
+
     ps.init()
-    ps.register_volume_mesh("tet", V, T)
+    tet = ps.register_volume_mesh("tet", V, T)
     ps.register_surface_mesh("Oct", V_vis, F_vis)
-    verts_vis = ps.register_point_cloud('v', V[boundary_vid], radius=1e-4)
-    verts_vis.add_vector_quantity("VN", VN, enabled=True)
+    tet.add_vector_quantity("VN", VN, enabled=True)
     ps.show()
