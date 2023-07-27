@@ -1,12 +1,13 @@
 import igl
 import numpy as np
 import jax
-from jax import Array, vmap, jit, numpy as jnp
+from jax import Array, vmap, jit, numpy as jnp, value_and_grad
 from functools import partial
 import scipy
 import scipy.linalg
 from scipy.spatial.transform import Rotation as R
 from extrinsically_smooth_direction_field import normalize
+import optax
 
 import polyscope as ps
 from icecream import ic
@@ -92,6 +93,47 @@ def rotvec_to_R3(rotvec):
     return jax.scipy.linalg.expm(A)
 
 
+@jit
+def rotvec_to_R9(rotvec):
+    A = rotvec[0] * Lx + rotvec[1] * Ly + rotvec[2] * Lz
+    return jax.scipy.linalg.expm(A)
+
+
+@jit
+def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
+    # Should I use different key for each function call?
+    key = jax.random.PRNGKey(0)
+    rotvec = jax.random.normal(key, (3,))
+
+    optimizer = optax.adam(lr)
+    params = {'rotvec': rotvec}
+    opt_state = optimizer.init(params)
+
+    state = {"loss": 100., "iter": 0, "opt_state": opt_state, "params": params}
+
+    @jit
+    def loss_func(params, f):
+        return jnp.power(rotvec_to_R9(params['rotvec']) @ f_0 - f, 2).mean()
+
+    @jit
+    def condition_func(state):
+        return (state["loss"] > min_loss) & (state["iter"] < max_iter)
+
+    @jit
+    def body_func(state):
+        loss, grads = value_and_grad(loss_func)(state["params"], sh4_target)
+        updates, state["opt_state"] = optimizer.update(grads,
+                                                       state["opt_state"])
+        state["params"] = optax.apply_updates(state["params"], updates)
+
+        state["loss"] = loss
+        state["iter"] += 1
+        return state
+
+    state = jax.lax.while_loop(condition_func, body_func, state)
+    return state["params"]["rotvec"]
+
+
 if __name__ == '__main__':
     V, T, _ = igl.read_off('data/tet/bunny.off')
     F = igl.boundary_facets(T)
@@ -100,9 +142,24 @@ if __name__ == '__main__':
     VN = igl.per_vertex_normals(V, F)
 
     np.random.seed(0)
-    dir_seg = np.random.randn(3)
-    n = normalize(np.random.randn(3) - np.random.randn(3))
+    rotvec_target = np.random.randn(10, 3)
+    f_target = jnp.einsum('nij,j->ni', vmap(rotvec_to_R9)(rotvec_target), f_0)
 
-    R_zn = rotvec_to_R3(rotvec_to_z(n))
+    rotvec = vmap(proj_sh4_to_rotvec)(f_target)
 
-    ic(R_zn @ n)
+    vis_idx = 7
+    vec_vis = np.array([0, 1, 0])
+    vec_vis_opt = R.from_rotvec(rotvec[vis_idx]).as_matrix() @ vec_vis
+    vec_vis_target = R.from_rotvec(rotvec_target[vis_idx]).as_matrix() @ vec_vis
+
+    ps.init()
+    pc = ps.register_point_cloud("o", np.array([0, 0, 0])[None, ...])
+    pc.add_vector_quantity("src_opt",
+                           vec_vis_opt[None, ...],
+                           enabled=True,
+                           length=0.1)
+    pc.add_vector_quantity("tar",
+                           vec_vis_target[None, ...],
+                           enabled=True,
+                           length=0.1)
+    ps.show()
