@@ -45,7 +45,7 @@ def build_traversal_graph(V, F):
     F = V_map_inv[V_unique_idx_inv].reshape(F.shape)
     V = V[V_unique][V_map]
 
-    edge_id = np.arange(F.size)
+    E_id = np.arange(F.size)
     E = np.stack([
         np.stack([F[:, 0], F[:, 1]], -1),
         np.stack([F[:, 1], F[:, 2]], -1),
@@ -53,7 +53,7 @@ def build_traversal_graph(V, F):
     ], 1).reshape(-1, 2)
 
     # Not sure if there is a more efficient approach
-    E2Eid = dict([(f"{e[0]}_{e[1]}", e_id) for e, e_id in zip(E, edge_id)])
+    E2Eid = dict([(f"{e[0]}_{e[1]}", e_id) for e, e_id in zip(E, E_id)])
 
     def opposite_edge_id(e_id):
         v0, v1 = E[e_id]
@@ -61,37 +61,35 @@ def build_traversal_graph(V, F):
         return E2Eid[key] if key in E2Eid else -1
 
     E2E = -np.ones(F.size, dtype=np.int64)
-    E2E[edge_id] = list(map(opposite_edge_id, edge_id))
+    E2E[E_id] = list(map(opposite_edge_id, E_id))
 
-    V_boundary = np.full((len(V)), False)
-    V_nonmanifold = np.full((len(V)), False)
-
-    # Row-wise unique
+    # Use row-wise unique to filter boundary and nonmanifold vertices
     E_row_sorted = np.sort(E, axis=1)
-    _, ue_inv, ue_count = np.unique(np.array(
-        [f"{edge[0]}_{edge[1]}" for edge in E_row_sorted]),
+    _, ue_inv, ue_count = np.unique(E_row_sorted,
                                     axis=0,
                                     return_counts=True,
                                     return_inverse=True)
 
+    V_boundary = np.full((len(V)), False)
     V_boundary[list(np.unique(E[(ue_count == 1)[ue_inv]][:, 0]))] = True
+
+    V_nonmanifold = np.full((len(V)), False)
     V_nonmanifold[list(np.unique(E[(ue_count > 2)[ue_inv]][:, 0]))] = True
 
-    edge_sort_idx = np.argsort(E[:, 0])
-    edge_sorted = E[edge_sort_idx]
-    edge_id_sorted = edge_id[edge_sort_idx]
+    # build V2E map
+    # https://stackoverflow.com/questions/38277143/sort-2d-numpy-array-lexicographically
+    E_sort_idx = np.lexsort(E.T[::-1])
+    E_sorted = E[E_sort_idx]
+    E_id_sorted = E_id[E_sort_idx]
 
     # Since edges are directed, `e_count` directly match the number of incident faces
-    _, e_count = np.unique(edge_sorted[:, 0], return_counts=True)
+    _, e_count = np.unique(E_sorted[:, 0], return_counts=True)
     pad_width = np.max(e_count)
 
-    # build V2E map
     split_indices = np.cumsum(e_count)[:-1]
-    V2E_list = np.split(edge_id_sorted, split_indices)
+    V2E_list = np.split(E_id_sorted, split_indices)
     V2E = np.array([
-        np.concatenate(
-            [el[np.argsort(E[el][:, 1])], -np.ones(pad_width - len(el))])
-        for el in V2E_list
+        np.concatenate([el, -np.ones(pad_width - len(el))]) for el in V2E_list
     ]).astype(np.int64)
 
     return V, F, E, V2E, E2E, V_boundary, V_nonmanifold
@@ -99,14 +97,12 @@ def build_traversal_graph(V, F):
 
 @jit
 def prev_edge_id(e_id):
-    prev_id = jnp.where(e_id % 3 == 0, e_id + 2, e_id - 1)
-    return jnp.where(e_id == -1, -1, prev_id)
+    return jnp.where(e_id % 3 == 0, e_id + 2, e_id - 1)
 
 
 @jit
 def next_edge_id(e_id):
-    next_id = jnp.where(e_id % 3 == 2, e_id - 2, e_id + 1)
-    return jnp.where(e_id == -1, -1, next_id)
+    return jnp.where(e_id % 3 == 2, e_id - 2, e_id + 1)
 
 
 @jit
@@ -267,8 +263,9 @@ def area(verts):
     return jnp.sqrt(area_2) / 4
 
 
+# Reference: https://www.alecjacobson.com/weblog/?p=1146
 @jit
-def _vertex_area(a, b, c):
+def hybrid_area(a, b, c):
     e0 = a - b
     e1 = a - c
     e2 = b - c
@@ -298,14 +295,15 @@ def _vertex_area(a, b, c):
 def vertex_area(e_id, E, V):
     cur_edge = E[e_id]
     prev_edge = E[prev_edge_id(e_id)]
-    return _vertex_area(V[cur_edge[0]], V[cur_edge[1]], V[prev_edge[0]])
+    return hybrid_area(V[cur_edge[0]], V[cur_edge[1]], V[prev_edge[0]])
 
 
 @jit
-def cotangent(ei, ej, E, V):
+def cotangent(ei, ej, E, V, FA):
     A = V[E[ej][0]]
     B = V[E[ej][1]]
     C = V[E[ei][1]]
+    area = FA[ei // 3]
 
     len2 = lambda x: jnp.einsum('i,i', x, x)
 
@@ -313,17 +311,27 @@ def cotangent(ei, ej, E, V):
     b = len2(A - C)
     c = len2(B - A)
 
-    return b + c - a
+    return 0.25 * (b + c - a) / area
+
+
+# For a boundary vertex of n adjacent vertices, only n-1 half-edges are included in V2E
+# Here we retrieve the missing one to support cotangent weight calculation
+@jit
+def boundary_auxillary_edge(eids, E2E):
+    ref_eid = jnp.where(eids == -1, -1, vmap(prev_edge_id)(eids))
+    src_eid = jnp.where(eids == -1, -1, E2E[eids])
+    in_bool = vmap(jnp.isin, in_axes=(0, None))(ref_eid, src_eid) == 0
+    e_aux = ref_eid[jnp.argwhere(in_bool, size=1)[0][0]]
+    return eids.at[jnp.argwhere(eids == -1, size=1)[0][0]].set(e_aux)
 
 
 @jit
 def cotangent_weight(e_id, E, E2E, V, FA):
-    area_a = FA[e_id // 3]
-    cot_a = 0.25 * cotangent(e_id, prev_edge_id(e_id), E, V) / area_a
+    cot_a = cotangent(e_id, prev_edge_id(e_id), E, V, FA)
     e_id_op = E2E[e_id]
-    area_b = jnp.where(e_id == -1, 0, FA[e_id_op // 3])
-    cot_b = 0.25 * cotangent(e_id_op, prev_edge_id(e_id_op), E, V) / area_b
-    return 0.5 * (cot_a + cot_b)
+    return jnp.where(
+        e_id_op == -1, 0.5 * cot_a,
+        0.5 * (cot_a + cotangent(e_id_op, prev_edge_id(e_id_op), E, V, FA)))
 
 
 # "Estimating Curvatures and Their Derivatives on Triangle Meshes" by Szymon Rusinkiewicz
@@ -361,13 +369,21 @@ if __name__ == '__main__':
     from jax.config import config
     config.update("jax_enable_x64", True)
 
-    V, F = igl.read_triangle_mesh("data/mesh/bunny.obj")
+    V, F = igl.read_triangle_mesh("data/mesh/terrain.obj")
 
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)
     FN, _ = per_face_basis(V[F])
     VN = per_vertex_normal(V, E, V2E, FN)
     FA = vmap(area)(V[F])
+
+    # Cotangent weight
+    V2E_aux = np.copy(V2E)
+    V2E_aux[V_boundary] = vmap(boundary_auxillary_edge,
+                               in_axes=(0, None))(V2E[V_boundary], E2E)
+    Ws = one_ring_traversal(
+        V2E_aux,
+        jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA), 0.)
 
     # Projection matrix to tangent plane (I - n n^T)
     Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
@@ -378,11 +394,6 @@ if __name__ == '__main__':
     alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
-
-    # FIXME: Fix boundary vertices weight
-    Ws = one_ring_traversal(
-        V2E, jax.tree_util.Partial(cotangent_weight, E=E, E2E=E2E, V=V, FA=FA),
-        0.)
 
     @jit
     @partial(vmap, in_axes=(0, 0, None, None, None, None, None, None))
