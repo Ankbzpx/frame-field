@@ -1,10 +1,9 @@
 import igl
 import numpy as np
 import jax
-from jax import Array, vmap, jit, numpy as jnp, value_and_grad
+from jax import vmap, jit, numpy as jnp, value_and_grad
 from jax.experimental import sparse
 from jaxopt import LBFGS
-from functools import partial
 
 # Facilitate vscode intellisense
 import scipy
@@ -12,9 +11,9 @@ import scipy.linalg
 import scipy.sparse
 import scipy.sparse.linalg
 
-from scipy.spatial.transform import Rotation as R
-from extrinsically_smooth_direction_field import normalize
 import optax
+
+from common import vis_oct_field, normalize
 
 import polyscope as ps
 from icecream import ic
@@ -147,29 +146,8 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     return state["params"]["rotvec"]
 
 
-def vis_oct_field(rotvecs, V, T, scale=0.1):
-    V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
-                       [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1]])
-
-    F_cube = np.array([[7, 6, 2], [2, 3, 7], [0, 4, 5], [5, 1, 0], [0, 2, 6],
-                       [6, 4, 0], [7, 3, 1], [1, 5, 7], [3, 2, 0], [0, 1, 3],
-                       [4, 6, 7], [7, 5, 4]])
-
-    NV = len(V)
-    F_vis = (np.repeat(F_cube[None, ...], NV, 0) +
-             (len(V_cube) * np.arange(NV))[:, None, None]).reshape(-1, 3)
-
-    size = scale * igl.avg_edge_length(V, T)
-
-    R3s = vmap(rotvec_to_R3)(rotvecs)
-    V_vis = (V[:, None, :] +
-             np.einsum('nij,bj->nbi', R3s, size * V_cube)).reshape(-1, 3)
-
-    return V_vis, F_vis
-
-
 if __name__ == '__main__':
-    V, T, _ = igl.read_off('data/tet/bunny.off')
+    V, T, _ = igl.read_off('data/tet/fandisk.off')
     F = igl.boundary_facets(T)
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
@@ -182,14 +160,15 @@ if __name__ == '__main__':
 
     # For vertex belongs to sharp edges, current implementation simply pick a random adjacent face normal
     # FIXME: Duplicate vertices to handle sharp edge
-    Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
-    V2F = np.zeros(NV, dtype=np.int64)
-    V2F[F.reshape(-1,)] = Fid.reshape(-1,)
+    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based parallel transport
+    # Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
+    # V2F = np.zeros(NV, dtype=np.int64)
+    # V2F[F.reshape(-1,)] = Fid.reshape(-1,)
 
-    SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
-    sharp_vid = np.unique(SE)
-    FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
-    VN[sharp_vid] = FN[V2F[sharp_vid]]
+    # SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
+    # sharp_vid = np.unique(SE)
+    # FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
+    # VN[sharp_vid] = FN[V2F[sharp_vid]]
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
@@ -244,7 +223,7 @@ if __name__ == '__main__':
                          jnp.stack([V_cot_adj_coo.row, V_cot_adj_coo.col], -1)),
                         shape=(NV, NV))
 
-    V_vis, F_vis = vis_oct_field(rotvecs, V, T)
+    V_vis, F_vis = vis_oct_field(vmap(rotvec_to_R3)(rotvecs), V, T)
 
     @jit
     def loss_func(rotvec, align_weight=100):
@@ -259,7 +238,7 @@ if __name__ == '__main__':
     lbfgs = LBFGS(loss_func)
     rotvecs_opt = lbfgs.run(rotvecs).params
 
-    V_vis_opt, F_vis_opt = vis_oct_field(rotvecs_opt, V, T)
+    V_vis_opt, F_vis_opt = vis_oct_field(vmap(rotvec_to_R3)(rotvecs_opt), V, T)
 
     ps.init()
     tet = ps.register_volume_mesh("tet", V, T)
