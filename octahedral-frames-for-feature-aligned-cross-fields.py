@@ -25,7 +25,6 @@ if __name__ == '__main__':
     VN = igl.per_vertex_normals(V, F)
 
     L = igl.cotmatrix(V, F)
-    M = igl.massmatrix(V, F)
 
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
 
