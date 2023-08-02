@@ -13,7 +13,7 @@ import scipy.sparse.linalg
 
 import optax
 
-from common import vis_oct_field, normalize
+from common import vis_oct_field, normalize, unroll_identity_block
 
 import polyscope as ps
 from icecream import ic
@@ -186,7 +186,8 @@ if __name__ == '__main__':
 
     # Build system
     # NV x 9 + NB x 2, have to unroll...
-    A_tl = scipy.sparse.block_diag([L] * 9)
+    # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
+    A_tl = unroll_identity_block(L, 9)
     A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
     boundary_weight = 100.
     A_bl = scipy.sparse.coo_array(
