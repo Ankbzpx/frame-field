@@ -28,7 +28,7 @@ def vis_oct_field(R3s, V, T, scale=0.1):
     return V_vis, F_vis
 
 
-# Replace entries in sparse matrix as weighted identity
+# Replace entries in sparse matrix by coefficient weighted identity blocks
 def unroll_identity_block(A, dim):
     H, W = A.shape
     A_coo = scipy.sparse.coo_array(A)
