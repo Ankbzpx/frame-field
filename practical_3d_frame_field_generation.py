@@ -15,6 +15,12 @@ import optax
 
 from common import vis_oct_field, normalize, unroll_identity_block
 
+import open3d as o3d
+import argparse
+import os
+
+import flow_lines
+
 import polyscope as ps
 from icecream import ic
 
@@ -146,8 +152,26 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     return state["params"]["rotvec"]
 
 
+@jit
+def R3_to_repvec(R, vn):
+    idx = jnp.argmin(jnp.abs(jnp.einsum('ji,j->i', R, vn)))
+    return R[:, idx]
+
+
 if __name__ == '__main__':
-    V, T, _ = igl.read_off('data/tet/fandisk.off')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('input', type=str, help='Path to input file.')
+    parser.add_argument('--out_path',
+                        type=str,
+                        default='results',
+                        help='Path to output folder.')
+    args = parser.parse_args()
+
+    model_path = args.input
+    model_name = model_path.split('/')[-1].split('.')[0]
+    model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
+
+    V, T, _ = igl.read_off(model_path)
     F = igl.boundary_facets(T)
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
@@ -239,11 +263,27 @@ if __name__ == '__main__':
     lbfgs = LBFGS(loss_func)
     rotvecs_opt = lbfgs.run(rotvecs).params
 
-    V_vis_opt, F_vis_opt = vis_oct_field(vmap(rotvec_to_R3)(rotvecs_opt), V, T)
+    Rs = vmap(rotvec_to_R3)(rotvecs_opt)
+    Q = vmap(R3_to_repvec)(Rs, VN)
+
+    V_vis, F_vis, VC_vis = flow_lines.trace(V,
+                                            F,
+                                            VN,
+                                            Q,
+                                            4000,
+                                            length_factor=5,
+                                            interval_factor=10,
+                                            width_factor=0.075)
 
     ps.init()
     tet = ps.register_volume_mesh("tet", V, T)
-    ps.register_surface_mesh("Oct", V_vis, F_vis, enabled=False)
-    ps.register_surface_mesh("Oct_opt", V_vis_opt, F_vis_opt)
     tet.add_vector_quantity("VN", VN)
+    flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
+    flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
     ps.show()
+
+    stroke_mesh = o3d.geometry.TriangleMesh()
+    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
+    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
+    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
+    o3d.io.write_triangle_mesh(model_out_path, stroke_mesh)
