@@ -1,3 +1,4 @@
 *.ini
 __pycache__
 results
+data/sdf
