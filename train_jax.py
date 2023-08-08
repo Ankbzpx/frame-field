@@ -29,30 +29,35 @@ def eikonal(x):
 
 
 if __name__ == '__main__':
-    pc = np.load('data/sdf/fandisk.npy')
-    coords = pc[:, :3]
-    normals = pc[:, 3:]
+    sdf_data = np.load('data/sdf/fandisk.npz')
+    samples_on_sur = sdf_data['samples_on_sur']
+    normals_on_sur = sdf_data['normals_on_sur']
+    samples_off_sur = sdf_data['samples_off_sur']
+    sdf_off_sur = sdf_data['sdf_off_sur']
 
-    # [0, 1]
-    coords -= np.mean(coords, axis=0, keepdims=True)
-    coord_max = np.amax(coords)
-    coord_min = np.amin(coords)
-    coords = (coords - coord_min) / (coord_max - coord_min)
-
-    # [-0.95, 0.95]
-    coords -= 0.5
-    coords *= 1.9
+    # ps.init()
+    # vis_on_sur = ps.register_point_cloud('samples_on_sur', samples_on_sur, point_render_mode='quad')
+    # vis_on_sur.add_vector_quantity('normals_on_sur', normals_on_sur, enabled=True)
+    # vis_off_sur = ps.register_point_cloud('samples_off_sur', samples_off_sur, point_render_mode='quad')
+    # vis_off_sur.add_scalar_quantity('sdf_off_sur', sdf_off_sur, enabled=True)
+    # ps.show()
+    # exit()
 
     n_epochs = 200000
     n_samples_per_epoch = 512
     model_key, data_key = jax.random.split(jax.random.PRNGKey(0), 2)
 
     # preload data in memory for speedup
-    idx = jax.random.choice(data_key, jnp.arange(len(coords)),
+    idx = jax.random.choice(data_key, jnp.arange(len(samples_on_sur)),
                             (n_epochs * n_samples_per_epoch,))
 
-    sample_on_sur = coords[idx].reshape(n_epochs, n_samples_per_epoch, -1)
-    sample_normals = normals[idx].reshape(n_epochs, n_samples_per_epoch, -1)
+    samples_on_sur = samples_on_sur[idx].reshape(n_epochs, n_samples_per_epoch,
+                                                 -1)
+    normals_on_sur = normals_on_sur[idx].reshape(n_epochs, n_samples_per_epoch,
+                                                 -1)
+    samples_off_sur = samples_off_sur[idx].reshape(n_epochs,
+                                                   n_samples_per_epoch, -1)
+    sdf_off_sur = sdf_off_sur[idx].reshape(n_epochs, n_samples_per_epoch, -1)
 
     mlp_cfg = {
         'in_features': 3,
@@ -79,14 +84,16 @@ if __name__ == '__main__':
 
     @eqx.filter_jit
     @eqx.filter_value_and_grad
-    def loss_func(model: eqx.Module, coords_on_sur: list[Array],
-                  coords_off_sur: list[Array], normals_on_sur: list[Array]):
+    def loss_func(model: eqx.Module, samples_on_sur: list[Array],
+                  normals_on_sur: list[Array], samples_off_sur: list[Array],
+                  sdf_off_sur: list[Array]):
         (pred_on_sur_sdf,
-         sh9), pred_normals_on_sur = model.call_grad(coords_on_sur)
+         sh9), pred_normals_on_sur = model.call_grad(samples_on_sur)
         (pred_off_sur_sdf,
-         _), pred_normals_off_sur = model.call_grad(coords_off_sur)
+         _), pred_normals_off_sur = model.call_grad(samples_off_sur)
 
         loss_mse = jnp.abs(pred_on_sur_sdf).mean()
+        # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
         loss_off = jnp.exp(-1e2 * jnp.abs(pred_off_sur_sdf)).mean()
         loss_normal = (1 - jnp.abs(
             vmap(cosine_similarity)(pred_normals_on_sur,
@@ -99,27 +106,22 @@ if __name__ == '__main__':
 
     @eqx.filter_jit
     def make_step(model: eqx.Module, opt_state: PyTree,
-                  coords_on_sur: list[Array], coords_off_sur: list[Array],
-                  normals_on_sur: list[Array]):
-        loss_value, grads = loss_func(model, coords_on_sur, coords_off_sur,
-                                      normals_on_sur)
+                  samples_on_sur: list[Array], normals_on_sur: list[Array],
+                  samples_off_sur: list[Array], sdf_off_sur: list[Array]):
+        loss_value, grads = loss_func(model, samples_on_sur, normals_on_sur,
+                                      samples_off_sur, sdf_off_sur)
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss_value
 
     pbar = tqdm(range(n_epochs))
     for epoch in pbar:
-
         batch_id = epoch % n_epochs
-
-        _, subkey = jax.random.split(data_key)
-        sample_off_sur_batch = jax.random.uniform(subkey,
-                                                  (n_samples_per_epoch, 3))
-
         model, opt_state, loss_value = make_step(model, opt_state,
-                                                 sample_on_sur[batch_id],
-                                                 sample_off_sur_batch,
-                                                 sample_normals[batch_id])
+                                                 samples_on_sur[batch_id],
+                                                 normals_on_sur[batch_id],
+                                                 samples_off_sur[batch_id],
+                                                 sdf_off_sur[batch_id])
         loss_history[epoch] = loss_value
         pbar.set_postfix({"loss": loss_value})
 

@@ -19,19 +19,21 @@ class SDFSampler:
                  sigma=5e-2):
         V, F = igl.read_triangle_mesh(model_path)
 
+        # [0, 1]
+        V -= np.mean(V, axis=0, keepdims=True)
+        V_max = np.amax(V)
+        V_min = np.amin(V)
+        V = (V - V_min) / (V_max - V_min)
+
+        # [-0.95, 0.95]
+        V -= 0.5
+        V *= 1.9
+
         self.V = V
         self.F = F
         self.surface_ratio = surface_ratio
         self.close_ratio = close_ratio
         self.sigma = sigma
-
-    def normalize(self, scale=1.2):
-        # Normalize
-        aabb_min = np.min(self.V, axis=0)
-        aabb_max = np.max(self.V, axis=0)
-        center = 0.5 * (aabb_max + aabb_min)
-        scale = 2.0 * np.max(aabb_max - center)
-        self.V = (self.V - center[None, ...]) / (1.2 * scale)
 
     def sample_sdf_igl(self, x):
         return igl.signed_distance(x, self.V, self.F)[0]
@@ -58,7 +60,7 @@ class SDFSampler:
             bary[..., None] * self.V[self.F[f_id]],
             1) + 2. * self.sigma * np.random.normal(size=(n_close, 3))
 
-        free_samples = np.random.uniform(low=-0.5, high=0.5, size=(n_free, 3))
+        free_samples = np.random.uniform(low=-1.0, high=1.0, size=(n_free, 3))
 
         # Reference: https://github.com/nmwsharp/neural-implicit-queries/blob/c17e4b54f216cefb02d00ddba25c4f15b9873278/src/geometry.py#LL43C1-L43C1
         samples_full = np.vstack([surface_samples, close_samples, free_samples])
@@ -86,7 +88,7 @@ class SDFSampler:
         return surface_samples, FN[f_id]
 
     def sample_dense(self, res=512):
-        line = np.linspace(-0.5, 0.5, res)
+        line = np.linspace(-1.0, 1.0, res)
         samples = np.stack(np.meshgrid(line, line, line), -1).reshape(-1, 3)
 
         splits = len(samples) // 100000
@@ -101,16 +103,19 @@ class SDFSampler:
 
 if __name__ == '__main__':
     model_path_list = sorted(glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
-    sample_size = 5000000
+    sample_size = 2500000
 
     for model_path in tqdm(model_path_list):
 
         model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = f"data/sdf/{model_name}.npy"
+        model_out_path = f"data/sdf/{model_name}.npz"
 
         sampler = SDFSampler(model_path)
-        surface_samples, surface_sample_normals = sampler.sample_surface(
-            sample_size)
+        samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
+        samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size)
 
-        samples = np.hstack([surface_samples, surface_sample_normals])
-        np.save(model_out_path, samples)
+        np.savez(model_out_path,
+                 samples_on_sur=samples_on_sur,
+                 normals_on_sur=normals_on_sur,
+                 samples_off_sur=samples_off_sur,
+                 sdf_off_sur=sdf_off_sur)

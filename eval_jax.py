@@ -20,7 +20,7 @@ if __name__ == '__main__':
     model = StandardMLP(**mlp_cfg, key=jax.random.PRNGKey(0), activation='elu')
     model = eqx.tree_deserialise_leaves(f"checkpoints/fandisk.eqx", model)
 
-    grid_res = 128
+    grid_res = 512
     grid_min = -1.0
     grid_max = 1.0
     group_size = 1200000
