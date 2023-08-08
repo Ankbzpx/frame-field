@@ -2,3 +2,5 @@
 __pycache__
 results
 data/sdf
+checkpoints
+output

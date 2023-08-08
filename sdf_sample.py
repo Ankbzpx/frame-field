@@ -19,18 +19,19 @@ class SDFSampler:
                  sigma=5e-2):
         V, F = igl.read_triangle_mesh(model_path)
 
-        # Normalize
-        aabb_min = np.min(V, axis=0)
-        aabb_max = np.max(V, axis=0)
-        center = 0.5 * (aabb_max + aabb_min)
-        scale = 2.0 * np.max(aabb_max - center)
-        V = (V - center[None, ...]) / scale
-
         self.V = V
         self.F = F
         self.surface_ratio = surface_ratio
         self.close_ratio = close_ratio
         self.sigma = sigma
+
+    def normalize(self, scale=1.2):
+        # Normalize
+        aabb_min = np.min(self.V, axis=0)
+        aabb_max = np.max(self.V, axis=0)
+        center = 0.5 * (aabb_max + aabb_min)
+        scale = 2.0 * np.max(aabb_max - center)
+        self.V = (self.V - center[None, ...]) / (1.2 * scale)
 
     def sample_sdf_igl(self, x):
         return igl.signed_distance(x, self.V, self.F)[0]
@@ -100,20 +101,16 @@ class SDFSampler:
 
 if __name__ == '__main__':
     model_path_list = sorted(glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
-    sample_size = 1000000
+    sample_size = 5000000
 
     for model_path in tqdm(model_path_list):
 
         model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = f"data/sdf/{model_name}.npz"
+        model_out_path = f"data/sdf/{model_name}.npy"
 
         sampler = SDFSampler(model_path)
-        samples, sample_sdfs = sampler.sample_importance(sample_size)
         surface_samples, surface_sample_normals = sampler.sample_surface(
             sample_size)
 
-        np.savez(model_out_path,
-                 samples=samples,
-                 sample_sdfs=sample_sdfs,
-                 surface_samples=surface_samples,
-                 surface_sample_normals=surface_sample_normals)
+        samples = np.hstack([surface_samples, surface_sample_normals])
+        np.save(model_out_path, samples)
