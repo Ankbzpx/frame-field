@@ -13,6 +13,7 @@ import polyscope as ps
 from icecream import ic
 
 from tqdm import tqdm
+import matplotlib
 import matplotlib.pyplot as plt
 import os
 
@@ -30,6 +31,8 @@ def eikonal(x):
 
 
 if __name__ == '__main__':
+
+    matplotlib.use('Agg')
 
     sdf_data = np.load('data/sdf/fandisk.npz')
     samples_on_sur = sdf_data['samples_on_sur']
@@ -64,7 +67,7 @@ if __name__ == '__main__':
     mlp_cfg = {
         'in_features': 3,
         'hidden_features': 256,
-        'hidden_layers': 8,
+        'hidden_layers': 4,
         'out_features': 10,
     }
     model = StandardMLP(**mlp_cfg, key=model_key, activation='elu')

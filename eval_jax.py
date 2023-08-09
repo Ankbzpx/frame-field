@@ -15,7 +15,7 @@ if __name__ == '__main__':
     mlp_cfg = {
         'in_features': 3,
         'hidden_features': 256,
-        'hidden_layers': 8,
+        'hidden_layers': 4,
         'out_features': 10,
     }
     model = StandardMLP(**mlp_cfg, key=jax.random.PRNGKey(0), activation='elu')
@@ -40,10 +40,11 @@ if __name__ == '__main__':
     sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
 
     spacing = 1. / grid_res
-    V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
+    V, F, VN, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
 
-    igl.write_triangle_mesh("weird.obj", V, F)
+    # igl.write_triangle_mesh("weird.obj", V, F)
 
     ps.init()
-    ps.register_surface_mesh("fandisk", V, F)
+    fandisk_vis = ps.register_surface_mesh("fandisk", V, F)
+    fandisk_vis.add_vector_quantity("VN", VN)
     ps.show()
