@@ -1,0 +1,7 @@
+{
+    "sdf_path": "data/sdf/bunny.npz",
+    "mlp_type": "ResMLP",
+    "mlp": {
+        "out_features": 10
+    }
+}

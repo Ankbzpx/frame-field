@@ -1,25 +1,30 @@
 import equinox as eqx
-
 import numpy as np
 import jax
 from jax import jit
-from model_jax import StandardMLP
 from skimage.measure import marching_cubes
 import igl
+import argparse
+import json
+
+import model_jax
+from config import Config
 
 import polyscope as ps
 from icecream import ic
 
 if __name__ == '__main__':
 
-    mlp_cfg = {
-        'in_features': 3,
-        'hidden_features': 256,
-        'hidden_layers': 4,
-        'out_features': 10,
-    }
-    model = StandardMLP(**mlp_cfg, key=jax.random.PRNGKey(0), activation='elu')
-    model = eqx.tree_deserialise_leaves(f"checkpoints/fandisk.eqx", model)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', type=str, help='Path to config file.')
+    args = parser.parse_args()
+
+    cfg = Config(**json.load(open(args.config)))
+    cfg.name = args.config.split('/')[-1].split('.')[0]
+
+    model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg,
+                                             key=jax.random.PRNGKey(0))
+    model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
 
     grid_res = 512
     grid_min = -1.0

@@ -31,7 +31,7 @@ class Linear(eqx.Module):
         return self.W @ x + self.b
 
 
-class StandardMLP(eqx.Module):
+class MLP(eqx.Module):
     layers: list
     activation: str
 
@@ -41,7 +41,7 @@ class StandardMLP(eqx.Module):
                  hidden_layers: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 activation='tanh'):
+                 activation='elu'):
         keys = jax.random.split(key, hidden_layers + 2)
 
         xavier_init = activation == 'tanh'
@@ -59,6 +59,54 @@ class StandardMLP(eqx.Module):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
                 x = getattr(jax.nn, self.activation)(x)
+        return x[0], x[1:]
+
+    def call_grad(self, x):
+        return vmap(eqx.filter_value_and_grad(self.single_call,
+                                              has_aux=True))(x)
+
+    def __call__(self, x):
+        x = vmap(self.single_call)(x)
+        return x
+
+
+class ResMLP(eqx.Module):
+    layers: list
+    activation: str
+
+    def __init__(self,
+                 in_features: int,
+                 hidden_features: int,
+                 hidden_layers: int,
+                 out_features: int,
+                 key: jax.random.PRNGKey,
+                 activation='elu'):
+
+        keys = jax.random.split(key, 2 * hidden_layers + 2)
+
+        xavier_init = activation == 'tanh'
+        self.activation = activation
+
+        self.layers = [
+            Linear(in_features, hidden_features, keys[0], xavier_init)
+        ] + [
+            Linear(hidden_features, hidden_features, keys[i + 1], xavier_init)
+            for i in range(2 * hidden_layers)
+        ] + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
+
+    def single_call(self, x):
+        activation = getattr(jax.nn, self.activation)
+
+        x = self.layers[0](x)
+        x = activation(x)
+
+        for i in range((len(self.layers) - 2) // 2):
+            out = self.layers[2 * i + 1](x)
+            out = activation(out)
+            out = self.layers[2 * (i + 1)](out)
+            x = activation(x + out)
+
+        x = self.layers[-1](x)
         return x[0], x[1:]
 
     def call_grad(self, x):
@@ -141,11 +189,9 @@ if __name__ == '__main__':
     from icecream import ic
 
     key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-    model = LipMLP(3, 64, 4, 1, key_model, activation='tanh')
+    model = ResMLP(3, 64, 4, 1, key_model, activation='elu')
 
-    x = jax.random.uniform(key_data, (10, 2))
-    z = jnp.array([0])
-
-    y = model.single_call(x[0], z)
+    x = jax.random.uniform(key_data, (10, 3))
+    y = model.call_grad(x)
 
     ic(y)
