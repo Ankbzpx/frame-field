@@ -1,7 +1,7 @@
 import equinox as eqx
 import numpy as np
 import jax
-from jax import jit
+from jax import jit, numpy as jnp, vmap
 from skimage.measure import marching_cubes
 import igl
 import argparse
@@ -9,6 +9,11 @@ import json
 
 import model_jax
 from config import Config
+from common import normalize, vis_oct_field
+from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec
+import flow_lines
+import pyfqmr
+import open3d as o3d
 
 import polyscope as ps
 from icecream import ic
@@ -35,6 +40,10 @@ if __name__ == '__main__':
     def infer(x):
         return model(x)
 
+    @jit
+    def infer_grad(x):
+        return model.call_grad(x)
+
     indices = np.linspace(grid_min, grid_max, grid_res)
     grid = np.stack(np.meshgrid(indices, indices, indices), -1).reshape(-1, 3)
 
@@ -43,13 +52,51 @@ if __name__ == '__main__':
         sdf, sh9 = infer(x)
         sdfs_list.append(np.array(sdf))
     sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
+    sdfs = np.swapaxes(sdfs, 0, 1)
 
-    spacing = 1. / grid_res
-    V, F, VN, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
+    spacing = 1. / (grid_res - 1)
+    V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
+    V = 2 * (V - 0.5)
 
-    # igl.write_triangle_mesh("weird.obj", V, F)
+    # Simplify mesh
+    mesh_simplifier = pyfqmr.Simplify()
+    mesh_simplifier.setMesh(V, F)
+    mesh_simplifier.simplify_mesh(target_count=10000,
+                                  aggressiveness=7,
+                                  preserve_border=True)
+    V, F, _ = mesh_simplifier.getMesh()
+
+    # Project on isosurface
+    (sdf, _), VN = infer_grad(V)
+    V = V - sdf[:, None] * vmap(normalize)(VN)
+    V = np.array(V)
+
+    (_, sh9), VN = infer_grad(V)
+    rotvecs = vmap(proj_sh4_to_rotvec)(sh9)
+    Rs = vmap(rotvec_to_R3)(rotvecs)
+
+    Q = vmap(R3_to_repvec)(Rs, VN)
+
+    V_vis, F_vis, VC_vis = flow_lines.trace(V,
+                                            F,
+                                            VN,
+                                            Q,
+                                            4000,
+                                            length_factor=5,
+                                            interval_factor=10,
+                                            width_factor=0.075)
 
     ps.init()
-    fandisk_vis = ps.register_surface_mesh("fandisk", V, F)
-    fandisk_vis.add_vector_quantity("VN", VN)
+    mesh = ps.register_surface_mesh("mesh", V, F)
+    mesh.add_vector_quantity("VN", VN)
+    flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
+    flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
     ps.show()
+
+    igl.write_triangle_mesh(f"output/{cfg.name}_mc.obj", V, F)
+
+    stroke_mesh = o3d.geometry.TriangleMesh()
+    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
+    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
+    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
+    o3d.io.write_triangle_mesh(f"output/{cfg.name}_stroke.obj", stroke_mesh)

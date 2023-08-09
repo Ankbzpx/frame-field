@@ -1,6 +1,5 @@
 import jax
-import jax.numpy as jnp
-from jax import vmap
+from jax import vmap, numpy as jnp
 import equinox as eqx
 from jaxtyping import Array
 
