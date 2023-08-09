@@ -63,12 +63,11 @@ if __name__ == '__main__':
     model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg, key=model_key)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    lr_scheduler = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr,
-        peak_value=5 * cfg.training.lr,
-        warmup_steps=1000,
-        end_value=cfg.training.lr / 10.,
-        decay_steps=total_steps)
+    lr_scheduler = optax.warmup_cosine_decay_schedule(cfg.training.lr,
+                                                      peak_value=5 *
+                                                      cfg.training.lr,
+                                                      warmup_steps=1000,
+                                                      decay_steps=total_steps)
     optim = optax.adam(learning_rate=lr_scheduler)
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
@@ -103,9 +102,8 @@ if __name__ == '__main__':
         # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
         loss_off = loss_weights['off_sur'] * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_normal = loss_weights['normal'] * (1 - jnp.abs(
-            vmap(cosine_similarity)
-            (pred_normals_on_sur, normals_on_sur))).mean()
+        loss_normal = loss_weights['normal'] * (1 - vmap(cosine_similarity)(
+            pred_normals_on_sur, normals_on_sur)).mean()
         loss_eikonal = loss_weights['eikonal'] * 0.5 * (
             vmap(eikonal)(pred_normals_on_sur).mean() +
             vmap(eikonal)(pred_normals_off_sur).mean())
