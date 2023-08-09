@@ -5,6 +5,7 @@ import jax
 from jax import jit
 from model_jax import StandardMLP
 from skimage.measure import marching_cubes
+import igl
 
 import polyscope as ps
 from icecream import ic
@@ -40,6 +41,8 @@ if __name__ == '__main__':
 
     spacing = 1. / grid_res
     V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
+
+    igl.write_triangle_mesh("weird.obj", V, F)
 
     ps.init()
     ps.register_surface_mesh("fandisk", V, F)

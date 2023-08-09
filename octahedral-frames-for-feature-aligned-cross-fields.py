@@ -58,6 +58,8 @@ if __name__ == '__main__':
     W = scipy.sparse.coo_array((np.ones(7), (np.arange(7), 1 + np.arange(7))),
                                shape=(7, 9)).todense()
 
+    # R9_zn a = sh4 + c0 sh0 + c1 sh8
+    # => W R9_zn a = sh4
     As = np.einsum('bj,nji->nbi', W, R9_zn)
     b = np.array([0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])
 

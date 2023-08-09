@@ -7,6 +7,7 @@ import equinox as eqx
 from jaxtyping import PyTree, Array
 
 from model_jax import StandardMLP
+from practical_3d_frame_field_generation import rotvec_to_z, rotvec_to_R9
 
 import polyscope as ps
 from icecream import ic
@@ -29,6 +30,7 @@ def eikonal(x):
 
 
 if __name__ == '__main__':
+
     sdf_data = np.load('data/sdf/fandisk.npz')
     samples_on_sur = sdf_data['samples_on_sur']
     normals_on_sur = sdf_data['normals_on_sur']
@@ -43,8 +45,8 @@ if __name__ == '__main__':
     # ps.show()
     # exit()
 
-    n_epochs = 200000
-    n_samples_per_epoch = 512
+    n_epochs = 100000
+    n_samples_per_epoch = 1024
     model_key, data_key = jax.random.split(jax.random.PRNGKey(0), 2)
 
     # preload data in memory for speedup
@@ -92,6 +94,15 @@ if __name__ == '__main__':
         (pred_off_sur_sdf,
          _), pred_normals_off_sur = model.call_grad(samples_off_sur)
 
+        # Alignment
+        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(normals_on_sur))
+        sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
+        loss_twist = jnp.abs((sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
+        loss_align = jnp.abs(
+            sh9_n[:, 1:8] -
+            jnp.array([0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])[None, :]).mean()
+
+        # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = jnp.abs(pred_on_sur_sdf).mean()
         # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
         loss_off = jnp.exp(-1e2 * jnp.abs(pred_off_sur_sdf)).mean()
@@ -101,7 +112,8 @@ if __name__ == '__main__':
         loss_eikonal = 0.5 * (vmap(eikonal)(pred_normals_on_sur).mean() +
                               vmap(eikonal)(pred_normals_off_sur).mean())
 
-        loss = 3e3 * loss_mse + 1e2 * loss_off + 1e2 * loss_normal + 5e1 * loss_eikonal
+        loss = 3e3 * loss_mse + 1e2 * loss_off + 1e2 * loss_normal + 5e1 * loss_eikonal + 1e2 * (
+            loss_twist + loss_align)
         return loss
 
     @eqx.filter_jit
