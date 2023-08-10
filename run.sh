@@ -4,7 +4,13 @@
 # python train_jax.py configs/rocker_arm.json
 
 
-python train_jax.py configs/bunny_siren.json
-python train_jax.py configs/cube_twist_siren.json
-python train_jax.py configs/fandisk_siren.json
-python train_jax.py configs/rocker_arm_siren.json
+# python train_jax.py configs/bunny_siren.json
+# python train_jax.py configs/cube_twist_siren.json
+# python train_jax.py configs/fandisk_siren.json
+# python train_jax.py configs/rocker_arm_siren.json
+
+
+python train_jax.py configs/bunny_lip.json
+python train_jax.py configs/cube_twist_lip.json
+python train_jax.py configs/fandisk_lip.json
+python train_jax.py configs/rocker_arm_lip.json

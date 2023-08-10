@@ -1,0 +1,8 @@
+{
+    "sdf_path": "data/sdf/bunny.npz",
+    "mlp_type": "LipMLP",
+    "mlp": {
+        "hidden_layers": 8,
+        "out_features": 10
+    }
+}

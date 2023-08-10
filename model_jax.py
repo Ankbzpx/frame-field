@@ -165,16 +165,19 @@ class LipMLP(eqx.Module):
                       xavier_init) for i in range(hidden_layers)
         ] + [LipLinear(hidden_features, out_features, keys[-1], xavier_init)]
 
-    def single_call(self, x, z):
-        x = jnp.concatenate([x, z])
+    def single_call(self, x):
         for i in range(len(self.layers)):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
                 x = getattr(jax.nn, self.activation)(x)
-        return x[0]
+        return x[0], x[1:]
 
-    def __call__(self, x, z):
-        x = vmap(self.single_call, in_axes=(0, None))(x, z)
+    def call_grad(self, x):
+        return vmap(eqx.filter_value_and_grad(self.single_call,
+                                              has_aux=True))(x)
+
+    def __call__(self, x):
+        x = vmap(self.single_call)(x)
         return x
 
     def get_lipschitz_loss(self):
@@ -257,10 +260,9 @@ if __name__ == '__main__':
     from icecream import ic
 
     key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-    model = Siren(3, 256, 4, 10, key_model)
+    model = LipMLP(3, 256, 4, 10, key_model)
 
     x = jax.random.uniform(key_data, (10, 3))
     (sdf, sh9), normal = model.call_grad(x)
 
-    ic(jnp.abs(sdf).max())
-    ic(jnp.abs(sdf).min())
+    ic(normal.shape)
