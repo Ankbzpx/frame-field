@@ -7,7 +7,7 @@ from typing import Callable
 import scipy
 import scipy.sparse.linalg
 
-from common import vis_oct_field, normalize
+from common import vis_oct_field, normalize, rm_unref_vertices
 
 import open3d as o3d
 import argparse
@@ -37,17 +37,7 @@ def per_face_basis(verts):
 # Use half edge graph for traversal
 # TODO: Add crease normal
 def build_traversal_graph(V, F):
-    # Remove unreference vertices and assign new vertex indices
-    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(F.flatten(),
-                                                         return_index=True,
-                                                         return_inverse=True)
-    V_id_new = np.arange(len(V_unique))
-    V_map = V_id_new[np.argsort(V_unique_idx)]
-    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
-    V_map_inv[V_map] = V_id_new
-
-    F = V_map_inv[V_unique_idx_inv].reshape(F.shape)
-    V = V[V_unique][V_map]
+    V, F = rm_unref_vertices(V, F)
 
     E_id = np.arange(F.size)
     E = np.stack([

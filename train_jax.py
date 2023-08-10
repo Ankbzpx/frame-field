@@ -63,11 +63,11 @@ if __name__ == '__main__':
     model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg, key=model_key)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    lr_scheduler = optax.warmup_cosine_decay_schedule(cfg.training.lr,
-                                                      peak_value=5 *
-                                                      cfg.training.lr,
-                                                      warmup_steps=1000,
-                                                      decay_steps=total_steps)
+    lr_scheduler = optax.warmup_cosine_decay_schedule(
+        cfg.training.lr,
+        peak_value=cfg.training.lr_peak,
+        warmup_steps=1000,
+        decay_steps=total_steps)
     optim = optax.adam(learning_rate=lr_scheduler)
     opt_state = optim.init(eqx.filter(model, eqx.is_array))
 

@@ -40,3 +40,19 @@ def unroll_identity_block(A, dim):
 
     return scipy.sparse.coo_array((A_unroll_data, (A_unroll_row, A_unroll_col)),
                                   shape=(dim * H, dim * W)).tocsc()
+
+
+# Remove unreference vertices and assign new vertex indices
+def rm_unref_vertices(V, F):
+    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(F.flatten(),
+                                                         return_index=True,
+                                                         return_inverse=True)
+    V_id_new = np.arange(len(V_unique))
+    V_map = V_id_new[np.argsort(V_unique_idx)]
+    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
+    V_map_inv[V_map] = V_id_new
+
+    F = V_map_inv[V_unique_idx_inv].reshape(F.shape)
+    V = V[V_unique][V_map]
+
+    return V, F

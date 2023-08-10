@@ -184,13 +184,83 @@ class LipMLP(eqx.Module):
         return loss_lip
 
 
+class SineLayer(eqx.Module):
+    W: Array
+    b: Array
+    omega_0: float
+
+    def __init__(self,
+                 in_features: int,
+                 out_features: int,
+                 key: jax.random.PRNGKey,
+                 is_first: bool = False,
+                 omega_0: float = 30):
+        self.omega_0 = omega_0
+
+        if is_first:
+            self.W = jax.random.uniform(key, (out_features, in_features),
+                                        minval=-1.,
+                                        maxval=1.) / in_features
+        else:
+            self.W = jax.random.uniform(
+                key, (out_features, in_features), minval=-1.,
+                maxval=1.) * jnp.sqrt(6 / in_features) / omega_0
+
+        self.b = jnp.zeros(out_features)
+
+    def __call__(self, x):
+        return jnp.sin(self.omega_0 * (self.W @ x + self.b))
+
+
+class Siren(eqx.Module):
+    layers: list
+
+    def __init__(self,
+                 in_features: int,
+                 hidden_features: int,
+                 hidden_layers: int,
+                 out_features: int,
+                 key: jax.random.PRNGKey,
+                 first_omega_0: float = 30,
+                 hidden_omega_0: float = 30,
+                 **kwargs):
+        keys = jax.random.split(key, hidden_layers + 2)
+
+        self.layers = [
+            SineLayer(in_features,
+                      hidden_features,
+                      keys[0],
+                      is_first=True,
+                      omega_0=first_omega_0)
+        ] + [
+            SineLayer(hidden_features,
+                      hidden_features,
+                      keys[i + 1],
+                      omega_0=hidden_omega_0) for i in range(hidden_layers)
+        ] + [Linear(hidden_features, out_features, keys[-1], False)]
+
+    def single_call(self, x):
+        for i in range(len(self.layers)):
+            x = self.layers[i](x)
+        return x[0], x[1:]
+
+    def call_grad(self, x):
+        return vmap(eqx.filter_value_and_grad(self.single_call,
+                                              has_aux=True))(x)
+
+    def __call__(self, x):
+        x = vmap(self.single_call)(x)
+        return x
+
+
 if __name__ == '__main__':
     from icecream import ic
 
     key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-    model = ResMLP(3, 64, 4, 1, key_model, activation='elu')
+    model = Siren(3, 256, 4, 10, key_model)
 
     x = jax.random.uniform(key_data, (10, 3))
-    y = model.call_grad(x)
+    (sdf, sh9), normal = model.call_grad(x)
 
-    ic(y)
+    ic(jnp.abs(sdf).max())
+    ic(jnp.abs(sdf).min())

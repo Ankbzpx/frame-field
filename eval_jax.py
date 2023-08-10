@@ -9,7 +9,7 @@ import json
 
 import model_jax
 from config import Config
-from common import normalize, vis_oct_field
+from common import normalize, vis_oct_field, rm_unref_vertices
 from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec
 import flow_lines
 import pyfqmr
@@ -22,6 +22,9 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file.')
+    parser.add_argument('--mc',
+                        action='store_true',
+                        help='Visualize MC mesh only')
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
@@ -57,6 +60,24 @@ if __name__ == '__main__':
     spacing = 1. / (grid_res - 1)
     V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
     V = 2 * (V - 0.5)
+
+    A = igl.adjacency_matrix(F)
+    (n_c, C, K) = igl.connected_components(A)
+
+    if n_c > 1:
+        VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
+
+        V_filter = np.argwhere(C != np.argmax(K)).reshape(-1,)
+        FV = np.split(VF, NI[1:-1])
+        F_filter = np.unique(np.concatenate([FV[vid] for vid in V_filter]))
+        F = np.delete(F, F_filter, axis=0)
+        V, F = rm_unref_vertices(V, F)
+
+    if args.mc:
+        ps.init()
+        ps.register_surface_mesh(f"{cfg.name}", V, F)
+        ps.show()
+        exit()
 
     # Simplify mesh
     mesh_simplifier = pyfqmr.Simplify()

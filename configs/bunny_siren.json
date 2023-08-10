@@ -1,0 +1,10 @@
+{
+    "sdf_path": "data/sdf/bunny.npz",
+    "mlp_type": "Siren",
+    "mlp": {
+        "out_features": 10
+    },
+    "training" : {
+        "lr_peak": 1e-4
+    }
+}

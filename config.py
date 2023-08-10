@@ -13,6 +13,7 @@ class MLPConfig:
 @dataclass
 class TrainingConfig:
     lr: float = 1e-4
+    lr_peak: float = 5e-4
     n_epochs: int = 1
     n_steps: int = 100000    # per epoch
     n_samples: int = 1024    # per step
