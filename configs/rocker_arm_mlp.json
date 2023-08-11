@@ -1,10 +1,7 @@
 {
     "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_type": "LipMLP",
+    "mlp_type": "StandardMLP",
     "mlp": {
         "out_features": 10
-    },
-    "loss": {
-        "lip": 1e-6
     }
 }

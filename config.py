@@ -22,13 +22,14 @@ class TrainingConfig:
 
 
 @dataclass
-class LossWeight:
+class LossConfig:
     on_sur: float = 3e3
     off_sur: float = 1e2
     normal: float = 1e2
     eikonal: float = 5e1
     align: float = 1e2
     twist: float = 1e2
+    lip: float = 0
 
 
 @dataclass
@@ -37,14 +38,14 @@ class Config:
     mlp_type: str = "MLP"
     mlp: MLPConfig = MLPConfig()
     training: TrainingConfig = TrainingConfig()
-    loss: LossWeight = LossWeight()
+    loss: LossConfig = LossConfig()
 
     @property
     def mlp_cfg(self) -> dict:
         return asdict(self.mlp)
 
     @property
-    def loss_weights(self) -> dict:
+    def loss_cfg(self) -> dict:
         return asdict(self.loss)
 
     def __post_init__(self):
@@ -54,5 +55,5 @@ class Config:
         if not isinstance(self.training, TrainingConfig):
             self.training = TrainingConfig(**self.training)
 
-        if not isinstance(self.loss, LossWeight):
-            self.loss = LossWeight(**self.loss)
+        if not isinstance(self.loss, LossConfig):
+            self.loss = LossConfig(**self.loss)

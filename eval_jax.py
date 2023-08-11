@@ -25,6 +25,7 @@ if __name__ == '__main__':
     parser.add_argument('--mc',
                         action='store_true',
                         help='Visualize MC mesh only')
+    parser.add_argument('--fl', action='store_true', help='Visualize flowline')
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
@@ -41,7 +42,7 @@ if __name__ == '__main__':
 
     @jit
     def infer(x):
-        return model(x)
+        return model(x)[:, 0]
 
     @jit
     def infer_grad(x):
@@ -52,7 +53,7 @@ if __name__ == '__main__':
 
     sdfs_list = []
     for x in np.array_split(grid, len(grid) // group_size, axis=0):
-        sdf, sh9 = infer(x)
+        sdf = infer(x)
         sdfs_list.append(np.array(sdf))
     sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
     sdfs = np.swapaxes(sdfs, 0, 1)
@@ -107,12 +108,13 @@ if __name__ == '__main__':
                                             interval_factor=10,
                                             width_factor=0.075)
 
-    ps.init()
-    mesh = ps.register_surface_mesh("mesh", V, F)
-    mesh.add_vector_quantity("VN", VN)
-    flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
-    flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
-    ps.show()
+    if args.fl:
+        ps.init()
+        mesh = ps.register_surface_mesh("mesh", V, F)
+        mesh.add_vector_quantity("VN", VN)
+        flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
+        flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
+        ps.show()
 
     igl.write_triangle_mesh(f"output/{cfg.name}_mc.obj", V, F)
 

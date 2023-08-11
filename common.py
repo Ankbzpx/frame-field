@@ -2,6 +2,9 @@ import numpy as np
 import igl
 from jax import jit, numpy as jnp
 import scipy.sparse
+import os
+
+os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = '0'
 
 
 @jit

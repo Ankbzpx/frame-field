@@ -31,6 +31,24 @@ class Linear(eqx.Module):
 
 
 class MLP(eqx.Module):
+
+    def __init__():
+        pass
+
+    def single_call_split(self, x):
+        x = self.single_call(x)
+        return x[0], x[1:]
+
+    def call_grad(self, x):
+        return vmap(
+            eqx.filter_value_and_grad(self.single_call_split, has_aux=True))(x)
+
+    def __call__(self, x):
+        x = vmap(self.single_call)(x)
+        return x
+
+
+class StandardMLP(MLP):
     layers: list
     activation: str
 
@@ -58,18 +76,10 @@ class MLP(eqx.Module):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
                 x = getattr(jax.nn, self.activation)(x)
-        return x[0], x[1:]
-
-    def call_grad(self, x):
-        return vmap(eqx.filter_value_and_grad(self.single_call,
-                                              has_aux=True))(x)
-
-    def __call__(self, x):
-        x = vmap(self.single_call)(x)
         return x
 
 
-class ResMLP(eqx.Module):
+class ResMLP(MLP):
     layers: list
     activation: str
 
@@ -106,14 +116,6 @@ class ResMLP(eqx.Module):
             x = activation(x + out)
 
         x = self.layers[-1](x)
-        return x[0], x[1:]
-
-    def call_grad(self, x):
-        return vmap(eqx.filter_value_and_grad(self.single_call,
-                                              has_aux=True))(x)
-
-    def __call__(self, x):
-        x = vmap(self.single_call)(x)
         return x
 
 
@@ -142,7 +144,7 @@ class LipLinear(Linear):
             self.c)) @ x + self.b
 
 
-class LipMLP(eqx.Module):
+class LipMLP(MLP):
     layers: list
     activation: str
 
@@ -170,14 +172,6 @@ class LipMLP(eqx.Module):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
                 x = getattr(jax.nn, self.activation)(x)
-        return x[0], x[1:]
-
-    def call_grad(self, x):
-        return vmap(eqx.filter_value_and_grad(self.single_call,
-                                              has_aux=True))(x)
-
-    def __call__(self, x):
-        x = vmap(self.single_call)(x)
         return x
 
     def get_lipschitz_loss(self):
@@ -215,7 +209,7 @@ class SineLayer(eqx.Module):
         return jnp.sin(self.omega_0 * (self.W @ x + self.b))
 
 
-class Siren(eqx.Module):
+class Siren(MLP):
     layers: list
 
     def __init__(self,
@@ -245,14 +239,6 @@ class Siren(eqx.Module):
     def single_call(self, x):
         for i in range(len(self.layers)):
             x = self.layers[i](x)
-        return x[0], x[1:]
-
-    def call_grad(self, x):
-        return vmap(eqx.filter_value_and_grad(self.single_call,
-                                              has_aux=True))(x)
-
-    def __call__(self, x):
-        x = vmap(self.single_call)(x)
         return x
 
 
@@ -260,9 +246,9 @@ if __name__ == '__main__':
     from icecream import ic
 
     key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-    model = LipMLP(3, 256, 4, 10, key_model)
+    model = StandardMLP(3, 256, 4, 10, key_model)
 
-    x = jax.random.uniform(key_data, (10, 3))
-    (sdf, sh9), normal = model.call_grad(x)
+    x = jax.random.uniform(key_data, (20, 3))
+    out = model(x)
 
-    ic(normal.shape)
+    ic(out.shape)

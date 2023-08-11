@@ -10,7 +10,23 @@
 # python train_jax.py configs/rocker_arm_siren.json
 
 
-python train_jax.py configs/bunny_lip.json
-python train_jax.py configs/cube_twist_lip.json
-python train_jax.py configs/fandisk_lip.json
-python train_jax.py configs/rocker_arm_lip.json
+# python train_jax.py configs/bunny_lip.json
+# python train_jax.py configs/cube_twist_lip.json
+# python train_jax.py configs/fandisk_lip.json
+# python train_jax.py configs/rocker_arm_lip.json
+
+
+# python train_jax.py configs/bunny_mlp.json
+# python train_jax.py configs/cube_twist_mlp.json
+# python train_jax.py configs/fandisk_mlp.json
+# python train_jax.py configs/rocker_arm_mlp.json
+
+# python eval_jax.py configs/bunny_lip.json
+# python eval_jax.py configs/cube_twist_lip.json
+# python eval_jax.py configs/fandisk_lip.json
+# python eval_jax.py configs/rocker_arm_lip.json
+
+python eval_jax.py configs/bunny_mlp.json
+python eval_jax.py configs/cube_twist_mlp.json
+python eval_jax.py configs/fandisk_mlp.json
+python eval_jax.py configs/rocker_arm_mlp.json

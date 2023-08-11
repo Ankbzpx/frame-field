@@ -83,7 +83,7 @@ if __name__ == '__main__':
     @eqx.filter_value_and_grad
     def loss_func(model: eqx.Module, samples_on_sur: list[Array],
                   normals_on_sur: list[Array], samples_off_sur: list[Array],
-                  sdf_off_sur: list[Array], loss_weights: PyTree):
+                  sdf_off_sur: list[Array], loss_cfg: PyTree):
         (pred_on_sur_sdf,
          sh9), pred_normals_on_sur = model.call_grad(samples_on_sur)
         (pred_off_sur_sdf,
@@ -92,29 +92,33 @@ if __name__ == '__main__':
         # Alignment
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(normals_on_sur))
         sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
-        loss_twist = loss_weights['twist'] * jnp.abs(
+        loss_twist = loss_cfg['twist'] * jnp.abs(
             (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
-        loss_align = loss_weights['align'] * jnp.abs(sh9_n[:, 1:8] - jnp.array(
+        loss_align = loss_cfg['align'] * jnp.abs(sh9_n[:, 1:8] - jnp.array(
             [0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])[None, :]).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
-        loss_mse = loss_weights['on_sur'] * jnp.abs(pred_on_sur_sdf).mean()
+        loss_mse = loss_cfg['on_sur'] * jnp.abs(pred_on_sur_sdf).mean()
         # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
-        loss_off = loss_weights['off_sur'] * jnp.exp(
+        loss_off = loss_cfg['off_sur'] * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_normal = loss_weights['normal'] * (1 - vmap(cosine_similarity)(
+        loss_normal = loss_cfg['normal'] * (1 - vmap(cosine_similarity)(
             pred_normals_on_sur, normals_on_sur)).mean()
-        loss_eikonal = loss_weights['eikonal'] * 0.5 * (
+        loss_eikonal = loss_cfg['eikonal'] * 0.5 * (
             vmap(eikonal)(pred_normals_on_sur).mean() +
             vmap(eikonal)(pred_normals_off_sur).mean())
 
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
+
+        if loss_cfg['lip'] > 0:
+            loss += loss_cfg['lip'] * model.get_lipschitz_loss()
+
         return loss
 
     @eqx.filter_jit
     def make_step(model: eqx.Module, opt_state: PyTree, batch: PyTree,
-                  loss_weights: PyTree):
-        loss_value, grads = loss_func(model, **batch, loss_weights=loss_weights)
+                  loss_cfg: PyTree):
+        loss_value, grads = loss_func(model, **batch, loss_cfg=loss_cfg)
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss_value
@@ -124,7 +128,7 @@ if __name__ == '__main__':
         batch_id = epoch % cfg.training.n_steps
         batch = jax.tree_map(lambda x: x[batch_id], data)
         model, opt_state, loss_value = make_step(model, opt_state, batch,
-                                                 cfg.loss_weights)
+                                                 cfg.loss_cfg)
         loss_history[epoch] = loss_value
         pbar.set_postfix({"loss": loss_value})
 
