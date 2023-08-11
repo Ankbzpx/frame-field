@@ -130,6 +130,7 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     state = {"loss": 100., "iter": 0, "opt_state": opt_state, "params": params}
 
     @jit
+    @value_and_grad
     def loss_func(params):
         return jnp.power(rotvec_to_sh4(params['rotvec']) - sh4_target, 2).mean()
 
@@ -139,7 +140,7 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
 
     @jit
     def body_func(state):
-        loss, grads = value_and_grad(loss_func)(state["params"])
+        loss, grads = loss_func(state["params"])
         updates, state["opt_state"] = optimizer.update(grads,
                                                        state["opt_state"])
         state["params"] = optax.apply_updates(state["params"], updates)
@@ -253,12 +254,12 @@ if __name__ == '__main__':
     @jit
     def loss_func(rotvec, align_weight=100):
         a = vmap(rotvec_to_sh4)(rotvec)
-        l_smooth = jnp.trace(a.T @ -L_jax @ a)
-        l_align = jnp.where(boundary_mask,
-                            (7 / 12 - jnp.einsum('ni,ni->n', a, sh4_n_pad)),
-                            0).sum()
+        loss_smooth = jnp.trace(a.T @ -L_jax @ a)
+        loss_align = jnp.where(boundary_mask,
+                               (7 / 12 - jnp.einsum('ni,ni->n', a, sh4_n_pad)),
+                               0).sum()
 
-        return l_smooth + align_weight * l_align
+        return loss_smooth + align_weight * loss_align
 
     lbfgs = LBFGS(loss_func)
     rotvecs_opt = lbfgs.run(rotvecs).params
