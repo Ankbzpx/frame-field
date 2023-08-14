@@ -21,15 +21,16 @@ class TrainingConfig:
     seed: int = 2139028991    # 1111111011111101111110111111111
 
 
-@dataclass
+@dataclass(frozen=True)
 class LossConfig:
     on_sur: float = 3e3
     off_sur: float = 1e2
     normal: float = 1e2
     eikonal: float = 5e1
-    align: float = 1e2
+    align: float = 3e3
     twist: float = 1e2
     lip: float = 0
+    smooth: float = 0
 
 
 @dataclass
@@ -38,15 +39,11 @@ class Config:
     mlp_type: str = "MLP"
     mlp: MLPConfig = MLPConfig()
     training: TrainingConfig = TrainingConfig()
-    loss: LossConfig = LossConfig()
+    loss_cfg: LossConfig = LossConfig()
 
     @property
     def mlp_cfg(self) -> dict:
         return asdict(self.mlp)
-
-    @property
-    def loss_cfg(self) -> dict:
-        return asdict(self.loss)
 
     def __post_init__(self):
         if not isinstance(self.mlp, MLPConfig):
@@ -55,5 +52,5 @@ class Config:
         if not isinstance(self.training, TrainingConfig):
             self.training = TrainingConfig(**self.training)
 
-        if not isinstance(self.loss, LossConfig):
-            self.loss = LossConfig(**self.loss)
+        if not isinstance(self.loss_cfg, LossConfig):
+            self.loss_cfg = LossConfig(**self.loss_cfg)

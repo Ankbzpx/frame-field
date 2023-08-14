@@ -1,9 +1,18 @@
 import jax
-from jax import vmap, numpy as jnp
+from jax import vmap, numpy as jnp, jacfwd
 import equinox as eqx
 from jaxtyping import Array
 
 from icecream import ic
+from functools import partial
+
+
+# https://github.com/google/jax/pull/762
+def value_and_jacfwd(f, x):
+    pushfwd = partial(jax.jvp, f, (x,))
+    basis = jnp.eye(x.size, dtype=x.dtype)
+    y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
+    return y, jac
 
 
 class Linear(eqx.Module):
@@ -42,6 +51,9 @@ class MLP(eqx.Module):
     def call_grad(self, x):
         return vmap(
             eqx.filter_value_and_grad(self.single_call_split, has_aux=True))(x)
+
+    def call_jac(self, x):
+        return vmap(value_and_jacfwd, in_axes=[None, 0])(self.single_call, x)
 
     def __call__(self, x):
         x = vmap(self.single_call)(x)
@@ -249,6 +261,7 @@ if __name__ == '__main__':
     model = StandardMLP(3, 256, 4, 10, key_model)
 
     x = jax.random.uniform(key_data, (20, 3))
-    out = model(x)
+    value, jac = model.call_jac(x)
 
-    ic(out.shape)
+    ic(value.shape, jac.shape)
+    ic(vmap(jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:], 'f'))

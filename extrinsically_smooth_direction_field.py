@@ -372,7 +372,7 @@ def principal_curvature(T, TM):
 
 @jit
 @partial(vmap, in_axes=(0, 0, None, None, None, None, None, None))
-def dirichlet(ws, e_ids, E, E2E, FA, alpha, beta, NV):
+def smooth(ws, e_ids, E, E2E, FA, alpha, beta, NV):
     f_areas = jnp.where(e_ids == -1, 0, FA[e_ids // 3])
     opp_e_ids = E2E[e_ids]
     opp_f_areas = jnp.where(e_ids == -1, 0, FA[opp_e_ids // 3])
@@ -460,8 +460,7 @@ if __name__ == '__main__':
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
 
-    idx_i, idx_j, weights, mass = dirichlet(Ws, V2E, E, E2E, FA, alpha, beta,
-                                            NV)
+    idx_i, idx_j, weights, mass = smooth(Ws, V2E, E, E2E, FA, alpha, beta, NV)
 
     # Filter entries to build sparse system
     idx_i = idx_i.reshape(-1)

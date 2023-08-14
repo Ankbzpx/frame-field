@@ -12,7 +12,7 @@ import json
 import os
 
 import model_jax
-from config import Config
+from config import Config, LossConfig
 from practical_3d_frame_field_generation import rotvec_to_z, rotvec_to_R9
 
 import polyscope as ps
@@ -83,41 +83,54 @@ if __name__ == '__main__':
     @eqx.filter_value_and_grad
     def loss_func(model: eqx.Module, samples_on_sur: list[Array],
                   normals_on_sur: list[Array], samples_off_sur: list[Array],
-                  sdf_off_sur: list[Array], loss_cfg: PyTree):
-        (pred_on_sur_sdf,
-         sh9), pred_normals_on_sur = model.call_grad(samples_on_sur)
+                  sdf_off_sur: list[Array], loss_cfg: LossConfig):
+
+        if loss_cfg.smooth > 0:
+            val, jac = model.call_jac(samples_on_sur)
+            pred_on_sur_sdf = val[:, 0]
+            sh9 = val[:, 1:]
+            pred_normals_on_sur = jac[:, 0]
+            loss_smooth = vmap(jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:],
+                                                                   'f').mean()
+        else:
+            (pred_on_sur_sdf,
+             sh9), pred_normals_on_sur = model.call_grad(samples_on_sur)
+
         (pred_off_sur_sdf,
          _), pred_normals_off_sur = model.call_grad(samples_off_sur)
 
         # Alignment
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(normals_on_sur))
         sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
-        loss_twist = loss_cfg['twist'] * jnp.abs(
+        loss_twist = loss_cfg.twist * jnp.abs(
             (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
-        loss_align = loss_cfg['align'] * jnp.abs(sh9_n[:, 1:8] - jnp.array(
+        loss_align = loss_cfg.align * jnp.abs(sh9_n[:, 1:8] - jnp.array(
             [0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])[None, :]).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
-        loss_mse = loss_cfg['on_sur'] * jnp.abs(pred_on_sur_sdf).mean()
+        loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
-        loss_off = loss_cfg['off_sur'] * jnp.exp(
+        loss_off = loss_cfg.off_sur * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_normal = loss_cfg['normal'] * (1 - vmap(cosine_similarity)(
+        loss_normal = loss_cfg.normal * (1 - vmap(cosine_similarity)(
             pred_normals_on_sur, normals_on_sur)).mean()
-        loss_eikonal = loss_cfg['eikonal'] * 0.5 * (
+        loss_eikonal = loss_cfg.eikonal * 0.5 * (
             vmap(eikonal)(pred_normals_on_sur).mean() +
             vmap(eikonal)(pred_normals_off_sur).mean())
 
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
 
-        if loss_cfg['lip'] > 0:
-            loss += loss_cfg['lip'] * model.get_lipschitz_loss()
+        if loss_cfg.lip > 0:
+            loss += loss_cfg.lip * model.get_lipschitz_loss()
+
+        if loss_cfg.smooth > 0:
+            loss += loss_cfg.smooth * loss_smooth
 
         return loss
 
     @eqx.filter_jit
     def make_step(model: eqx.Module, opt_state: PyTree, batch: PyTree,
-                  loss_cfg: PyTree):
+                  loss_cfg: LossConfig):
         loss_value, grads = loss_func(model, **batch, loss_cfg=loss_cfg)
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)

@@ -10,7 +10,8 @@ import json
 import model_jax
 from config import Config
 from common import normalize, vis_oct_field, rm_unref_vertices
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec
+from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec, rotvec_to_R9, rotvec_to_z
+from octahedral_frames_for_feature_aligned_cross_fields import project_n
 import flow_lines
 import pyfqmr
 import open3d as o3d
@@ -22,10 +23,18 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--mc',
+    parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
-    parser.add_argument('--fl', action='store_true', help='Visualize flowline')
+    parser.add_argument('--project_vn',
+                        action='store_true',
+                        help='Project sh9 to vertex normal')
+    parser.add_argument('--vis_cube',
+                        action='store_true',
+                        help='Visualize cube')
+    parser.add_argument('--vis_flowline',
+                        action='store_true',
+                        help='Visualize flowline')
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
@@ -74,12 +83,6 @@ if __name__ == '__main__':
         F = np.delete(F, F_filter, axis=0)
         V, F = rm_unref_vertices(V, F)
 
-    if args.mc:
-        ps.init()
-        ps.register_surface_mesh(f"{cfg.name}", V, F)
-        ps.show()
-        exit()
-
     # Simplify mesh
     mesh_simplifier = pyfqmr.Simplify()
     mesh_simplifier.setMesh(V, F)
@@ -94,11 +97,32 @@ if __name__ == '__main__':
     V = np.array(V)
 
     (_, sh9), VN = infer_grad(V)
+
+    if args.vis_mc:
+        ps.init()
+        mesh_vis = ps.register_surface_mesh(f"{cfg.name}", V, F)
+        mesh_vis.add_vector_quantity("VN", VN, enabled=True)
+        ps.show()
+        exit()
+
+    if args.project_vn:
+        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
+        sh9 = vmap(project_n)(sh9.reshape(len(V), 9), R9_zn)
+
     rotvecs = vmap(proj_sh4_to_rotvec)(sh9)
     Rs = vmap(rotvec_to_R3)(rotvecs)
 
-    Q = vmap(R3_to_repvec)(Rs, VN)
+    if args.vis_cube:
+        V_vis, F_vis = vis_oct_field(Rs, V, F)
 
+        ps.init()
+        mesh = ps.register_surface_mesh("mesh", V, F)
+        mesh.add_vector_quantity("VN", VN)
+        flow_line_vis = ps.register_surface_mesh("Oct frames", V_vis, F_vis)
+        ps.show()
+        exit()
+
+    Q = vmap(R3_to_repvec)(Rs, VN)
     V_vis, F_vis, VC_vis = flow_lines.trace(V,
                                             F,
                                             VN,
@@ -108,7 +132,7 @@ if __name__ == '__main__':
                                             interval_factor=10,
                                             width_factor=0.075)
 
-    if args.fl:
+    if args.vis_flowline:
         ps.init()
         mesh = ps.register_surface_mesh("mesh", V, F)
         mesh.add_vector_quantity("VN", VN)
