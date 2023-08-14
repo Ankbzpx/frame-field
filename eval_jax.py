@@ -11,11 +11,11 @@ import os
 import model_jax
 from config import Config
 from common import normalize, vis_oct_field, rm_unref_vertices
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec, rotvec_to_R9, rotvec_to_z
+from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec, rotvec_to_R9, rotvec_n_to_z
 from octahedral_frames_for_feature_aligned_cross_fields import project_n
 import flow_lines
-import pyfqmr
 import open3d as o3d
+import pymeshlab
 
 import polyscope as ps
 from icecream import ic
@@ -71,20 +71,22 @@ def eval(cfg: Config,
         F = np.delete(F, F_filter, axis=0)
         V, F = rm_unref_vertices(V, F)
 
-    # Simplify mesh
-    mesh_simplifier = pyfqmr.Simplify()
-    mesh_simplifier.setMesh(V, F)
-    mesh_simplifier.simplify_mesh(target_count=10000,
-                                  aggressiveness=7,
-                                  preserve_border=True)
-    V, F, _ = mesh_simplifier.getMesh()
+    m = pymeshlab.Mesh(V, F)
+    ms = pymeshlab.MeshSet()
+    ms.add_mesh(m, "mesh")
+    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=10000)
+    ms.meshing_isotropic_explicit_remeshing(targetlen=pymeshlab.Percentage(2.0))
+
+    # I believe there is no other option to pass meshlab mesh back to python
+    ms.save_current_mesh(f'tmp/{cfg.name}.obj')
+    V, F = igl.read_triangle_mesh(f'tmp/{cfg.name}.obj')
+    os.system(f'rm tmp/{cfg.name}.obj')
 
     # Project on isosurface
     (sdf, _), VN = infer_grad(V)
-    V = V - sdf[:, None] * vmap(normalize)(VN)
+    VN = vmap(normalize)(VN)
+    V = V - sdf[:, None] * VN
     V = np.array(V)
-
-    (_, sh9), VN = infer_grad(V)
 
     if vis_mc:
         ps.init()
@@ -93,8 +95,10 @@ def eval(cfg: Config,
         ps.show()
         exit()
 
+    (_, sh9), VN = infer_grad(V)
+
     if project_vn:
-        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
+        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
         sh9 = vmap(project_n)(sh9.reshape(len(V), 9), R9_zn)
 
     rotvecs = vmap(proj_sh4_to_rotvec)(sh9)

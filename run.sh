@@ -1,7 +1,7 @@
-python eval_jax.py configs/bunny_dual.json
-python eval_jax.py configs/cube_twist_dual.json
-python eval_jax.py configs/fandisk_dual.json
-python eval_jax.py configs/rocker_arm_dual.json
+python train_jax.py configs/bunny_dual_smooth.json
+python train_jax.py configs/cube_twist_dual_smooth.json
+python train_jax.py configs/fandisk_dual_smooth.json
+python train_jax.py configs/rocker_arm_dual_smooth.json
 
 
 # python train_jax.py configs/bunny_smooth.json

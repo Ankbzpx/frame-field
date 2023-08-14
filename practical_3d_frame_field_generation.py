@@ -90,7 +90,7 @@ def R_z(theta):
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 @jit
-def rotvec_to_z(n):
+def rotvec_n_to_z(n):
     z = jnp.array([0, 0, 1])
     axis = jnp.cross(normalize(n), z)
     angle = jnp.arctan2(jnp.linalg.norm(axis), normalize(n)[2])
@@ -197,7 +197,7 @@ if __name__ == '__main__':
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
-    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN[boundary_vid]))
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
 
     sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
     sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])

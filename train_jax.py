@@ -13,7 +13,7 @@ import os
 
 import model_jax
 from config import Config, LossConfig
-from practical_3d_frame_field_generation import rotvec_to_z, rotvec_to_R9
+from practical_3d_frame_field_generation import rotvec_n_to_z, rotvec_to_R9
 
 import polyscope as ps
 from icecream import ic
@@ -94,7 +94,7 @@ def train(cfg: Config):
          _), pred_normals_off_sur = model.call_grad(samples_off_sur)
 
         # Alignment
-        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(normals_on_sur))
+        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normals_on_sur))
         sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
         loss_twist = loss_cfg.twist * jnp.abs(
             (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()

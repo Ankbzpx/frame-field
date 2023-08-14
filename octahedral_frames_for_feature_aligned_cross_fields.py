@@ -2,7 +2,7 @@ import igl
 import numpy as np
 from jax import vmap, numpy as jnp, jit
 from common import vis_oct_field, unroll_identity_block, normalize
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, rotvec_to_R9, rotvec_to_z, R3_to_repvec
+from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, rotvec_to_R9, rotvec_n_to_z, R3_to_repvec
 
 import scipy.sparse
 import scipy.sparse.linalg
@@ -53,7 +53,7 @@ if __name__ == '__main__':
 
     L = igl.cotmatrix(V, F)
 
-    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
 
     W = scipy.sparse.coo_array((np.ones(7), (np.arange(7), 1 + np.arange(7))),
                                shape=(7, 9)).todense()
