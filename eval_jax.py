@@ -6,6 +6,7 @@ from skimage.measure import marching_cubes
 import igl
 import argparse
 import json
+import os
 
 import model_jax
 from config import Config
@@ -19,27 +20,13 @@ import open3d as o3d
 import polyscope as ps
 from icecream import ic
 
-if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--vis_mc',
-                        action='store_true',
-                        help='Visualize MC mesh only')
-    parser.add_argument('--project_vn',
-                        action='store_true',
-                        help='Project sh9 to vertex normal')
-    parser.add_argument('--vis_cube',
-                        action='store_true',
-                        help='Visualize cube')
-    parser.add_argument('--vis_flowline',
-                        action='store_true',
-                        help='Visualize flowline')
-    args = parser.parse_args()
-
-    cfg = Config(**json.load(open(args.config)))
-    cfg.name = args.config.split('/')[-1].split('.')[0]
-
+def eval(cfg: Config,
+         out_dir,
+         vis_mc=False,
+         project_vn=False,
+         vis_cube=False,
+         vis_flowline=False):
     model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg,
                                              key=jax.random.PRNGKey(0))
     model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
@@ -98,21 +85,21 @@ if __name__ == '__main__':
 
     (_, sh9), VN = infer_grad(V)
 
-    if args.vis_mc:
+    if vis_mc:
         ps.init()
         mesh_vis = ps.register_surface_mesh(f"{cfg.name}", V, F)
         mesh_vis.add_vector_quantity("VN", VN, enabled=True)
         ps.show()
         exit()
 
-    if args.project_vn:
+    if project_vn:
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_to_z)(VN))
         sh9 = vmap(project_n)(sh9.reshape(len(V), 9), R9_zn)
 
     rotvecs = vmap(proj_sh4_to_rotvec)(sh9)
     Rs = vmap(rotvec_to_R3)(rotvecs)
 
-    if args.vis_cube:
+    if vis_cube:
         V_vis, F_vis = vis_oct_field(Rs, V, F)
 
         ps.init()
@@ -132,7 +119,7 @@ if __name__ == '__main__':
                                             interval_factor=10,
                                             width_factor=0.075)
 
-    if args.vis_flowline:
+    if vis_flowline:
         ps.init()
         mesh = ps.register_surface_mesh("mesh", V, F)
         mesh.add_vector_quantity("VN", VN)
@@ -140,10 +127,38 @@ if __name__ == '__main__':
         flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
         ps.show()
 
-    igl.write_triangle_mesh(f"output/{cfg.name}_mc.obj", V, F)
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()
     stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
     stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
     stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(f"output/{cfg.name}_stroke.obj", stroke_mesh)
+    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_stroke.obj", stroke_mesh)
+
+
+if __name__ == '__main__':
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', type=str, help='Path to config file.')
+    parser.add_argument('--vis_mc',
+                        action='store_true',
+                        help='Visualize MC mesh only')
+    parser.add_argument('--project_vn',
+                        action='store_true',
+                        help='Project sh9 to vertex normal')
+    parser.add_argument('--vis_cube',
+                        action='store_true',
+                        help='Visualize cube')
+    parser.add_argument('--vis_flowline',
+                        action='store_true',
+                        help='Visualize flowline')
+    args = parser.parse_args()
+
+    cfg = Config(**json.load(open(args.config)))
+    cfg.name = args.config.split('/')[-1].split('.')[0]
+
+    eval(cfg, "output", args.vis_mc, args.project_vn, args.vis_cube,
+         args.vis_flowline)

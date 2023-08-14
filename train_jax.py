@@ -18,6 +18,8 @@ from practical_3d_frame_field_generation import rotvec_to_z, rotvec_to_R9
 import polyscope as ps
 from icecream import ic
 
+matplotlib.use('Agg')
+
 
 @jit
 def cosine_similarity(x, y):
@@ -31,16 +33,7 @@ def eikonal(x):
     return jnp.abs(jnp.linalg.norm(x) - 1)
 
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('config', type=str, help='Path to config file.')
-    args = parser.parse_args()
-
-    cfg = Config(**json.load(open(args.config)))
-    cfg.name = args.config.split('/')[-1].split('.')[0]
-
-    matplotlib.use('Agg')
-
+def train(cfg: Config):
     sdf_data = np.load(cfg.sdf_path)
     samples_on_sur = sdf_data['samples_on_sur']
     normals_on_sur = sdf_data['normals_on_sur']
@@ -154,3 +147,14 @@ if __name__ == '__main__':
             plt.savefig(f"{checkpoints_folder}/{cfg.name}_loss_history.jpg")
 
     eqx.tree_serialise_leaves(f"{checkpoints_folder}/{cfg.name}.eqx", model)
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('config', type=str, help='Path to config file.')
+    args = parser.parse_args()
+
+    cfg = Config(**json.load(open(args.config)))
+    cfg.name = args.config.split('/')[-1].split('.')[0]
+
+    train(cfg)
