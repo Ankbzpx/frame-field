@@ -44,6 +44,9 @@ class MLP(eqx.Module):
     def __init__():
         pass
 
+    def single_call(self, x):
+        pass
+
     def single_call_split(self, x):
         x = self.single_call(x)
         return x[0], x[1:]
@@ -59,6 +62,9 @@ class MLP(eqx.Module):
         x = vmap(self.single_call)(x)
         return x
 
+    def get_aux_loss(self):
+        pass
+
 
 class StandardMLP(MLP):
     layers: list
@@ -70,7 +76,8 @@ class StandardMLP(MLP):
                  hidden_layers: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 activation='elu'):
+                 activation='elu',
+                 **kwargs):
         keys = jax.random.split(key, hidden_layers + 2)
 
         xavier_init = activation == 'tanh'
@@ -101,7 +108,8 @@ class ResMLP(MLP):
                  hidden_layers: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 activation='elu'):
+                 activation='elu',
+                 **kwargs):
 
         keys = jax.random.split(key, 2 * hidden_layers + 2)
 
@@ -166,7 +174,8 @@ class LipMLP(MLP):
                  hidden_layers: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 activation='tanh'):
+                 activation='tanh',
+                 **kwargs):
         keys = jax.random.split(key, hidden_layers + 2)
 
         xavier_init = activation == 'tanh'
@@ -186,7 +195,9 @@ class LipMLP(MLP):
                 x = getattr(jax.nn, self.activation)(x)
         return x
 
-    def get_lipschitz_loss(self):
+    # Lipschitz loss
+    # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/7048aada5db1e6603a3d13fb1bc1ee2c61762985/demos/lipschitz_mlp/model.py#L82
+    def get_aux_loss(self):
         loss_lip = 1.0
         for layer in self.layers:
             loss_lip = loss_lip * jax.nn.softplus(layer.c)
@@ -254,13 +265,50 @@ class Siren(MLP):
         return x
 
 
+class DualMLP(MLP):
+    sdf_mlp: MLP
+    aux_mlp: MLP
+
+    def __init__(self,
+                 key: jax.random.PRNGKey,
+                 sdf_mlp_type='Siren',
+                 aux_mlp_type='StandardMLP',
+                 **mlp_cfg):
+
+        sdf_cfg = mlp_cfg
+        aux_cfg = mlp_cfg.copy()
+
+        sdf_cfg['out_features'] = 1
+        aux_cfg['out_features'] = aux_cfg['out_features'] - 1 if aux_cfg[
+            'out_features'] > 1 else 1
+
+        sdf_key, aux_key = jax.random.split(key)
+
+        # https://stackoverflow.com/questions/41149734/how-do-i-call-a-function-from-the-same-file-as-i-would-if-using-getattr
+        self.sdf_mlp = globals()[sdf_mlp_type](**sdf_cfg, key=sdf_key)
+        self.aux_mlp = globals()[aux_mlp_type](**aux_cfg, key=aux_key)
+
+    def single_call(self, x):
+        sdf = self.sdf_mlp.single_call(x)
+        aux = self.aux_mlp.single_call(x)
+        return jnp.concatenate([sdf, aux])
+
+
 if __name__ == '__main__':
     from icecream import ic
 
     key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-    model = StandardMLP(3, 256, 4, 10, key_model)
 
+    mlp_cfg = {
+        'in_features': 3,
+        'hidden_features': 256,
+        'hidden_layers': 4,
+        'out_features': 10
+    }
+
+    model = DualMLP(**mlp_cfg, key=key_model)
     x = jax.random.uniform(key_data, (20, 3))
+
     value, jac = model.call_jac(x)
 
     ic(value.shape, jac.shape)

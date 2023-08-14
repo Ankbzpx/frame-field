@@ -53,7 +53,8 @@ def train(cfg: Config):
         'sdf_off_sur': sdf_off_sur[idx]
     }
 
-    model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg, key=model_key)
+    model: model_jax.MLP = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg,
+                                                            key=model_key)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
     lr_scheduler = optax.warmup_cosine_decay_schedule(
@@ -74,7 +75,7 @@ def train(cfg: Config):
 
     @eqx.filter_jit
     @eqx.filter_value_and_grad
-    def loss_func(model: eqx.Module, samples_on_sur: list[Array],
+    def loss_func(model: model_jax.MLP, samples_on_sur: list[Array],
                   normals_on_sur: list[Array], samples_off_sur: list[Array],
                   sdf_off_sur: list[Array], loss_cfg: LossConfig):
 
@@ -114,7 +115,7 @@ def train(cfg: Config):
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
 
         if loss_cfg.lip > 0:
-            loss += loss_cfg.lip * model.get_lipschitz_loss()
+            loss += loss_cfg.lip * model.get_aux_loss()
 
         if loss_cfg.smooth > 0:
             loss += loss_cfg.smooth * loss_smooth
@@ -122,7 +123,7 @@ def train(cfg: Config):
         return loss
 
     @eqx.filter_jit
-    def make_step(model: eqx.Module, opt_state: PyTree, batch: PyTree,
+    def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
         loss_value, grads = loss_func(model, **batch, loss_cfg=loss_cfg)
         updates, opt_state = optim.update(grads, opt_state, model)

@@ -27,8 +27,9 @@ def eval(cfg: Config,
          project_vn=False,
          vis_cube=False,
          vis_flowline=False):
-    model = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg,
-                                             key=jax.random.PRNGKey(0))
+    model: model_jax.MLP = getattr(model_jax,
+                                   cfg.mlp_type)(**cfg.mlp_cfg,
+                                                 key=jax.random.PRNGKey(0))
     model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
 
     grid_res = 512
