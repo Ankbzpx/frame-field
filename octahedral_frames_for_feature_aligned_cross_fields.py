@@ -68,17 +68,18 @@ if __name__ == '__main__':
     L_unroll = unroll_identity_block(-L, 9)
 
     # Least square
-    Q = scipy.sparse.vstack([L_unroll, A])
-    c = np.concatenate([np.zeros(9 * NV), b])
+    boundary_weight = 0.1
+    Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
+    c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
     x, _ = scipy.sparse.linalg.cg(Q.T @ Q, Q.T @ c)
 
     # Quadratic
-    prob = osqp.OSQP()
-    prob.setup(P=L_unroll, A=A, l=b, u=b)
-    prob.warm_start(x=x)
-    res = prob.solve()
-    assert res.info.status == 'solved'
-    x = res.x
+    # prob = osqp.OSQP()
+    # prob.setup(P=L_unroll, A=A, l=b, u=b)
+    # prob.warm_start(x=x)
+    # res = prob.solve()
+    # assert res.info.status == 'solved'
+    # x = res.x
 
     x = x.reshape(NV, 9)
     # x = vmap(project_n)(x.reshape(NV, 9), R9_zn)
