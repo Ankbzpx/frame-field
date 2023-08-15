@@ -2,7 +2,7 @@ import igl
 import numpy as np
 from jax import vmap, numpy as jnp, jit
 from common import vis_oct_field, unroll_identity_block, normalize
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, rotvec_to_R9, rotvec_n_to_z, R3_to_repvec
+from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, rotvec_to_R9, rotvec_to_R9_expm, rotvec_n_to_z, R3_to_repvec
 
 import scipy.sparse
 import scipy.sparse.linalg

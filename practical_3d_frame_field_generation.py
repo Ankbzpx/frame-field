@@ -93,7 +93,7 @@ def R_z(theta):
 def rotvec_n_to_z(n):
     z = jnp.array([0, 0, 1])
     axis = jnp.cross(normalize(n), z)
-    angle = jnp.arctan2(jnp.linalg.norm(axis), normalize(n)[2])
+    angle = jnp.arctan2(jnp.linalg.norm(axis) + 1e-8, normalize(n)[2])
     return angle * normalize(axis)
 
 
@@ -105,7 +105,7 @@ def skew_symmetric(rotvec):
 
 @jit
 def rotvec_to_R3(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec)
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
     A = skew_symmetric(rotvec / rotvec_norm)
     return jnp.eye(
         3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
@@ -119,7 +119,7 @@ def cartesian_to_spherical(v):
 
 @jit
 def rotvec_to_R9(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec)
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
     phi, theta = cartesian_to_spherical(rotvec / rotvec_norm)
     R_zv = R_x90.T @ R_z(-phi) @ R_x90 @ R_z(-theta)
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
