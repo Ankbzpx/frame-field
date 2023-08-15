@@ -98,22 +98,52 @@ def rotvec_n_to_z(n):
 
 
 @jit
-def rotvec_to_R3(rotvec):
-    A = jnp.array([[0, -rotvec[2], rotvec[1]], [rotvec[2], 0, -rotvec[0]],
-                   [-rotvec[1], rotvec[0], 0]])
+def skew_symmetric(rotvec):
+    return jnp.array([[0, -rotvec[2], rotvec[1]], [rotvec[2], 0, -rotvec[0]],
+                      [-rotvec[1], rotvec[0], 0]])
 
-    return jax.scipy.linalg.expm(A)
+
+@jit
+def rotvec_to_R3(rotvec):
+    rotvec_norm = jnp.linalg.norm(rotvec)
+    A = skew_symmetric(rotvec / rotvec_norm)
+    return jnp.eye(
+        3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
+
+
+# Note the phi, theta have different convention as in rendering
+@jit
+def cartesian_to_spherical(v):
+    return jnp.arccos(v[2]), jnp.arctan2(v[1], v[0])
 
 
 @jit
 def rotvec_to_R9(rotvec):
-    A = rotvec[0] * Lx + rotvec[1] * Ly + rotvec[2] * Lz
-    return jax.scipy.linalg.expm(A)
+    rotvec_norm = jnp.linalg.norm(rotvec)
+    phi, theta = cartesian_to_spherical(rotvec / rotvec_norm)
+    R_zv = R_x90.T @ R_z(-phi) @ R_x90 @ R_z(-theta)
+    return R_zv.T @ R_z(rotvec_norm) @ R_zv
 
 
 @jit
 def rotvec_to_sh4(rotvec):
     return rotvec_to_R9(rotvec) @ sh4_canonical
+
+
+@jit
+def rotvec_to_R3_expm(rotvec):
+    return jax.scipy.linalg.expm(skew_symmetric(rotvec))
+
+
+@jit
+def rotvec_to_R9_expm(rotvec):
+    A = rotvec[0] * Lx + rotvec[1] * Ly + rotvec[2] * Lz
+    return jax.scipy.linalg.expm(A)
+
+
+@jit
+def rotvec_to_sh4_expm(rotvec):
+    return rotvec_to_R9_expm(rotvec) @ sh4_canonical
 
 
 # TODO: Adjust the threshold since the input may not be valid SH4 coefficients
@@ -197,7 +227,7 @@ if __name__ == '__main__':
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
-    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
+    R9_zn = vmap(rotvec_to_R9_expm)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
 
     sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
     sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
