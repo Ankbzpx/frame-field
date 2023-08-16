@@ -88,6 +88,14 @@ def R_z(theta):
 # yapf: enable
 
 
+# R_z(theta) @ sh4_canonical
+def sh4_z(theta):
+    return jnp.array([0, 0, 0, 0, jnp.sqrt(
+        7 / 12), 0, 0, 0, 0]) + jnp.sqrt(5 / 12) * jnp.array(
+            [jnp.sin(4 * theta), 0, 0, 0, 0, 0, 0, 0,
+             jnp.cos(4 * theta)])
+
+
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 @jit
 def rotvec_n_to_z(n):
@@ -125,9 +133,11 @@ def rotvec_to_R9(rotvec):
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
 
 
+# rotvec_to_R9(rotvec) @ sh4_canonical
 @jit
 def rotvec_to_sh4(rotvec):
-    return rotvec_to_R9(rotvec) @ sh4_canonical
+    R9 = rotvec_to_R9(rotvec)
+    return jnp.sqrt(7 / 12) * R9[:, 4] + jnp.sqrt(5 / 12) * R9[:, -1]
 
 
 @jit
@@ -227,7 +237,7 @@ if __name__ == '__main__':
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
-    R9_zn = vmap(rotvec_to_R9_expm)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
 
     sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
     sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])

@@ -12,6 +12,7 @@ def normalize(x):
     return x / (jnp.linalg.norm(x) + 1e-8)
 
 
+# Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 def vis_oct_field(R3s, V, T, scale=0.1):
     V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
                        [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1]])
