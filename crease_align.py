@@ -68,6 +68,7 @@ def quad_crease(cfg0, cfg1, angle):
 @jit
 def sh9_n_align(R9_zn, theta):
     sh9_z = sh4_z(theta)
+    # R9_zn.T @ sh9_z
     return R9_zn[0, :] * sh9_z[0] + R9_zn[4, :] * sh9_z[4] + R9_zn[
         -1, :] * sh9_z[-1]
 
