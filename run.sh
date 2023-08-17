@@ -1,7 +1,7 @@
-python train_jax.py configs/bunny_dual_smooth.json
-python train_jax.py configs/cube_twist_dual_smooth.json
-python train_jax.py configs/fandisk_dual_smooth.json
-python train_jax.py configs/rocker_arm_dual_smooth.json
+# python run_ablation.py configs/bunny_dual_smooth.json
+# python run_ablation.py configs/cube_twist_dual_smooth.json
+# python run_ablation.py configs/fandisk_dual_smooth.json
+# python run_ablation.py configs/rocker_arm_dual_smooth.json
 
 
 # python train_jax.py configs/bunny_smooth.json
@@ -28,7 +28,7 @@ python train_jax.py configs/rocker_arm_dual_smooth.json
 # python train_jax.py configs/rocker_arm_lip.json
 
 
-# python train_jax.py configs/bunny_mlp.json
-# python train_jax.py configs/cube_twist_mlp.json
-# python train_jax.py configs/fandisk_mlp.json
-# python train_jax.py configs/rocker_arm_mlp.json
+python train_jax.py configs/bunny_mlp.json
+python train_jax.py configs/cube_twist_mlp.json
+python train_jax.py configs/fandisk_mlp.json
+python train_jax.py configs/rocker_arm_mlp.json

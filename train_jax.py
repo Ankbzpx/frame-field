@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
+import scipy
 
 import model_jax
 from config import Config, LossConfig
@@ -98,8 +99,10 @@ def train(cfg: Config):
         sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
         loss_twist = loss_cfg.twist * jnp.abs(
             (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
-        loss_align = loss_cfg.align * jnp.abs(sh9_n[:, 1:8] - jnp.array(
-            [0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])[None, :]).mean()
+        loss_align = loss_cfg.align * (
+            1 - vmap(cosine_similarity, in_axes=[0, None])
+            (sh9_n[:, 1:8], jnp.array([0, 0, 0,
+                                       np.sqrt(7 / 12), 0, 0, 0]))).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()

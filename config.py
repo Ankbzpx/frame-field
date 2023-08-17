@@ -8,6 +8,8 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
+    sdf_mlp_type: str = 'Siren'
+    aux_mlp_type: str = 'Siren'
 
 
 @dataclass

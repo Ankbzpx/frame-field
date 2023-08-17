@@ -77,7 +77,7 @@ if __name__ == '__main__':
     # For this config, oct field starts to align crease at around 10 degree
     cfg0 = {'width': 0.5, 'height': 2.0, 'cfg': 3}
     cfg1 = {'width': 2.0, 'height': 2.0, 'cfg': 0}
-    V, F, VN = quad_crease(cfg0, cfg1, 10)
+    V, F, VN = quad_crease(cfg0, cfg1, 60)
     NV = len(V)
     rotvec_zn = vmap(rotvec_n_to_z)(VN)
     R3_zn = vmap(rotvec_to_R3)(rotvec_zn)

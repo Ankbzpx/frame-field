@@ -272,7 +272,7 @@ class DualMLP(MLP):
     def __init__(self,
                  key: jax.random.PRNGKey,
                  sdf_mlp_type='Siren',
-                 aux_mlp_type='StandardMLP',
+                 aux_mlp_type='Siren',
                  **mlp_cfg):
 
         sdf_cfg = mlp_cfg
