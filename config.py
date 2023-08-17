@@ -29,7 +29,9 @@ class LossConfig:
     off_sur: float = 1e2
     normal: float = 1e2
     eikonal: float = 5e1
-    align: float = 3e3
+
+    # align & twist must match
+    align: float = 1e2
     twist: float = 1e2
     lip: float = 0
     smooth: float = 0

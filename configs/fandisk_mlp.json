@@ -3,8 +3,5 @@
     "mlp_type": "StandardMLP",
     "mlp": {
         "out_features": 10
-    },
-    "loss_cfg": {
-        "align": 1e2
     }
 }
