@@ -199,6 +199,29 @@ def R3_to_repvec(R, vn):
     return R[:, idx]
 
 
+# May not be correct for pi, but I don't think it matters?
+# https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
+@jit
+def R3_to_rotvec(R):
+    u = jnp.linalg.eigh(R)[1][:, 2]
+    theta = jnp.arccos(0.5 * (jnp.trace(R) - 1))
+    u_test = jnp.array(
+        [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    dp = jnp.dot(u, u_test)
+    return jnp.where(dp > 0, theta * u, -theta * u)
+
+
+# Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.
+@jit
+def rot6d_to_R3(rot6d):
+    a0 = rot6d[:3]
+    a1 = rot6d[3:]
+    b0 = normalize(a0)
+    b1 = normalize(a1 - jnp.dot(b0, a1) * b0)
+    b2 = jnp.cross(b0, b1)
+    return jnp.array([b0, b1, b2]).T
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
