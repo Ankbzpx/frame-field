@@ -1,7 +1,8 @@
 {
     "sdf_path": "data/sdf/cube_twist.npz",
-    "mlp_type": "ResMLP",
-    "mlp": {
-        "out_features": 10
-    }
+    "mlps": [
+        {
+            "out_features": 10
+        }
+    ]
 }

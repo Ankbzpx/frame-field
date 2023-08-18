@@ -8,8 +8,6 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
-    sdf_mlp_type: str = 'Siren'
-    aux_mlp_type: str = 'Siren'
 
 
 @dataclass
@@ -35,25 +33,38 @@ class LossConfig:
     twist: float = 1e2
     lip: float = 0
     smooth: float = 0
-    rot: float = 1e2
+    rot: float = 0
     match_sdf_normal: bool = False
 
 
 @dataclass
 class Config:
     sdf_path: str
-    mlp_type: str = "MLP"
-    mlp: MLPConfig = MLPConfig()
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()
 
+    mlp_types: list[str] = field(default_factory=lambda: ['StandardMLP'])
+    mlps: list[MLPConfig] = field(default_factory=lambda: [MLPConfig()])
+
     @property
-    def mlp_cfg(self) -> dict:
-        return asdict(self.mlp)
+    def mlp_cfgs(self) -> list[dict]:
+        return [asdict(mlp) for mlp in self.mlps]
 
     def __post_init__(self):
-        if not isinstance(self.mlp, MLPConfig):
-            self.mlp = MLPConfig(**self.mlp)
+        n_mlp_types = len(self.mlp_types)
+        n_mlps = len(self.mlps)
+
+        if n_mlp_types == n_mlps:
+            assert n_mlp_types == 1 or n_mlps == 1
+
+        self.mlp_types = self.mlp_types * (max(n_mlp_types, n_mlps) //
+                                           n_mlp_types)
+        self.mlps = self.mlps * (max(n_mlp_types, n_mlps) // n_mlps)
+
+        self.mlps = [
+            MLPConfig(**mlp) if not isinstance(mlp, MLPConfig) else mlp
+            for mlp in self.mlps
+        ]
 
         if not isinstance(self.training, TrainingConfig):
             self.training = TrainingConfig(**self.training)

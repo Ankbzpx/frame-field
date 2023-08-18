@@ -63,11 +63,11 @@ class MLP(eqx.Module):
         return x
 
     def get_aux_loss(self):
-        pass
+        return 0
 
 
 class StandardMLP(MLP):
-    layers: list
+    layers: list[eqx.Module]
     activation: str
 
     def __init__(self,
@@ -99,7 +99,7 @@ class StandardMLP(MLP):
 
 
 class ResMLP(MLP):
-    layers: list
+    layers: list[eqx.Module]
     activation: str
 
     def __init__(self,
@@ -165,7 +165,7 @@ class LipLinear(Linear):
 
 
 class LipMLP(MLP):
-    layers: list
+    layers: list[eqx.Module]
     activation: str
 
     def __init__(self,
@@ -233,7 +233,7 @@ class SineLayer(eqx.Module):
 
 
 class Siren(MLP):
-    layers: list
+    layers: list[eqx.Module]
 
     def __init__(self,
                  in_features: int,
@@ -265,51 +265,19 @@ class Siren(MLP):
         return x
 
 
-class DualMLP(MLP):
-    sdf_mlp: MLP
-    aux_mlp: MLP
+class MLPComposer(MLP):
+    mlps: list[MLP]
 
-    def __init__(self,
-                 key: jax.random.PRNGKey,
-                 sdf_mlp_type='Siren',
-                 aux_mlp_type='Siren',
-                 **mlp_cfg):
+    def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
+        keys = jax.random.split(key, len(mlp_types))
 
-        sdf_cfg = mlp_cfg
-        aux_cfg = mlp_cfg.copy()
-
-        sdf_cfg['out_features'] = 1
-        aux_cfg['out_features'] = aux_cfg['out_features'] - 1 if aux_cfg[
-            'out_features'] > 1 else 1
-
-        sdf_key, aux_key = jax.random.split(key)
-
-        # https://stackoverflow.com/questions/41149734/how-do-i-call-a-function-from-the-same-file-as-i-would-if-using-getattr
-        self.sdf_mlp = globals()[sdf_mlp_type](**sdf_cfg, key=sdf_key)
-        self.aux_mlp = globals()[aux_mlp_type](**aux_cfg, key=aux_key)
+        self.mlps = [
+            globals()[mlp_type](**mlp_cfg, key=subkey)
+            for (mlp_type, mlp_cfg, subkey) in zip(mlp_types, mlp_cfgs, keys)
+        ]
 
     def single_call(self, x):
-        sdf = self.sdf_mlp.single_call(x)
-        aux = self.aux_mlp.single_call(x)
-        return jnp.concatenate([sdf, aux])
+        return jnp.concatenate([mlp.single_call(x) for mlp in self.mlps])
 
-
-if __name__ == '__main__':
-    from icecream import ic
-
-    key_model, key_data = jax.random.split(jax.random.PRNGKey(1), 2)
-
-    mlp_cfg = {
-        'in_features': 3,
-        'hidden_features': 256,
-        'hidden_layers': 4,
-        'out_features': 10
-    }
-
-    model = DualMLP(**mlp_cfg, key=key_model)
-    x = jax.random.uniform(key_data, (20, 3))
-
-    value, jac = model.call_jac(x)
-
-    ic(value.shape, jac.shape)
-    ic(vmap(jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:], 'f'))
+    def get_aux_loss(self):
+        return jnp.sum([mlp.get_aux_loss() for mlp in self.mlps])

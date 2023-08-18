@@ -1,7 +1,0 @@
-{
-    "sdf_path": "data/sdf/cube_twist.npz",
-    "mlp_type": "StandardMLP",
-    "mlp": {
-        "out_features": 10
-    }
-}

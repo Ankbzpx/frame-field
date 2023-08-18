@@ -1,9 +1,0 @@
-{
-    "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_type": "DualMLP",
-    "mlp": {
-        "out_features": 10,
-        "sdf_mlp_type": "StandardMLP",
-        "aux_mlp_type": "StandardMLP"
-    }
-}

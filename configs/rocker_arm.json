@@ -1,7 +1,8 @@
 {
-    "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_type": "ResMLP",
-    "mlp": {
-        "out_features": 10
-    }
+    "sdf_path": "data/sdf/fandisk.npz",
+    "mlps": [
+        {
+            "out_features": 10
+        }
+    ]
 }

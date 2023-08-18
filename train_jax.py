@@ -34,14 +34,22 @@ def eikonal(x):
 
 
 def train(cfg: Config):
+    model_key, data_key = jax.random.split(
+        jax.random.PRNGKey(cfg.training.seed), 2)
+
+    if len(cfg.mlp_types) == 1:
+        model: model_jax.MLP = getattr(model_jax,
+                                       cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
+                                                         key=model_key)
+    else:
+        model: model_jax.MLP = model_jax.MLPComposer(model_key, cfg.mlp_types,
+                                                     cfg.mlp_cfgs)
+
     sdf_data = np.load(cfg.sdf_path)
     samples_on_sur = sdf_data['samples_on_sur']
     normals_on_sur = sdf_data['normals_on_sur']
     samples_off_sur = sdf_data['samples_off_sur']
     sdf_off_sur = sdf_data['sdf_off_sur']
-
-    model_key, data_key = jax.random.split(
-        jax.random.PRNGKey(cfg.training.seed), 2)
 
     # preload data in memory to speedup training
     idx = jax.random.choice(data_key, jnp.arange(len(samples_on_sur)),
@@ -52,9 +60,6 @@ def train(cfg: Config):
         'samples_off_sur': samples_off_sur[idx],
         'sdf_off_sur': sdf_off_sur[idx]
     }
-
-    model: model_jax.MLP = getattr(model_jax, cfg.mlp_type)(**cfg.mlp_cfg,
-                                                            key=model_key)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
     # peak_value 1e-4 for Siren or it blows up
@@ -70,12 +75,8 @@ def train(cfg: Config):
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
 
-    # Loss plot
-    # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
-    loss_history = np.zeros(total_steps)
-
     @eqx.filter_jit
-    @eqx.filter_value_and_grad
+    @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: list[Array],
                   normals_on_sur: list[Array], samples_off_sur: list[Array],
                   sdf_off_sur: list[Array], loss_cfg: LossConfig):
@@ -120,44 +121,67 @@ def train(cfg: Config):
 
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
 
+        loss_dict = {
+            'loss_mse': loss_mse,
+            'loss_off': loss_off,
+            'loss_normal': loss_normal,
+            'loss_eikonal': loss_eikonal,
+            'loss_twist': loss_twist,
+            'loss_align': loss_align
+        }
+
         if loss_cfg.lip > 0:
             loss_lip = loss_cfg.lip * model.get_aux_loss()
             loss += loss_lip
+            loss_dict['loss_lip'] = loss_lip
 
         if loss_cfg.smooth > 0:
             loss_smooth = loss_cfg.smooth * vmap(
                 jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:10], 'f').mean()
             loss += loss_smooth
+            loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.rot > 0:
             sh9_est = vmap(rotvec_to_sh4)(aux[:, 9:])
             loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(
                 sh9_est, jax.lax.stop_gradient(sh9)).mean())
             loss += loss_rot
+            loss_dict['loss_rot'] = loss_rot
 
-        return loss
+        loss_dict['loss_total'] = loss
+
+        return loss, loss_dict
 
     @eqx.filter_jit
     def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
-        loss_value, grads = loss_func(model, **batch, loss_cfg=loss_cfg)
+
+        grads, loss_dict = loss_func(model, **batch, loss_cfg=loss_cfg)
         updates, opt_state = optim.update(grads, opt_state, model)
         model = eqx.apply_updates(model, updates)
-        return model, opt_state, loss_value
+        return model, opt_state, loss_dict
 
+    loss_history = {}
     pbar = tqdm(range(total_steps))
     for epoch in pbar:
         batch_id = epoch % cfg.training.n_steps
         batch = jax.tree_map(lambda x: x[batch_id], data)
-        model, opt_state, loss_value = make_step(model, opt_state, batch,
-                                                 cfg.loss_cfg)
-        loss_history[epoch] = loss_value
-        pbar.set_postfix({"loss": loss_value})
+        model, opt_state, loss_dict = make_step(model, opt_state, batch,
+                                                cfg.loss_cfg)
+        pbar.set_postfix({"loss": loss_dict['loss_total']})
 
+        for key in loss_dict.keys():
+            # preallocate
+            if key not in loss_history:
+                loss_history[key] = np.zeros(total_steps)
+            loss_history[key][epoch] = loss_dict[key]
+
+        # Loss plot
+        # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
         if epoch % 1000 == 0:
             plt.close(1)
             plt.figure(1)
-            plt.semilogy(loss_history[:epoch])
+            plt.semilogy(loss_history['loss_total'][:epoch])
             plt.title('Reconstruction loss')
             plt.grid()
             plt.savefig(f"{checkpoints_folder}/{cfg.name}_loss_history.jpg")

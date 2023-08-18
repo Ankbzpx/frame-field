@@ -27,9 +27,15 @@ def eval(cfg: Config,
          project_vn=False,
          vis_cube=False,
          vis_flowline=False):
-    model: model_jax.MLP = getattr(model_jax,
-                                   cfg.mlp_type)(**cfg.mlp_cfg,
-                                                 key=jax.random.PRNGKey(0))
+    model_key = jax.random.PRNGKey(0)
+    if len(cfg.mlp_types) == 1:
+        model: model_jax.MLP = getattr(model_jax,
+                                       cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
+                                                         key=model_key)
+    else:
+        model: model_jax.MLP = model_jax.MLPComposer(model_key, cfg.mlp_types,
+                                                     cfg.mlp_cfgs)
+
     model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
 
     grid_res = 512
