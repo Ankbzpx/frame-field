@@ -12,11 +12,11 @@ class MLPConfig:
 
 @dataclass
 class TrainingConfig:
-    lr: float = 1e-4
-    lr_peak: float = 5e-4
+    lr: float = 8e-4
+    lr_peak: float = 4e-3
     n_epochs: int = 1
-    n_steps: int = 100000    # per epoch
-    n_samples: int = 1024    # per step
+    n_steps: int = 12500    # per epoch
+    n_samples: int = 8192    # per step
     plot_every: int = 1000
     seed: int = 2139028991    # 1111111011111101111110111111111
 

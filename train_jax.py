@@ -39,17 +39,17 @@ def train(cfg: Config):
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
 
-    # During experiment, large lr (i.e. 5e-4) easily blows up Siren. So special care must be taken...
+    # During experiment, large lr (i.e. 5e-4 for batch size of 1024) easily blows up Siren. So special care must be taken...
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=cfg.training.lr_peak,
-        warmup_steps=1000,
+        warmup_steps=500,
         decay_steps=total_steps)
 
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=cfg.training.lr,
-        warmup_steps=1000,
+        warmup_steps=500,
         decay_steps=total_steps)
 
     if len(cfg.mlp_types) == 1:
@@ -211,7 +211,7 @@ def train(cfg: Config):
         # TODO: better plot like using tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
-        if epoch % 1000 == 0:
+        if epoch % 500 == 0:
             plt.close(1)
             plt.figure(1)
             plt.semilogy(loss_history['loss_total'][:epoch])
