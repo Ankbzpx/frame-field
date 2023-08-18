@@ -202,6 +202,11 @@ def train(cfg: Config):
                                                 cfg.loss_cfg)
         pbar.set_postfix({"loss": loss_dict['loss_total']})
 
+        if np.isnan(loss_dict['loss_total']):
+            print("NaN occurred!")
+            print(loss_dict)
+            exit()
+
         for key in loss_dict.keys():
             # preallocate
             if key not in loss_history:

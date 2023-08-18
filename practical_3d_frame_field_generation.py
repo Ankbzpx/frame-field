@@ -122,7 +122,8 @@ def rotvec_to_R3(rotvec):
 # Note the phi, theta have different convention as in rendering
 @jit
 def cartesian_to_spherical(v):
-    return jnp.arccos(v[2]), jnp.arctan2(v[1], v[0])
+    return jnp.arctan2(jnp.sqrt((v[1]**2 + v[0]**2)),
+                       v[2]), jnp.arctan2(v[1], v[0])
 
 
 @jit
