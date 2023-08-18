@@ -10,11 +10,10 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
-import scipy
 
 import model_jax
 from config import Config, LossConfig
-from practical_3d_frame_field_generation import rotvec_n_to_z, rotvec_to_R9
+from practical_3d_frame_field_generation import rotvec_n_to_z, rotvec_to_R9, rotvec_to_sh4
 
 import polyscope as ps
 from icecream import ic
@@ -58,6 +57,7 @@ def train(cfg: Config):
                                                             key=model_key)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    # peak_value 1e-4 for Siren or it blows up
     lr_scheduler = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=cfg.training.lr_peak,
@@ -83,19 +83,22 @@ def train(cfg: Config):
         if loss_cfg.smooth > 0:
             val, jac = model.call_jac(samples_on_sur)
             pred_on_sur_sdf = val[:, 0]
-            sh9 = val[:, 1:]
+            aux = val[:, 1:]
+            sh9 = aux[:, :9]
             pred_normals_on_sur = jac[:, 0]
-            loss_smooth = vmap(jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:],
-                                                                   'f').mean()
         else:
             (pred_on_sur_sdf,
-             sh9), pred_normals_on_sur = model.call_grad(samples_on_sur)
+             aux), pred_normals_on_sur = model.call_grad(samples_on_sur)
+            sh9 = aux[:, :9]
 
         (pred_off_sur_sdf,
          _), pred_normals_off_sur = model.call_grad(samples_off_sur)
 
         # Alignment
-        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normals_on_sur))
+        normal_align = jnp.where(loss_cfg.match_sdf_normal,
+                                 jax.lax.stop_gradient(pred_normals_on_sur),
+                                 normals_on_sur)
+        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
         sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
         loss_twist = loss_cfg.twist * jnp.abs(
             (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
@@ -118,10 +121,19 @@ def train(cfg: Config):
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
 
         if loss_cfg.lip > 0:
-            loss += loss_cfg.lip * model.get_aux_loss()
+            loss_lip = loss_cfg.lip * model.get_aux_loss()
+            loss += loss_lip
 
         if loss_cfg.smooth > 0:
-            loss += loss_cfg.smooth * loss_smooth
+            loss_smooth = loss_cfg.smooth * vmap(
+                jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:10], 'f').mean()
+            loss += loss_smooth
+
+        if loss_cfg.rot > 0:
+            sh9_est = vmap(rotvec_to_sh4)(aux[:, 9:])
+            loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(
+                sh9_est, jax.lax.stop_gradient(sh9)).mean())
+            loss += loss_rot
 
         return loss
 

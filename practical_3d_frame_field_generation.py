@@ -113,7 +113,7 @@ def skew_symmetric(rotvec):
 
 @jit
 def rotvec_to_R3(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-6
     A = skew_symmetric(rotvec / rotvec_norm)
     return jnp.eye(
         3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
@@ -127,7 +127,7 @@ def cartesian_to_spherical(v):
 
 @jit
 def rotvec_to_R9(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-6
     phi, theta = cartesian_to_spherical(rotvec / rotvec_norm)
     R_zv = R_x90.T @ R_z(-phi) @ R_x90 @ R_z(-theta)
     return R_zv.T @ R_z(rotvec_norm) @ R_zv

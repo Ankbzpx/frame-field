@@ -35,6 +35,8 @@ class LossConfig:
     twist: float = 1e2
     lip: float = 0
     smooth: float = 0
+    rot: float = 1e2
+    match_sdf_normal: bool = False
 
 
 @dataclass

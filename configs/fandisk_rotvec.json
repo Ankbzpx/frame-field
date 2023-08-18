@@ -1,0 +1,10 @@
+{
+    "sdf_path": "data/sdf/fandisk.npz",
+    "mlp_type": "StandardMLP",
+    "mlp": {
+        "out_features": 13
+    },
+    "loss_cfg": {
+        "rot": 3e3
+    }
+}

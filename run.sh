@@ -28,7 +28,7 @@
 # python train_jax.py configs/rocker_arm_lip.json
 
 
-python train_jax.py configs/bunny_mlp.json
-python train_jax.py configs/cube_twist_mlp.json
-python train_jax.py configs/fandisk_mlp.json
-python train_jax.py configs/rocker_arm_mlp.json
+python train_jax.py configs/bunny_rotvec.json
+python train_jax.py configs/cube_twist_rotvec.json
+python train_jax.py configs/fandisk_rotvec.json
+python train_jax.py configs/rocker_arm_rotvec.json
