@@ -37,13 +37,55 @@ def train(cfg: Config):
     model_key, data_key = jax.random.split(
         jax.random.PRNGKey(cfg.training.seed), 2)
 
+    total_steps = cfg.training.n_epochs * cfg.training.n_steps
+
+    # During experiment, large lr (i.e. 5e-4) easily blows up Siren. So special care must be taken...
+    lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
+        cfg.training.lr,
+        peak_value=cfg.training.lr_peak,
+        warmup_steps=1000,
+        decay_steps=total_steps)
+
+    lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
+        cfg.training.lr,
+        peak_value=cfg.training.lr,
+        warmup_steps=1000,
+        decay_steps=total_steps)
+
     if len(cfg.mlp_types) == 1:
         model: model_jax.MLP = getattr(model_jax,
                                        cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
                                                          key=model_key)
+        optim = optax.adam(learning_rate=lr_scheduler_siren if cfg.
+                           mlp_cfgs[0] == 'Siren' else lr_scheduler_standard)
+        opt_state = optim.init(eqx.filter([model], eqx.is_array))
+
     else:
         model: model_jax.MLP = model_jax.MLPComposer(model_key, cfg.mlp_types,
                                                      cfg.mlp_cfgs)
+
+        # Reference: https://github.com/patrick-kidger/equinox/issues/79
+        param_spec = jax.tree_map(lambda _: "standard", model)
+        # I think `is_siren` treat `SineLayer` as a leaf, but tree_leaves still return other leaves during traversal, hence needs to call `is_siren` again
+        is_siren = lambda x: hasattr(x, "omega_0")
+        where_siren_W = lambda m: tuple(x.W for x in jax.tree_util.tree_leaves(
+            m, is_leaf=is_siren) if is_siren(x))
+        where_siren_b = lambda m: tuple(x.b for x in jax.tree_util.tree_leaves(
+            m, is_leaf=is_siren) if is_siren(x))
+        param_spec = eqx.tree_at(where_siren_W,
+                                 param_spec,
+                                 replace_fn=lambda _: "siren")
+        param_spec = eqx.tree_at(where_siren_b,
+                                 param_spec,
+                                 replace_fn=lambda _: "siren")
+
+        # Workaround Callable
+        optim = optax.multi_transform(
+            {
+                "standard": optax.adam(lr_scheduler_standard),
+                "siren": optax.adam(lr_scheduler_siren),
+            }, [param_spec])
+        opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     sdf_data = np.load(cfg.sdf_path)
     samples_on_sur = sdf_data['samples_on_sur']
@@ -60,16 +102,6 @@ def train(cfg: Config):
         'samples_off_sur': samples_off_sur[idx],
         'sdf_off_sur': sdf_off_sur[idx]
     }
-
-    total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    # peak_value 1e-4 for Siren or it blows up
-    lr_scheduler = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr,
-        peak_value=cfg.training.lr_peak,
-        warmup_steps=1000,
-        decay_steps=total_steps)
-    optim = optax.adam(learning_rate=lr_scheduler)
-    opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
     checkpoints_folder = 'checkpoints'
     if not os.path.exists(checkpoints_folder):
@@ -157,8 +189,8 @@ def train(cfg: Config):
                   loss_cfg: LossConfig):
 
         grads, loss_dict = loss_func(model, **batch, loss_cfg=loss_cfg)
-        updates, opt_state = optim.update(grads, opt_state, model)
-        model = eqx.apply_updates(model, updates)
+        updates, opt_state = optim.update([grads], opt_state, [model])
+        model = eqx.apply_updates([model], updates)[0]
         return model, opt_state, loss_dict
 
     loss_history = {}
@@ -176,6 +208,7 @@ def train(cfg: Config):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
+        # TODO: better plot like using tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
         if epoch % 1000 == 0:

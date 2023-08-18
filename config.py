@@ -54,7 +54,7 @@ class Config:
         n_mlp_types = len(self.mlp_types)
         n_mlps = len(self.mlps)
 
-        if n_mlp_types == n_mlps:
+        if n_mlp_types != n_mlps:
             assert n_mlp_types == 1 or n_mlps == 1
 
         self.mlp_types = self.mlp_types * (max(n_mlp_types, n_mlps) //
