@@ -280,4 +280,4 @@ class MLPComposer(MLP):
         return jnp.concatenate([mlp.single_call(x) for mlp in self.mlps])
 
     def get_aux_loss(self):
-        return jnp.sum([mlp.get_aux_loss() for mlp in self.mlps])
+        return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
