@@ -11,8 +11,8 @@ import os
 import model_jax
 from config import Config
 from common import normalize, vis_oct_field, rm_unref_vertices
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, R3_to_repvec, rotvec_to_R9, rotvec_n_to_z, rotvec_to_sh4
-from octahedral_frames_for_feature_aligned_cross_fields import project_n
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
+    rotvec_to_R9, project_n
 import flow_lines
 import open3d as o3d
 import pymeshlab

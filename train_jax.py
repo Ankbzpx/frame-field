@@ -13,7 +13,7 @@ import os
 
 import model_jax
 from config import Config, LossConfig
-from practical_3d_frame_field_generation import rotvec_n_to_z, rotvec_to_R9, rotvec_to_sh4
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9
 
 import polyscope as ps
 from icecream import ic

@@ -2,7 +2,7 @@ import jax
 from jax import numpy as jnp, jacfwd
 import numpy as np
 
-from practical_3d_frame_field_generation import Lx, Ly, Lz, sh4_canonical
+from sh_representation import Lx, Ly, Lz, sh4_canonical
 
 from icecream import ic
 

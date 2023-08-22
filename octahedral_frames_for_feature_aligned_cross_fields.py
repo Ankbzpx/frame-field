@@ -1,12 +1,12 @@
 import igl
 import numpy as np
-from jax import vmap, numpy as jnp, jit
-from common import vis_oct_field, unroll_identity_block, normalize
-from practical_3d_frame_field_generation import proj_sh4_to_rotvec, rotvec_to_R3, rotvec_to_R9, rotvec_to_R9_expm, rotvec_n_to_z, R3_to_repvec
+from jax import vmap
+from common import unroll_identity_block
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
+    rotvec_to_R9
 
 import scipy.sparse
 import scipy.sparse.linalg
-import osqp
 import open3d as o3d
 import argparse
 import os
@@ -14,20 +14,6 @@ import os
 import flow_lines
 
 import polyscope as ps
-from icecream import ic
-
-qz = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
-Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                 [0, 0, 0, 0, 0, 0, 0, 0, 1]])
-
-
-def project_z(q):
-    return qz + Bz.T @ normalize(Bz @ q)
-
-
-def project_n(q, R_zn):
-    return R_zn.T @ project_z(R_zn @ q)
-
 
 if __name__ == '__main__':
     # enable 64 bit precision

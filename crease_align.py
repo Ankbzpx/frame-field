@@ -9,7 +9,7 @@ from icecream import ic
 import polyscope as ps
 
 from common import vis_oct_field, unroll_identity_block
-from practical_3d_frame_field_generation import rotvec_to_R3, rotvec_n_to_z, rotvec_to_R9, sh4_z
+from sh_representation import sh4_z, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9
 
 
 def quad_patch(width, height, cfg):
