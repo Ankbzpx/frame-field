@@ -17,6 +17,7 @@
     ],
     "loss_cfg": {
         "rot": 1e2,
-        "match_sdf_normal": true
+        "match_sdf_normal": true,
+        "smooth": 1.0
     }
 }

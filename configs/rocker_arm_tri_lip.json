@@ -1,6 +1,6 @@
 {
     "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_types": ["Siren", "StandardMLP", "StandardMLP"],
+    "mlp_types": ["Siren", "LipMLP", "StandardMLP"],
     "mlps": [
         {
             "hidden_layers": 4,
@@ -8,7 +8,8 @@
         },
         {
             "hidden_layers": 2,
-            "out_features": 9
+            "out_features": 9,
+            "activation": "tanh"
         },
         {
             "hidden_layers": 2,
@@ -17,6 +18,7 @@
     ],
     "loss_cfg": {
         "rot": 1e2,
-        "match_sdf_normal": true
+        "match_sdf_normal": true,
+        "lip": 1e-5
     }
 }

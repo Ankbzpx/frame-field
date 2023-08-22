@@ -1,5 +1,5 @@
 {
-    "sdf_path": "data/sdf/rocker_arm.npz",
+    "sdf_path": "data/sdf/fandisk.npz",
     "mlps": [
         {
             "out_features": 10

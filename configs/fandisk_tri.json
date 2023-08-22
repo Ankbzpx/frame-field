@@ -1,6 +1,6 @@
 {
-    "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_types": ["Siren", "StandardMLP", "StandardMLP"],
+    "sdf_path": "data/sdf/fandisk.npz",
+    "mlp_types": ["StandardMLP", "StandardMLP", "StandardMLP"],
     "mlps": [
         {
             "hidden_layers": 4,
