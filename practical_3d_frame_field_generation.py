@@ -9,6 +9,8 @@ import scipy.sparse
 import scipy.sparse.linalg
 
 from common import vis_oct_field, unroll_identity_block
+from sh_representation import proj_sh4_to_rotvec_grad, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
+    rotvec_to_R9
 
 import open3d as o3d
 import argparse
@@ -17,9 +19,7 @@ import os
 import flow_lines
 
 import polyscope as ps
-
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
-    rotvec_to_R9
+from icecream import ic
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     sh4_opt = x[:NV * 9].reshape(NV, 9)
 
     # Project to acquire initialize
-    rotvecs = vmap(proj_sh4_to_rotvec)(sh4_opt)
+    rotvecs = vmap(proj_sh4_to_rotvec_grad)(sh4_opt)
 
     # Optimize field via non-linear objective function
     sh4_n_pad = jnp.zeros((NV, 9))

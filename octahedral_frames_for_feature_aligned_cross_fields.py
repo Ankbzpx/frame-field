@@ -2,7 +2,7 @@ import igl
 import numpy as np
 from jax import vmap
 from common import unroll_identity_block
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
+from sh_representation import proj_sh4_to_rotvec_grad, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9
 
 import scipy.sparse
@@ -14,6 +14,7 @@ import os
 import flow_lines
 
 import polyscope as ps
+from icecream import ic
 
 if __name__ == '__main__':
     # enable 64 bit precision
@@ -70,7 +71,7 @@ if __name__ == '__main__':
     x = x.reshape(NV, 9)
     # x = vmap(project_n)(x.reshape(NV, 9), R9_zn)
 
-    rotvecs = vmap(proj_sh4_to_rotvec)(x)
+    rotvecs = vmap(proj_sh4_to_rotvec_grad)(x)
     Rs = vmap(rotvec_to_R3)(rotvecs)
     Q = vmap(R3_to_repvec)(Rs, VN)
 

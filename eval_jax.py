@@ -11,7 +11,7 @@ import os
 import model_jax
 from config import Config
 from common import normalize, vis_oct_field, rm_unref_vertices
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
+from sh_representation import proj_sh4_to_rotvec_grad, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9, project_n
 import flow_lines
 import open3d as o3d
@@ -109,7 +109,7 @@ def eval(cfg: Config,
             R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
             sh9 = vmap(project_n)(sh9.reshape(len(V), 9), R9_zn)
 
-        rotvecs = vmap(proj_sh4_to_rotvec)(sh9)
+        rotvecs = vmap(proj_sh4_to_rotvec_grad)(sh9)
         return vmap(rotvec_to_R3)(rotvecs)
 
     if cfg.loss_cfg.rot:

@@ -6,6 +6,7 @@ import jax
 from jax import numpy as jnp, vmap, grad, jit, value_and_grad
 
 import polyscope as ps
+from icecream import ic
 
 # Supplementary of https://dl.acm.org/doi/abs/10.1145/3366786
 # yapf: disable
@@ -96,6 +97,24 @@ def skew_symmetric(rotvec):
                       [-rotvec[1], rotvec[0], 0]])
 
 
+@jit
+def R3_to_repvec(R, vn):
+    idx = jnp.argmin(jnp.abs(jnp.einsum('ji,j->i', R, vn)))
+    return R[:, idx]
+
+
+# May not be correct for pi, but I don't think it matters?
+# https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
+@jit
+def R3_to_rotvec(R):
+    u = jnp.linalg.eigh(R)[1][:, 2]
+    theta = jnp.arccos(0.5 * (jnp.trace(R) - 1))
+    u_test = jnp.array(
+        [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    dp = jnp.dot(u, u_test)
+    return jnp.where(dp > 0, theta * u, -theta * u)
+
+
 # Note the phi, theta have different convention as in rendering
 @jit
 def cartesian_to_spherical(v):
@@ -105,10 +124,25 @@ def cartesian_to_spherical(v):
 
 @jit
 def rotvec_to_R9(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-6
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
     phi, theta = cartesian_to_spherical(rotvec / rotvec_norm)
     R_zv = R_x90.T @ R_z(-phi) @ R_x90 @ R_z(-theta)
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
+
+
+# FIXME: Singularity at (0, 0, 0), (0, 0, z)
+@jit
+def rotvec_to_sh4(rotvec):
+    R9 = rotvec_to_R9(rotvec)
+    return jnp.sqrt(7 / 12) * R9[:, 4] + jnp.sqrt(5 / 12) * R9[:, -1]
+
+
+@jit
+def rotvec_to_R3(rotvec):
+    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
+    A = skew_symmetric(rotvec / rotvec_norm)
+    return jnp.eye(
+        3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
 
 
 # rotvec_to_R9(rotvec) @ sh4_canonical
@@ -123,6 +157,7 @@ def rotvec_to_R9_expm(rotvec):
     return jax.scipy.linalg.expm(A)
 
 
+# FIXME: Singularity at (0, 0, 0)
 @jit
 def rotvec_to_sh4_expm(rotvec):
     return rotvec_to_R9_expm(rotvec) @ sh4_canonical
@@ -130,7 +165,7 @@ def rotvec_to_sh4_expm(rotvec):
 
 # TODO: Adjust the threshold since the input may not be valid SH4 coefficients
 @jit
-def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
+def proj_sh4_to_rotvec_grad(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
     # Should I use different key for each function call?
     key = jax.random.PRNGKey(0)
     rotvec = jax.random.normal(key, (3,))
@@ -163,38 +198,6 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
 
     state = jax.lax.while_loop(condition_func, body_func, state)
     return state["params"]["rotvec"]
-
-
-@jit
-def R3_to_repvec(R, vn):
-    idx = jnp.argmin(jnp.abs(jnp.einsum('ji,j->i', R, vn)))
-    return R[:, idx]
-
-
-# May not be correct for pi, but I don't think it matters?
-# https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
-@jit
-def R3_to_rotvec(R):
-    u = jnp.linalg.eigh(R)[1][:, 2]
-    theta = jnp.arccos(0.5 * (jnp.trace(R) - 1))
-    u_test = jnp.array(
-        [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
-    dp = jnp.dot(u, u_test)
-    return jnp.where(dp > 0, theta * u, -theta * u)
-
-
-@jit
-def rotvec_to_sh4(rotvec):
-    R9 = rotvec_to_R9(rotvec)
-    return jnp.sqrt(7 / 12) * R9[:, 4] + jnp.sqrt(5 / 12) * R9[:, -1]
-
-
-@jit
-def rotvec_to_R3(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-6
-    A = skew_symmetric(rotvec / rotvec_norm)
-    return jnp.eye(
-        3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
 
 
 # Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
