@@ -66,11 +66,11 @@ def quad_crease(cfg0, cfg1, angle):
 
 
 @jit
-def sh9_n_align(R9_zn, theta):
-    sh9_z = sh4_z(theta)
-    # R9_zn.T @ sh9_z
-    return R9_zn[0, :] * sh9_z[0] + R9_zn[4, :] * sh9_z[4] + R9_zn[
-        -1, :] * sh9_z[-1]
+def sh4_n_align(R9_zn, theta):
+    sh4_z = sh4_z(theta)
+    # R9_zn.T @ sh4_z
+    return R9_zn[0, :] * sh4_z[0] + R9_zn[4, :] * sh4_z[4] + R9_zn[
+        -1, :] * sh4_z[-1]
 
 
 if __name__ == '__main__':
@@ -92,8 +92,8 @@ if __name__ == '__main__':
 
     @jit
     def loss_func(thetas):
-        sh9_unroll = vmap(sh9_n_align)(R9_zn, thetas).reshape(-1,)
-        return sh9_unroll.T @ A @ sh9_unroll
+        sh4_unroll = vmap(sh4_n_align)(R9_zn, thetas).reshape(-1,)
+        return sh4_unroll.T @ A @ sh4_unroll
 
     lbfgs = LBFGS(loss_func)
     thetas_opt = lbfgs.run(thetas).params

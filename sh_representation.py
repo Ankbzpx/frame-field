@@ -201,17 +201,17 @@ def proj_sh4_to_rotvec_grad(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
 
 
 # Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
-qz = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
+sh4_z = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
 Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
                                  [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
-def project_z(q):
-    return qz + Bz.T @ normalize(Bz @ q)
+def project_z(sh4):
+    return sh4_z + Bz.T @ normalize(Bz @ sh4)
 
 
-def project_n(q, R_zn):
-    return R_zn.T @ project_z(R_zn @ q)
+def project_n(sh4, R_zn):
+    return R_zn.T @ project_z(R_zn @ sh4)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.
@@ -299,19 +299,75 @@ sh_basis_funcs = [
 
 
 @jit
-def rep_polynomial(v, q):
+def rep_polynomial(v, sh4):
     x = v[0]
     y = v[1]
     z = v[2]
-    q = jnp.concatenate([np.array([3 * 21**(1 / 2) / 2]), q])
+    sh4 = jnp.concatenate([np.array([3 * 21**(1 / 2) / 2]), normalize(sh4)])
     basis = jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
-    return jnp.dot(q, basis)
+    return jnp.dot(sh4, basis)
+
+
+# Repeat evaluating normalized spherical polynomial gradient converges to one of orthogonal basis
+# Reference: https://github.com/dpa1mer/arff/blob/master/src/io/Octa2Frames.m
+#
+# Intuition:
+# For base polynomial f = x^4 + y^4 + z^4, it has directional derivative df = [4 x^3, 4 y^3, 4 z^3]
+# Let v = (x_0, y_0, z_0), x_0 > y_0 > z_0, |x_0^2 + y_0^2 + z_0^2| = 1
+# Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
+# For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
+@jit
+def proj_sh4_to_rotvec_orth(sh4_target, max_iter=1000):
+    if len(sh4_target.shape) < 2:
+        sh4_target = sh4_target[None, ...]
+
+    n_elem = len(sh4_target)
+    key1, key2 = jax.random.split(jax.random.PRNGKey(0))
+
+    v1 = jax.random.normal(key1, (n_elem, 3))
+    v2 = jax.random.normal(key2, (n_elem, 3))
+    state = {"loss": 100., "iter": 0, "v1": v1, "v2": v2}
+
+    # sqrt(n_elem * eps**2)
+    min_loss = jnp.sqrt(n_elem) * 1e-8
+
+    @jit
+    def condition_func(state):
+        return (state["loss"] > min_loss) & (state["iter"] < max_iter)
+
+    @jit
+    def project_orth(a, b):
+        return b - jnp.dot(b, a) * a
+
+    @jit
+    def body_func(state):
+        v1 = vmap(grad(rep_polynomial))(state['v1'], sh4_target)
+        v1 = vmap(normalize)(v1)
+        v2 = vmap(grad(rep_polynomial))(state['v2'], sh4_target)
+        v2 = vmap(project_orth)(v1, v2)
+        v2 = vmap(normalize)(v2)
+
+        loss = jnp.linalg.norm(v1 - state['v1'], 'f')
+
+        state["v1"] = v1
+        state["v2"] = v2
+        state["loss"] = loss
+        state["iter"] += 1
+        return state
+
+    state = jax.lax.while_loop(condition_func, body_func, state)
+
+    v1 = state['v1']
+    v2 = state['v2']
+    v3 = jnp.cross(v1, v2, axis=-1)
+
+    return jnp.stack([v1, v2, v3], -1)
 
 
 if __name__ == '__main__':
     np.random.seed(0)
     rotvec = np.random.randn(3)
-    q = rotvec_to_sh4(rotvec)
+    sh4 = rotvec_to_sh4(rotvec)
     R3 = rotvec_to_R3(rotvec)
 
     v = vmap(normalize)(np.random.randn(1000, 3))
@@ -328,16 +384,9 @@ if __name__ == '__main__':
                        [4, 6, 7], [7, 5, 4]])
     ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
-    # Repeat evaluating normalized spherical polynomial gradient converges to one of orthogonal basis
-    # Reference: https://github.com/dpa1mer/arff/blob/master/src/io/Octa2Frames.m
-    #
-    # Intuition:
-    # For base polynomial f = x^4 + y^4 + z^4, it has directional derivative df = [4 x^3, 4 y^3, 4 z^3]
-    # Let v = (x_0, y_0, z_0), x_0 > y_0 > z_0, |x_0^2 + y_0^2 + z_0^2| = 1
-    # Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
-    # For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(rep_polynomial), in_axes=[0, None])(v, q))
+        v = vmap(normalize)(vmap(grad(rep_polynomial), in_axes=[0, None])(v,
+                                                                          sh4))
 
     ps.register_point_cloud('pc_converge', v)
     ps.show()

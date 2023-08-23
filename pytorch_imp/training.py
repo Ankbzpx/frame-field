@@ -34,7 +34,7 @@ class SDFTrainer(Trainer):
 
     def compute_loss(self, model, inputs, return_outputs=False):
         outputs = model.forward_grad_batch(inputs['coords'])
-        pred_normal, (pred_sdf, sh9) = outputs
+        pred_normal, (pred_sdf, sh4) = outputs
 
         on_surface = inputs['on_surface']
         off_surface = torch.logical_not(on_surface)

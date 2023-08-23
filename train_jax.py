@@ -117,12 +117,12 @@ def train(cfg: Config):
             val, jac = model.call_jac(samples_on_sur)
             pred_on_sur_sdf = val[:, 0]
             aux = val[:, 1:]
-            sh9 = aux[:, :9]
+            sh4 = aux[:, :9]
             pred_normals_on_sur = jac[:, 0]
         else:
             (pred_on_sur_sdf,
              aux), pred_normals_on_sur = model.call_grad(samples_on_sur)
-            sh9 = aux[:, :9]
+            sh4 = aux[:, :9]
 
         (pred_off_sur_sdf,
          _), pred_normals_off_sur = model.call_grad(samples_off_sur)
@@ -132,12 +132,12 @@ def train(cfg: Config):
                                  jax.lax.stop_gradient(pred_normals_on_sur),
                                  normals_on_sur)
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-        sh9_n = jnp.einsum('nji,ni->nj', R9_zn, sh9)
+        sh4_n = jnp.einsum('nji,ni->nj', R9_zn, sh4)
         loss_twist = loss_cfg.twist * jnp.abs(
-            (sh9_n[:, 0]**2 + sh9_n[:, 8]**2) - 5 / 12).mean()
+            (sh4_n[:, 0]**2 + sh4_n[:, 8]**2) - 5 / 12).mean()
         loss_align = loss_cfg.align * (
             1 - vmap(cosine_similarity, in_axes=[0, None])
-            (sh9_n[:, 1:8], jnp.array([0, 0, 0,
+            (sh4_n[:, 1:8], jnp.array([0, 0, 0,
                                        np.sqrt(7 / 12), 0, 0, 0]))).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
@@ -174,9 +174,9 @@ def train(cfg: Config):
             loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.rot > 0:
-            sh9_est = vmap(rotvec_to_sh4)(aux[:, 9:])
+            sh4_est = vmap(rotvec_to_sh4)(aux[:, 9:])
             loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(
-                sh9_est, jax.lax.stop_gradient(sh9)).mean())
+                sh4_est, jax.lax.stop_gradient(sh4)).mean())
             loss += loss_rot
             loss_dict['loss_rot'] = loss_rot
 

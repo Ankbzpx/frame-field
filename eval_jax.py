@@ -11,7 +11,7 @@ import os
 import model_jax
 from config import Config
 from common import normalize, vis_oct_field, rm_unref_vertices
-from sh_representation import proj_sh4_to_rotvec_grad, R3_to_repvec, rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R3, \
+from sh_representation import proj_sh4_to_rotvec_orth, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9, project_n
 import flow_lines
 import open3d as o3d
@@ -103,19 +103,18 @@ def eval(cfg: Config,
 
     (_, aux), VN = infer_grad(V)
 
-    def R_from_sh9():
-        sh9 = aux[:, :9]
+    def R_from_sh4():
+        sh4 = aux[:, :9]
         if project_vn:
             R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
-            sh9 = vmap(project_n)(sh9.reshape(len(V), 9), R9_zn)
+            sh4 = vmap(project_n)(sh4.reshape(len(V), 9), R9_zn)
 
-        rotvecs = vmap(proj_sh4_to_rotvec_grad)(sh9)
-        return vmap(rotvec_to_R3)(rotvecs)
+        return proj_sh4_to_rotvec_orth(sh4)
 
     if cfg.loss_cfg.rot:
         Rs = vmap(rotvec_to_R3)(aux[:, 9:])
     else:
-        Rs = R_from_sh9()
+        Rs = R_from_sh4()
 
     if vis_cube:
         V_vis, F_vis = vis_oct_field(Rs, V, F)
@@ -125,9 +124,9 @@ def eval(cfg: Config,
         mesh.add_vector_quantity("VN", VN)
         ps.register_surface_mesh("Oct frames", V_vis, F_vis)
         if cfg.loss_cfg.rot:
-            Rs2 = R_from_sh9()
+            Rs2 = R_from_sh4()
             V_vis2, F_vis2 = vis_oct_field(Rs2, V, F)
-            ps.register_surface_mesh("Oct frames sh9", V_vis2, F_vis2)
+            ps.register_surface_mesh("Oct frames sh4", V_vis2, F_vis2)
         ps.show()
         exit()
 
@@ -170,7 +169,7 @@ if __name__ == '__main__':
                         help='Visualize MC mesh only')
     parser.add_argument('--project_vn',
                         action='store_true',
-                        help='Project sh9 to vertex normal')
+                        help='Project sh4 to vertex normal')
     parser.add_argument('--vis_cube',
                         action='store_true',
                         help='Visualize cube')
