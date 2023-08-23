@@ -3,7 +3,7 @@ import numpy as np
 from jax import vmap
 from common import unroll_identity_block
 from sh_representation import proj_sh4_to_rotvec_grad, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
-    rotvec_to_R9, proj_sh4_to_rotvec_orth
+    rotvec_to_R9, proj_sh4_to_SO3
 
 import scipy.sparse
 import scipy.sparse.linalg
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     x = x.reshape(NV, 9)
     # x = vmap(project_n)(x.reshape(NV, 9), R9_zn)
 
-    Rs = proj_sh4_to_rotvec_orth(x)
+    Rs = proj_sh4_to_SO3(x)
     Q = vmap(R3_to_repvec)(Rs, VN)
 
     V_vis, F_vis, VC_vis = flow_lines.trace(V,

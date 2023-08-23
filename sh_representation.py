@@ -74,6 +74,18 @@ def R_z(theta):
 # yapf: enable
 
 
+# jax.scipy.linalg.expm(theta *Ly)
+@jit
+def R_y(theta):
+    return R_x90 @ R_z(theta) @ R_x90.T
+
+
+# jax.scipy.linalg.expm(theta *Lx)
+@jit
+def R_x(theta):
+    return R_y(jnp.pi / 2).T @ R_z(theta) @ R_y(jnp.pi / 2)
+
+
 # R_z(theta) @ sh4_canonical
 def sh4_z(theta):
     return jnp.array([0, 0, 0, 0, jnp.sqrt(
@@ -317,7 +329,7 @@ def rep_polynomial(v, sh4):
 # Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
 # For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
 @jit
-def proj_sh4_to_rotvec_orth(sh4_target, max_iter=1000):
+def proj_sh4_to_SO3(sh4_target, max_iter=1000):
     if len(sh4_target.shape) < 2:
         sh4_target = sh4_target[None, ...]
 
