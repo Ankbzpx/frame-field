@@ -9,7 +9,7 @@ import scipy.sparse
 import scipy.sparse.linalg
 
 from common import vis_oct_field, unroll_identity_block
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, \
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9
 
 import open3d as o3d
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     sh4_opt = x[:NV * 9].reshape(NV, 9)
 
     # Project to acquire initialize
-    rotvecs = vmap(proj_sh4_to_rotvec)(sh4_opt)
+    rotvecs = proj_sh4_to_rotvec(sh4_opt)
 
     # Optimize field via non-linear objective function
     sh4_n_pad = jnp.zeros((NV, 9))
@@ -115,11 +115,11 @@ if __name__ == '__main__':
 
     @jit
     def loss_func(rotvec, align_weight=100):
-        a = vmap(rotvec_to_sh4_expm)(rotvec)
-        loss_smooth = jnp.trace(a.T @ -L_jax @ a)
-        loss_align = jnp.where(boundary_mask,
-                               (7 / 12 - jnp.einsum('ni,ni->n', a, sh4_n_pad)),
-                               0).sum()
+        sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
+        loss_smooth = jnp.trace(sh4.T @ -L_jax @ sh4)
+        loss_align = jnp.where(
+            boundary_mask, (7 / 12 - jnp.einsum('ni,ni->n', sh4, sh4_n_pad)),
+            0).sum()
 
         return loss_smooth + align_weight * loss_align
 

@@ -149,7 +149,7 @@ def rotvec_to_R9(rotvec):
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
 
 
-# WARNING: Singularity at (0, 0, 0), (0, 0, z)
+# WARNING: Has singularity at (0, 0, 0), (0, 0, z), not suitable for autograd
 @jit
 def rotvec_to_sh4(rotvec):
     R9 = rotvec_to_R9(rotvec)
@@ -198,25 +198,32 @@ def euler_to_R3(a, b, c):
 
 # TODO: Adjust the threshold since the input may not be valid SH4 coefficients
 # @jit
-def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
-    init_rotvecs = jnp.array([[0, 0, 0], [jnp.pi / 4, 0, 0], [0, jnp.pi / 4, 0],
-                              [0, 0, jnp.pi / 4],
-                              jnp.pi / 4 * normalize(jnp.array([1, 1, 0]))])
-    init_sh4s = vmap(rotvec_to_sh4)(init_rotvecs)
-    init_idx = jnp.argmax(jnp.einsum('ni,i->n', init_sh4s, sh4_target))
-    rotvec = init_rotvecs[init_idx]
+def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
+    if len(sh4s_target.shape) < 2:
+        sh4s_target = sh4s_target[None, ...]
+
+    @jit
+    def initialize(sh4):
+        init_rotvecs = jnp.array([[0, 0, 0], [jnp.pi / 4, 0, 0],
+                                  [0, jnp.pi / 4, 0], [0, 0, jnp.pi / 4],
+                                  jnp.pi / 4 * normalize(jnp.array([1, 1, 0]))])
+        init_sh4s = vmap(rotvec_to_sh4)(init_rotvecs)
+        init_idx = jnp.argmax(jnp.einsum('ni,i->n', init_sh4s, sh4))
+        return init_rotvecs[init_idx]
+
+    rotvec = vmap(initialize)(sh4s_target)
 
     # Original implementation uses first order approximation of rotation
     # For small angle a, b, c
     # R(a, b, c) \approx I + a * Lx + b * Ly + c * Lz
     #
-    # We want to find R(a, b, c) that rotate sh4 (R @ sh4) to sh4_target
+    # We want to find R(a, b, c) that rotate sh4 (R @ sh4) to sh4s_target
     # Define objective function (minimize l2 norm -> maximize dot product)
-    #   L = sh4_target.T @ R @ sh4
-    #     = sh4_target.T @ sh4  + a * sh4_target.T @ Lx @ sh4 + b * sh4_target.T @ Ly @ sh4 + c * sh4_target.T @ Lz @ sh4
+    #   L = sh4s_target.T @ R @ sh4
+    #     = sh4s_target.T @ sh4  + a * sh4s_target.T @ Lx @ sh4 + b * sh4s_target.T @ Ly @ sh4 + c * sh4s_target.T @ Lz @ sh4
     #
     # The gradient w.r.t. (a, b, c) is then given by
-    #   (sh4_target.T @ Lx @ sh4, sh4_target.T @ Ly @ sh4, sh4_target.T @ Lz @ sh4)
+    #   (sh4s_target.T @ Lx @ sh4, sh4s_target.T @ Ly @ sh4, sh4s_target.T @ Lz @ sh4)
     #
     # Here we leverage autograd to directly optimize over se3
 
@@ -235,8 +242,9 @@ def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     @jit
     @value_and_grad
     def loss_func(params):
-        return jnp.power(rotvec_to_sh4_expm(params['rotvec']) - sh4_target,
-                         2).mean()
+        return jnp.power(
+            vmap(rotvec_to_sh4_expm)(params['rotvec']) - sh4s_target,
+            2).sum(axis=1).mean()
 
     @jit
     def condition_func(state):
@@ -374,11 +382,11 @@ def rep_polynomial(v, sh4):
 # Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
 # For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
 @jit
-def proj_sh4_to_R3(sh4_target, max_iter=1000):
-    if len(sh4_target.shape) < 2:
-        sh4_target = sh4_target[None, ...]
+def proj_sh4_to_R3(sh4s_target, max_iter=1000):
+    if len(sh4s_target.shape) < 2:
+        sh4s_target = sh4s_target[None, ...]
 
-    n_elem = len(sh4_target)
+    n_elem = len(sh4s_target)
     key1, key2 = jax.random.split(jax.random.PRNGKey(0))
 
     v1 = jax.random.normal(key1, (n_elem, 3))
@@ -398,9 +406,9 @@ def proj_sh4_to_R3(sh4_target, max_iter=1000):
 
     @jit
     def body_func(state):
-        v1 = vmap(grad(rep_polynomial))(state['v1'], sh4_target)
+        v1 = vmap(grad(rep_polynomial))(state['v1'], sh4s_target)
         v1 = vmap(normalize)(v1)
-        v2 = vmap(grad(rep_polynomial))(state['v2'], sh4_target)
+        v2 = vmap(grad(rep_polynomial))(state['v2'], sh4s_target)
         v2 = vmap(project_orth)(v1, v2)
         v2 = vmap(normalize)(v2)
 
