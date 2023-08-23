@@ -13,7 +13,7 @@ import os
 
 import model_jax
 from config import Config, LossConfig
-from sh_representation import rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R9
+from sh_representation import rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R9
 
 import polyscope as ps
 from icecream import ic
@@ -42,12 +42,12 @@ def train(cfg: Config):
     # During experiment, large lr (i.e. 5e-4 for batch size of 1024) easily blows up Siren. So special care must be taken...
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
-        peak_value=cfg.training.lr_peak,
+        peak_value=5 * cfg.training.lr,
         warmup_steps=500,
         decay_steps=total_steps)
 
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr,
+        0.2 * cfg.training.lr,
         peak_value=cfg.training.lr,
         warmup_steps=500,
         decay_steps=total_steps)
@@ -57,7 +57,7 @@ def train(cfg: Config):
                                        cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
                                                          key=model_key)
         optim = optax.adam(learning_rate=lr_scheduler_siren if cfg.
-                           mlp_cfgs[0] == 'Siren' else lr_scheduler_standard)
+                           mlp_types[0] == 'Siren' else lr_scheduler_standard)
         opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     else:
@@ -174,7 +174,9 @@ def train(cfg: Config):
             loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.rot > 0:
-            sh4_est = vmap(rotvec_to_sh4_expm)(aux[:, 9:])
+            # It's rarely reach singularity in practice. Also, expm is 3 times slower...
+            sh4_est = vmap(rotvec_to_sh4)(aux[:, 9:])
+            # sh4_est = vmap(rotvec_to_sh4_expm)(aux[:, 9:])
             loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(
                 sh4_est, jax.lax.stop_gradient(sh4)).mean())
             loss += loss_rot
