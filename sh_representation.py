@@ -59,6 +59,7 @@ R_x90 = jnp.array(
 sh4_canonical = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, jnp.sqrt(5 / 12)])
 
 # jax.scipy.linalg.expm(theta *Lz)
+@jit
 def R_z(theta):
     return jnp.array([
         [jnp.cos(4 * theta), 0, 0, 0, 0, 0, 0, 0, jnp.sin(4 * theta)],
@@ -251,58 +252,57 @@ def r_4(x, y, z):
 
 @jit
 def y_00(x, y, z):
-    return (1 / 2) * (1 / jnp.pi)**(1 / 2) * r_4(x, y, z)
+    return (1 / 2) * jnp.sqrt(1 / jnp.pi) * r_4(x, y, z)
 
 
 @jit
 def y_4_4(x, y, z):
-    return (3 / 4) * (35 / jnp.pi)**(1 / 2) * x * y * (x**2 - y**2)
+    return (3 / 4) * jnp.sqrt(35 / jnp.pi) * x * y * (x**2 - y**2)
 
 
 @jit
 def y_4_3(x, y, z):
-    return (3 / 4) * (35 / (2 * jnp.pi))**(1 / 2) * y * (3 * x**2 - y**2) * z
+    return (3 / 4) * jnp.sqrt(35 / (2 * jnp.pi)) * y * (3 * x**2 - y**2) * z
 
 
 @jit
 def y_4_2(x, y, z):
-    return (3 / 4) * (5 / jnp.pi)**(1 / 2) * x * y * (7 * z**2 - r_2(x, y, z))
+    return (3 / 4) * jnp.sqrt(5 / jnp.pi) * x * y * (7 * z**2 - r_2(x, y, z))
 
 
 @jit
 def y_4_1(x, y, z):
-    return (3 / 4) * (5 / (2 * jnp.pi))**(1 / 2) * y * (7 * z**3 -
-                                                        3 * z * r_2(x, y, z))
+    return (3 / 4) * jnp.sqrt(
+        5 / (2 * jnp.pi)) * y * (7 * z**3 - 3 * z * r_2(x, y, z))
 
 
 @jit
 def y_40(x, y, z):
-    return (3 / 16) * (1 / jnp.pi)**(1 / 2) * (
-        35 * z**4 - 30 * z**2 * r_2(x, y, z) + 3 * r_4(x, y, z))
+    return (3 / 16) * jnp.sqrt(
+        1 / jnp.pi) * (35 * z**4 - 30 * z**2 * r_2(x, y, z) + 3 * r_4(x, y, z))
 
 
 @jit
 def y_41(x, y, z):
-    return (3 / 4) * (5 / (2 * jnp.pi))**(1 / 2) * x * (7 * z**3 -
-                                                        3 * z * r_2(x, y, z))
+    return (3 / 4) * jnp.sqrt(
+        5 / (2 * jnp.pi)) * x * (7 * z**3 - 3 * z * r_2(x, y, z))
 
 
 @jit
 def y_42(x, y, z):
-    return (3 / 8) * (5 / jnp.pi)**(1 / 2) * (x**2 - y**2) * (7 * z**2 -
-                                                              r_2(x, y, z))
+    return (3 / 8) * jnp.sqrt(
+        5 / jnp.pi) * (x**2 - y**2) * (7 * z**2 - r_2(x, y, z))
 
 
 @jit
 def y_43(x, y, z):
-    return (3 / 4) * (35 / (2 * jnp.pi))**(1 / 2) * x * (x**2 - 3 * y**2) * z
+    return (3 / 4) * jnp.sqrt(35 / (2 * jnp.pi)) * x * (x**2 - 3 * y**2) * z
 
 
 @jit
 def y_44(x, y, z):
-    return (3 / 16) * (35 / jnp.pi)**(1 / 2) * (x**2 *
-                                                (x**2 - 3 * y**2) - y**2 *
-                                                (3 * x**2 - y**2))
+    return (3 / 16) * jnp.sqrt(35 / jnp.pi) * (x**2 * (x**2 - 3 * y**2) - y**2 *
+                                               (3 * x**2 - y**2))
 
 
 sh_basis_funcs = [
@@ -315,7 +315,7 @@ def rep_polynomial(v, sh4):
     x = v[0]
     y = v[1]
     z = v[2]
-    sh4 = jnp.concatenate([np.array([3 * 21**(1 / 2) / 2]), normalize(sh4)])
+    sh4 = jnp.concatenate([jnp.array([3 * jnp.sqrt(21) / 2]), normalize(sh4)])
     basis = jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
     return jnp.dot(sh4, basis)
 
