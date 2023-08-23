@@ -3,13 +3,16 @@ import optax
 
 from common import normalize
 import jax
-from jax import numpy as jnp, vmap, grad, jit, value_and_grad
+from jax import numpy as jnp, vmap, grad, jit, value_and_grad, jacfwd
 
 import polyscope as ps
 from icecream import ic
 
-# Supplementary of https://dl.acm.org/doi/abs/10.1145/3366786
 # yapf: disable
+
+# Supplementary of https://dl.acm.org/doi/abs/10.1145/3366786
+# Angular momentum matrix (cross product matrix in R^9)
+# For small theta, R_x(theta) \approx I + theta * Lx
 Lx = jnp.array([[0, 0, 0, 0, 0, 0, 0, -jnp.sqrt(2), 0],
                 [0, 0, 0, 0, 0, 0, -jnp.sqrt(7 / 2), 0, -jnp.sqrt(2)],
                 [0, 0, 0, 0, 0, -3 / jnp.sqrt(2), 0, -jnp.sqrt(7 / 2), 0],
@@ -21,6 +24,7 @@ Lx = jnp.array([[0, 0, 0, 0, 0, 0, 0, -jnp.sqrt(2), 0],
                 [0, jnp.sqrt(2), 0, 0, 0, 0, 0, 0, 0]])
 
 
+# For small theta, R_y(theta) \approx I + theta * Ly
 Ly = jnp.array([[0, jnp.sqrt(2), 0, 0, 0, 0, 0, 0, 0],
                 [-jnp.sqrt(2), 0, jnp.sqrt(7 / 2), 0, 0, 0, 0, 0, 0],
                 [0, -jnp.sqrt(7 / 2), 0, 3 / jnp.sqrt(2), 0, 0, 0, 0, 0],
@@ -32,6 +36,7 @@ Ly = jnp.array([[0, jnp.sqrt(2), 0, 0, 0, 0, 0, 0, 0],
                 [0, 0, 0, 0, 0, 0, 0, jnp.sqrt(2), 0]])
 
 
+# For small theta, R_z(theta) \approx I + theta * Lz
 Lz = jnp.array([
     [0, 0, 0, 0, 0, 0, 0, 0, 4.],
     [0, 0, 0, 0, 0, 0, 0, 3., 0],
@@ -44,7 +49,7 @@ Lz = jnp.array([
     [-4., 0, 0, 0, 0, 0, 0, 0, 0],
 ])
 
-# jax.scipy.linalg.expm(jnp.pi / 2 *Lx)
+# jax.scipy.linalg.expm(jnp.pi / 2 * Lx)
 R_x90 = jnp.array(
     [[0, 0, 0, 0, 0, jnp.sqrt(7 / 2) / 2, 0, -1 / (2 * jnp.sqrt(2)), 0],
      [0, -3 / 4, 0, jnp.sqrt(7) / 4, 0, 0, 0, 0, 0],
@@ -58,7 +63,7 @@ R_x90 = jnp.array(
 
 sh4_canonical = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, jnp.sqrt(5 / 12)])
 
-# jax.scipy.linalg.expm(theta *Lz)
+# jax.scipy.linalg.expm(theta * Lz)
 @jit
 def R_z(theta):
     return jnp.array([
@@ -75,13 +80,13 @@ def R_z(theta):
 # yapf: enable
 
 
-# jax.scipy.linalg.expm(theta *Ly)
+# jax.scipy.linalg.expm(theta * Ly)
 @jit
 def R_y(theta):
     return R_x90 @ R_z(theta) @ R_x90.T
 
 
-# jax.scipy.linalg.expm(theta *Lx)
+# jax.scipy.linalg.expm(theta * Lx)
 @jit
 def R_x(theta):
     return R_y(jnp.pi / 2).T @ R_z(theta) @ R_y(jnp.pi / 2)
@@ -116,6 +121,7 @@ def R3_to_repvec(R, vn):
     return R[:, idx]
 
 
+# JAX has no logm implementation yet
 # May not be correct for pi, but I don't think it matters?
 # https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
 @jit
@@ -143,7 +149,7 @@ def rotvec_to_R9(rotvec):
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
 
 
-# FIXME: Singularity at (0, 0, 0), (0, 0, z)
+# WARNING: Singularity at (0, 0, 0), (0, 0, z)
 @jit
 def rotvec_to_sh4(rotvec):
     R9 = rotvec_to_R9(rotvec)
@@ -170,33 +176,71 @@ def rotvec_to_R9_expm(rotvec):
     return jax.scipy.linalg.expm(A)
 
 
-# FIXME: Singularity at (0, 0, 0)
 @jit
 def rotvec_to_sh4_expm(rotvec):
     return rotvec_to_R9_expm(rotvec) @ sh4_canonical
 
 
-# TODO: Adjust the threshold since the input may not be valid SH4 coefficients
+# https://en.wikipedia.org/wiki/Rotation_matrix
 @jit
-def proj_sh4_to_rotvec_grad(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
-    # Should I use different key for each function call?
-    key = jax.random.PRNGKey(0)
-    rotvec = jax.random.normal(key, (3,))
+def euler_to_R3(a, b, c):
+    Rx = jnp.array([[1, 0, 0], [0, jnp.cos(a), -jnp.sin(a)],
+                    [0, jnp.sin(a), jnp.cos(a)]])
+
+    Ry = jnp.array([[jnp.cos(b), 0, jnp.sin(b)], [0, 1, 0],
+                    [-jnp.sin(b), 0, jnp.cos(b)]])
+
+    Rz = jnp.array([[jnp.cos(c), -jnp.sin(c), 0], [jnp.sin(c),
+                                                   jnp.cos(c), 0], [0, 0, 1]])
+
+    return Rz @ Ry @ Rx
+
+
+# TODO: Adjust the threshold since the input may not be valid SH4 coefficients
+# @jit
+def proj_sh4_to_rotvec(sh4_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
+    init_rotvecs = jnp.array([[0, 0, 0], [jnp.pi / 4, 0, 0], [0, jnp.pi / 4, 0],
+                              [0, 0, jnp.pi / 4],
+                              jnp.pi / 4 * normalize(jnp.array([1, 1, 0]))])
+    init_sh4s = vmap(rotvec_to_sh4)(init_rotvecs)
+    init_idx = jnp.argmax(jnp.einsum('ni,i->n', init_sh4s, sh4_target))
+    rotvec = init_rotvecs[init_idx]
+
+    # Original implementation uses first order approximation of rotation
+    # For small angle a, b, c
+    # R(a, b, c) \approx I + a * Lx + b * Ly + c * Lz
+    #
+    # We want to find R(a, b, c) that rotate sh4 (R @ sh4) to sh4_target
+    # Define objective function (minimize l2 norm -> maximize dot product)
+    #   L = sh4_target.T @ R @ sh4
+    #     = sh4_target.T @ sh4  + a * sh4_target.T @ Lx @ sh4 + b * sh4_target.T @ Ly @ sh4 + c * sh4_target.T @ Lz @ sh4
+    #
+    # The gradient w.r.t. (a, b, c) is then given by
+    #   (sh4_target.T @ Lx @ sh4, sh4_target.T @ Ly @ sh4, sh4_target.T @ Lz @ sh4)
+    #
+    # Here we leverage autograd to directly optimize over se3
 
     optimizer = optax.adam(lr)
     params = {'rotvec': rotvec}
     opt_state = optimizer.init(params)
 
-    state = {"loss": 100., "iter": 0, "opt_state": opt_state, "params": params}
+    state = {
+        "loss": 100.,
+        "loss_diff": 100.,
+        "iter": 0,
+        "opt_state": opt_state,
+        "params": params
+    }
 
     @jit
     @value_and_grad
     def loss_func(params):
-        return jnp.power(rotvec_to_sh4(params['rotvec']) - sh4_target, 2).mean()
+        return jnp.power(rotvec_to_sh4_expm(params['rotvec']) - sh4_target,
+                         2).mean()
 
     @jit
     def condition_func(state):
-        return (state["loss"] > min_loss) & (state["iter"] < max_iter)
+        return (state["loss_diff"] > min_loss_diff) & (state["iter"] < max_iter)
 
     @jit
     def body_func(state):
@@ -205,6 +249,7 @@ def proj_sh4_to_rotvec_grad(sh4_target, lr=1e-2, min_loss=1e-4, max_iter=1000):
                                                        state["opt_state"])
         state["params"] = optax.apply_updates(state["params"], updates)
 
+        state["loss_diff"] = jnp.abs(loss - state["loss"])
         state["loss"] = loss
         state["iter"] += 1
         return state
@@ -329,7 +374,7 @@ def rep_polynomial(v, sh4):
 # Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
 # For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
 @jit
-def proj_sh4_to_SO3(sh4_target, max_iter=1000):
+def proj_sh4_to_R3(sh4_target, max_iter=1000):
     if len(sh4_target.shape) < 2:
         sh4_target = sh4_target[None, ...]
 
