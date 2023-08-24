@@ -8,6 +8,7 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
+    input_scale: float = 1
 
 
 @dataclass
