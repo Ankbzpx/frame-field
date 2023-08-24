@@ -272,6 +272,8 @@ Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
                                  [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
+# exp(t L_z) @ sh4_canonical = sh4_z + Bz.T [cos(4t), sin(4t)].T
+# normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
 def project_z(sh4):
     return sh4_z + Bz.T @ normalize(Bz @ sh4)
 

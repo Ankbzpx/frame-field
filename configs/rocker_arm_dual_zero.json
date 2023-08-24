@@ -1,6 +1,9 @@
 {
     "sdf_path": "data/sdf/rocker_arm.npz",
-    "mlp_types": ["Siren", "StandardMLP"],
+    "mlp_types": [
+        "Siren",
+        "StandardMLP"
+    ],
     "mlps": [
         {
             "hidden_layers": 4,
@@ -8,7 +11,8 @@
         },
         {
             "hidden_layers": 2,
-            "out_features": 9
+            "out_features": 9,
+            "input_scale": 1e-2
         }
     ],
     "loss_cfg": {

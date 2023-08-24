@@ -13,7 +13,7 @@ import os
 
 import model_jax
 from config import Config, LossConfig
-from sh_representation import rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R9
+from sh_representation import rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R9, project_n
 
 import polyscope as ps
 from icecream import ic
@@ -151,13 +151,9 @@ def train(cfg: Config):
 
         # Alignment
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-        sh4_n = jnp.einsum('nji,ni->nj', R9_zn, sh4_align)
-        loss_twist = loss_cfg.twist * jnp.abs(
-            (sh4_n[:, 0]**2 + sh4_n[:, 8]**2) - 5 / 12).mean()
-        loss_align = loss_cfg.align * (
-            1 - vmap(cosine_similarity, in_axes=[0, None])
-            (sh4_n[:, 1:8], jnp.array([0, 0, 0,
-                                       np.sqrt(7 / 12), 0, 0, 0]))).mean()
+        sh4_n = vmap(project_n)(sh4_align, R9_zn)
+        loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
+                                       (sh4_align, sh4_n)).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -168,14 +164,13 @@ def train(cfg: Config):
             pred_normals_on_sur, normals_on_sur)).mean()
         loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
 
-        loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
+        loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_align
 
         loss_dict = {
             'loss_mse': loss_mse,
             'loss_off': loss_off,
             'loss_normal': loss_normal,
             'loss_eikonal': loss_eikonal,
-            'loss_twist': loss_twist,
             'loss_align': loss_align
         }
 

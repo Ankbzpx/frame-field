@@ -28,9 +28,7 @@ class LossConfig:
     normal: float = 1e2
     eikonal: float = 5e1
 
-    # align & twist weights must match
     align: float = 1e2
-    twist: float = 1e2
     lip: float = 0
     smooth: float = 0
     rot: float = 0
