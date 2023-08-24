@@ -66,7 +66,7 @@ def eval(cfg: Config,
     sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
     sdfs = np.swapaxes(sdfs, 0, 1)
 
-    ic("Inference SDF", time.time() - start_time)
+    print("Inference SDF", time.time() - start_time)
     start_time = time.time()
 
     spacing = 1. / (grid_res - 1)
