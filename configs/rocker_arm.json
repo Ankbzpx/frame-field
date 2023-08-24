@@ -1,7 +1,8 @@
 {
-    "sdf_path": "data/sdf/fandisk.npz",
+    "sdf_path": "data/sdf/rocker_arm.npz",
     "mlps": [
         {
+            "hidden_layers": 6,
             "out_features": 10
         }
     ]

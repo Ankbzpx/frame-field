@@ -2,6 +2,7 @@
     "sdf_path": "data/sdf/cube_twist.npz",
     "mlps": [
         {
+            "hidden_layers": 6,
             "out_features": 10
         }
     ]

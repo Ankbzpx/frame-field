@@ -1,0 +1,17 @@
+{
+    "sdf_path": "data/sdf/bunny.npz",
+    "mlp_types": ["Siren", "StandardMLP"],
+    "mlps": [
+        {
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_layers": 2,
+            "out_features": 9
+        }
+    ],
+    "loss_cfg": {
+        "match_all_level_set": true
+    }
+}

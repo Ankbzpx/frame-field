@@ -12,7 +12,7 @@ class MLPConfig:
 
 @dataclass
 class TrainingConfig:
-    lr: float = 8e-4
+    lr: float = 1e-3
     n_epochs: int = 1
     n_steps: int = 12500    # per epoch
     n_samples: int = 8192    # per step
@@ -27,13 +27,16 @@ class LossConfig:
     normal: float = 1e2
     eikonal: float = 5e1
 
-    # align & twist must match
+    # align & twist weights must match
     align: float = 1e2
     twist: float = 1e2
     lip: float = 0
     smooth: float = 0
     rot: float = 0
-    match_sdf_normal: bool = False
+
+    match_zero_level_set: bool = False
+    match_all_level_set: bool = False
+    allow_gradient: bool = False
 
 
 @dataclass

@@ -39,13 +39,13 @@ def train(cfg: Config):
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
 
-    # During experiment, large lr (i.e. 5e-4 for batch size of 1024) easily blows up Siren. So special care must be taken...
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=5 * cfg.training.lr,
         warmup_steps=500,
         decay_steps=total_steps)
 
+    # During experiment, large lr (i.e. 5e-4 for batch size of 1024) easily blows up Siren. So special care must be taken...
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
         0.2 * cfg.training.lr,
         peak_value=cfg.training.lr,
@@ -125,14 +125,27 @@ def train(cfg: Config):
             sh4 = aux[:, :9]
 
         (pred_off_sur_sdf,
-         _), pred_normals_off_sur = model.call_grad(samples_off_sur)
+         aux_off), pred_normals_off_sur = model.call_grad(samples_off_sur)
+        sh4_off = aux_off[:, :9]
+
+        normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
+
+        if loss_cfg.match_all_level_set:
+            normal_align = jnp.where(loss_cfg.allow_gradient, normal_pred,
+                                     jax.lax.stop_gradient(normal_pred))
+            sh4_align = jnp.vstack([sh4, sh4_off])
+        elif loss_cfg.match_zero_level_set:
+            normal_align = jnp.where(loss_cfg.allow_gradient,
+                                     pred_normals_on_sur,
+                                     jax.lax.stop_gradient(pred_normals_on_sur))
+            sh4_align = sh4
+        else:
+            normal_align = normals_on_sur
+            sh4_align = sh4
 
         # Alignment
-        normal_align = jnp.where(loss_cfg.match_sdf_normal,
-                                 jax.lax.stop_gradient(pred_normals_on_sur),
-                                 normals_on_sur)
         R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-        sh4_n = jnp.einsum('nji,ni->nj', R9_zn, sh4)
+        sh4_n = jnp.einsum('nji,ni->nj', R9_zn, sh4_align)
         loss_twist = loss_cfg.twist * jnp.abs(
             (sh4_n[:, 0]**2 + sh4_n[:, 8]**2) - 5 / 12).mean()
         loss_align = loss_cfg.align * (
@@ -147,9 +160,7 @@ def train(cfg: Config):
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
         loss_normal = loss_cfg.normal * (1 - vmap(cosine_similarity)(
             pred_normals_on_sur, normals_on_sur)).mean()
-        loss_eikonal = loss_cfg.eikonal * 0.5 * (
-            vmap(eikonal)(pred_normals_on_sur).mean() +
-            vmap(eikonal)(pred_normals_off_sur).mean())
+        loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
 
         loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_twist + loss_align
 

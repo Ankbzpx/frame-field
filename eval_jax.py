@@ -20,6 +20,8 @@ import pymeshlab
 import polyscope as ps
 from icecream import ic
 
+import time
+
 
 def eval(cfg: Config,
          out_dir,
@@ -41,7 +43,8 @@ def eval(cfg: Config,
     grid_res = 512
     grid_min = -1.0
     grid_max = 1.0
-    group_size = 1200000
+    # Smaller batch is somehow faster
+    group_size = 400000
 
     @jit
     def infer(x):
@@ -54,12 +57,17 @@ def eval(cfg: Config,
     indices = np.linspace(grid_min, grid_max, grid_res)
     grid = np.stack(np.meshgrid(indices, indices, indices), -1).reshape(-1, 3)
 
+    start_time = time.time()
+
     sdfs_list = []
     for x in np.array_split(grid, len(grid) // group_size, axis=0):
         sdf = infer(x)
         sdfs_list.append(np.array(sdf))
     sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
     sdfs = np.swapaxes(sdfs, 0, 1)
+
+    ic("Inference SDF", time.time() - start_time)
+    start_time = time.time()
 
     spacing = 1. / (grid_res - 1)
     V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
@@ -80,7 +88,7 @@ def eval(cfg: Config,
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
-    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=10000)
+    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=len(F) // 10)
     ms.meshing_isotropic_explicit_remeshing(targetlen=pymeshlab.Percentage(2.0))
 
     # I believe there is no other option to pass meshlab mesh back to python
@@ -88,11 +96,17 @@ def eval(cfg: Config,
     V, F = igl.read_triangle_mesh(f'tmp/{cfg.name}.obj')
     os.system(f'rm tmp/{cfg.name}.obj')
 
+    print("Meshlab Remesh", time.time() - start_time)
+    start_time = time.time()
+
     # Project on isosurface
     (sdf, _), VN = infer_grad(V)
     VN = vmap(normalize)(VN)
     V = V - sdf[:, None] * VN
     V = np.array(V)
+
+    print("Project SDF", time.time() - start_time)
+    start_time = time.time()
 
     if vis_mc:
         ps.init()
@@ -116,6 +130,8 @@ def eval(cfg: Config,
     else:
         Rs = R_from_sh4()
 
+    print("Project SO(3)", time.time() - start_time)
+
     if vis_cube:
         V_vis, F_vis = vis_oct_field(Rs, V, F)
 
@@ -130,6 +146,8 @@ def eval(cfg: Config,
         ps.show()
         exit()
 
+    start_time = time.time()
+
     Q = vmap(R3_to_repvec)(Rs, VN)
     V_vis, F_vis, VC_vis = flow_lines.trace(V,
                                             F,
@@ -139,6 +157,7 @@ def eval(cfg: Config,
                                             length_factor=5,
                                             interval_factor=10,
                                             width_factor=0.075)
+    print("Trace flowlines", time.time() - start_time)
 
     if vis_flowline:
         ps.init()
