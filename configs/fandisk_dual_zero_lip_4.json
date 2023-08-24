@@ -1,0 +1,18 @@
+{
+    "sdf_path": "data/sdf/fandisk.npz",
+    "mlp_types": ["Siren", "LipMLP"],
+    "mlps": [
+        {
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_layers": 4,
+            "out_features": 9
+        }
+    ],
+    "loss_cfg": {
+        "match_zero_level_set": true,
+        "lip": 1e-4
+    }
+}
