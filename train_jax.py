@@ -119,14 +119,20 @@ def train(cfg: Config):
             aux = val[:, 1:]
             sh4 = aux[:, :9]
             pred_normals_on_sur = jac[:, 0]
+
+            val_off, jac_off = model.call_jac(samples_off_sur)
+            pred_off_sur_sdf = val_off[:, 0]
+            aux_off = val_off[:, 1:]
+            sh4_off = aux_off[:, :9]
+            pred_normals_off_sur = jac_off[:, 0]
         else:
             (pred_on_sur_sdf,
              aux), pred_normals_on_sur = model.call_grad(samples_on_sur)
             sh4 = aux[:, :9]
 
-        (pred_off_sur_sdf,
-         aux_off), pred_normals_off_sur = model.call_grad(samples_off_sur)
-        sh4_off = aux_off[:, :9]
+            (pred_off_sur_sdf,
+             aux_off), pred_normals_off_sur = model.call_grad(samples_off_sur)
+            sh4_off = aux_off[:, :9]
 
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
 
@@ -179,13 +185,19 @@ def train(cfg: Config):
             loss_dict['loss_lip'] = loss_lip
 
         if loss_cfg.smooth > 0:
-            loss_smooth = loss_cfg.smooth * vmap(
-                jnp.linalg.norm, in_axes=[0, None])(jac[:, 1:10], 'f').mean()
+            if loss_cfg.match_all_level_set:
+                sh4_grad = jnp.vstack([jac[:, 1:10], jac_off[:, 1:10]])
+            else:
+                sh4_grad = jac[:, 1:10]
+
+            sh4_grad_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_grad,
+                                                                     'f')
+            loss_smooth = loss_cfg.smooth * sh4_grad_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.rot > 0:
-            # It's rarely reach singularity in practice. Also, expm is 3 times slower...
+            # It's rare to reach singularity in practice. Also, expm is 3 times slower...
             sh4_est = vmap(rotvec_to_sh4)(aux[:, 9:])
             # sh4_est = vmap(rotvec_to_sh4_expm)(aux[:, 9:])
             loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(

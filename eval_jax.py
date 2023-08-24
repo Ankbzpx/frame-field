@@ -89,7 +89,7 @@ def eval(cfg: Config,
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
     ms.meshing_decimation_quadric_edge_collapse(targetfacenum=len(F) // 10)
-    ms.meshing_isotropic_explicit_remeshing(targetlen=pymeshlab.Percentage(2.0))
+    ms.meshing_isotropic_explicit_remeshing(targetlen=pymeshlab.Percentage(1.0))
 
     # I believe there is no other option to pass meshlab mesh back to python
     ms.save_current_mesh(f'tmp/{cfg.name}.obj')
