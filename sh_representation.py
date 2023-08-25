@@ -101,16 +101,20 @@ def sh4_z(theta):
 
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
+# Also see: https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
 @jit
 def rotvec_n_to_z(n):
+    n = normalize(n)
     z = jnp.array([0, 0, 1])
-    axis = jnp.cross(normalize(n), z)
-    angle = jnp.arctan2(jnp.linalg.norm(axis) + 1e-8, normalize(n)[2])
-    return angle * normalize(axis)
+    axis = jnp.cross(n, z)
+    axis_norm = jnp.linalg.norm(axis) + 1e-8
+    # sin(theta) = |n x z|, cos(theta) = n . z
+    angle = jnp.arctan2(axis_norm, n[2])
+    return angle * (axis / axis_norm)
 
 
 @jit
-def skew_symmetric(rotvec):
+def skew_symmetric3(rotvec):
     return jnp.array([[0, -rotvec[2], rotvec[1]], [rotvec[2], 0, -rotvec[0]],
                       [-rotvec[1], rotvec[0], 0]])
 
@@ -141,15 +145,43 @@ def cartesian_to_spherical(v):
                        v[2]), jnp.arctan2(v[1], v[0])
 
 
+# First order approximation
 @jit
-def rotvec_to_R9(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
+def rotvec_to_R9_approx(rotvec):
+    return jnp.eye(9) + rotvec[0] * Lx + rotvec[1] * Ly + rotvec[2] * Lz
+
+
+@jit
+def rotvec_to_R9_spherical(rotvec):
+    rotvec_norm = jnp.linalg.norm(rotvec)
     phi, theta = cartesian_to_spherical(rotvec / rotvec_norm)
     R_zv = R_x90.T @ R_z(-phi) @ R_x90 @ R_z(-theta)
     return R_zv.T @ R_z(rotvec_norm) @ R_zv
 
 
-# WARNING: Has singularity at (0, 0, 0), (0, 0, z), not suitable for autograd
+@jit
+def rotvec_to_R9_close_z(rotvec):
+    rotvec_norm = jnp.linalg.norm(rotvec)
+    # Jacobian matches expm, but why?
+    R_zv = rotvec_to_R9_approx(
+        jnp.array([rotvec[1] / rotvec_norm, -rotvec[0] / rotvec_norm, 0]))
+    R9_z = R_z(jnp.sign(rotvec[2]) * rotvec_norm)
+    return R_zv.T @ R9_z @ R_zv
+
+
+@jit
+def rotvec_to_R9(rotvec):
+    # WARNING: Handle singularities at (0, 0, 0), (0, 0, z) separately
+    close_to_0 = jnp.linalg.norm(rotvec) < 1e-8
+    close_to_z = jnp.abs(
+        1 - jnp.dot(jnp.abs(normalize(rotvec)), jnp.array([0., 0., 1.]))) < 1e-3
+
+    return jnp.where(
+        close_to_0, rotvec_to_R9_approx(rotvec),
+        jnp.where(close_to_z, rotvec_to_R9_close_z(rotvec),
+                  rotvec_to_R9_spherical(rotvec)))
+
+
 @jit
 def rotvec_to_sh4(rotvec):
     R9 = rotvec_to_R9(rotvec)
@@ -157,17 +189,30 @@ def rotvec_to_sh4(rotvec):
 
 
 @jit
-def rotvec_to_R3(rotvec):
-    rotvec_norm = jnp.linalg.norm(rotvec) + 1e-8
-    A = skew_symmetric(rotvec / rotvec_norm)
+def rotvec_to_R3_Rodrigues(rotvec):
+    rotvec_norm = jnp.linalg.norm(rotvec)
+    A = skew_symmetric3(rotvec / rotvec_norm)
     return jnp.eye(
         3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
+
+
+# First order approximation
+@jit
+def rotvec_to_R3_approx(rotvec):
+    return jnp.eye(3) + skew_symmetric3(rotvec)
+
+
+@jit
+def rotvec_to_R3(rotvec):
+    return jnp.where(
+        jnp.linalg.norm(rotvec) < 1e-8, rotvec_to_R3_approx(rotvec),
+        rotvec_to_R3_Rodrigues(rotvec))
 
 
 # rotvec_to_R9(rotvec) @ sh4_canonical
 @jit
 def rotvec_to_R3_expm(rotvec):
-    return jax.scipy.linalg.expm(skew_symmetric(rotvec))
+    return jax.scipy.linalg.expm(skew_symmetric3(rotvec))
 
 
 @jit
@@ -197,7 +242,7 @@ def euler_to_R3(a, b, c):
 
 
 # TODO: Adjust the threshold since the input may not be valid SH4 coefficients
-# @jit
+@jit
 def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     if len(sh4s_target.shape) < 2:
         sh4s_target = sh4s_target[None, ...]
