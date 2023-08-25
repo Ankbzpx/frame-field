@@ -154,9 +154,9 @@ def eval(cfg: Config,
                                             VN,
                                             Q,
                                             4000,
-                                            length_factor=5,
+                                            length_factor=10,
                                             interval_factor=10,
-                                            width_factor=0.075)
+                                            width_factor=0.125)
     print("Trace flowlines", time.time() - start_time)
 
     if vis_flowline:

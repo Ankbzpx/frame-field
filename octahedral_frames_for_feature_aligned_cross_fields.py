@@ -1,7 +1,7 @@
 import igl
 import numpy as np
 from jax import vmap
-from common import unroll_identity_block
+from common import unroll_identity_block, normalize_aabb
 from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9, proj_sh4_to_R3
 
@@ -35,6 +35,7 @@ if __name__ == '__main__':
     model_out_path = os.path.join(args.out_path, f"{model_name}_oct.obj")
 
     V, F = igl.read_triangle_mesh(model_path)
+    V = normalize_aabb(V)
     NV = len(V)
     VN = igl.per_vertex_normals(V, F)
 

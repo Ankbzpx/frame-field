@@ -1,6 +1,6 @@
 import numpy as np
 import igl
-from common import normalize
+from common import normalize, normalize_aabb
 from joblib import Parallel, delayed
 import multiprocessing
 from glob import glob
@@ -18,16 +18,7 @@ class SDFSampler:
                  close_ratio=0.3,
                  sigma=5e-2):
         V, F = igl.read_triangle_mesh(model_path)
-
-        # [0, 1]
-        V -= np.mean(V, axis=0, keepdims=True)
-        V_max = np.amax(V)
-        V_min = np.amin(V)
-        V = (V - V_min) / (V_max - V_min)
-
-        # [-0.95, 0.95]
-        V -= 0.5
-        V *= 1.9
+        V = normalize_aabb(V)
 
         self.V = V
         self.F = F

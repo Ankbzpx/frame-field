@@ -8,7 +8,7 @@ from jaxopt import LBFGS
 import scipy.sparse
 import scipy.sparse.linalg
 
-from common import vis_oct_field, unroll_identity_block
+from common import vis_oct_field, unroll_identity_block, normalize_aabb
 from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9
 
@@ -35,6 +35,7 @@ if __name__ == '__main__':
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
 
     V, T, _ = igl.read_off(model_path)
+    V = normalize_aabb(V)
     F = igl.boundary_facets(T)
     # boundary_facets gives opposite orientation for some reason
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)

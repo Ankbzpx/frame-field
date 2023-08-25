@@ -7,7 +7,7 @@ from typing import Callable
 import scipy
 import scipy.sparse.linalg
 
-from common import vis_oct_field, normalize, rm_unref_vertices
+from common import normalize_aabb, normalize, rm_unref_vertices
 
 import open3d as o3d
 import argparse
@@ -442,6 +442,7 @@ if __name__ == '__main__':
     model_out_path = os.path.join(args.out_path, f"{model_name}_ext.obj")
 
     V, F = igl.read_triangle_mesh(model_path)
+    V = normalize_aabb(V)
 
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)

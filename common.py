@@ -14,6 +14,20 @@ def normalize(x):
     return x / (jnp.linalg.norm(x) + 1e-8)
 
 
+def normalize_aabb(V):
+    V = np.copy(V)
+    # [0, 1]
+    V -= np.mean(V, axis=0, keepdims=True)
+    V_max = np.amax(V)
+    V_min = np.amin(V)
+    V = (V - V_min) / (V_max - V_min)
+
+    # [-0.95, 0.95]
+    V -= 0.5
+    V *= 1.9
+    return V
+
+
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 def vis_oct_field(R3s, V, T, scale=0.1):
     V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],

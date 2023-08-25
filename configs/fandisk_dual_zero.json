@@ -10,8 +10,9 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 1,
-            "out_features": 9
+            "hidden_layers": 2,
+            "out_features": 9,
+            "input_scale": 1e-2
         }
     ],
     "loss_cfg": {
