@@ -3,9 +3,10 @@ import igl
 from jax import jit, numpy as jnp
 import scipy.sparse
 import os
-from jax.config import config
 
-config.update("jax_debug_nans", True)
+# Set off, cause conditional flow can evaluate NaN branch
+# from jax.config import config
+# config.update("jax_debug_nans", True)
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = '0'
 
 

@@ -9,8 +9,7 @@ import scipy.sparse
 import scipy.sparse.linalg
 
 from common import vis_oct_field, unroll_identity_block, normalize_aabb
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, \
-    rotvec_to_R9
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9
 
 import open3d as o3d
 import argparse
@@ -48,7 +47,7 @@ if __name__ == '__main__':
 
     # For vertex belongs to sharp edges, current implementation simply pick a random adjacent face normal
     # FIXME: Duplicate vertices to handle sharp edge
-    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based parallel transport
+    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based laplacian
     # Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
     # V2F = np.zeros(NV, dtype=np.int64)
     # V2F[F.reshape(-1,)] = Fid.reshape(-1,)
@@ -116,6 +115,7 @@ if __name__ == '__main__':
 
     @jit
     def loss_func(rotvec, align_weight=100):
+        # LBFGS is second-order optimization method, has to use expm implementation here
         sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
         loss_smooth = jnp.trace(sh4.T @ -L_jax @ sh4)
         loss_align = jnp.where(

@@ -170,16 +170,25 @@ def rotvec_to_R9_close_z(rotvec):
 
 
 @jit
-def rotvec_to_R9(rotvec):
-    # WARNING: Handle singularities at (0, 0, 0), (0, 0, z) separately
-    close_to_0 = jnp.linalg.norm(rotvec) < 1e-8
-    close_to_z = jnp.abs(
-        1 - jnp.dot(jnp.abs(normalize(rotvec)), jnp.array([0., 0., 1.]))) < 1e-3
+def rotvec_to_R9_exact(rotvec):
+    # Handle singularities at (0, 0, z)
+    close_z = jnp.abs(jnp.dot(normalize(rotvec), jnp.array([0., 0., 1.
+                                                           ]))) > 0.999
+    return jax.lax.cond(close_z, rotvec_to_R9_close_z, rotvec_to_R9_spherical,
+                        rotvec)
 
-    return jnp.where(
-        close_to_0, rotvec_to_R9_approx(rotvec),
-        jnp.where(close_to_z, rotvec_to_R9_close_z(rotvec),
-                  rotvec_to_R9_spherical(rotvec)))
+
+# Once differentiable, should be enough for gradient descent
+@jit
+def rotvec_to_R9(rotvec):
+    # https://github.com/google/jax/discussions/10306
+    # jnp.where always concretely evaluate both branches, that NaN could occur in one of them
+    # Thus, use lax.cond instead (one is lazy evaluation)
+
+    # Handle singularities at (0, 0, 0)
+    close_zero = jnp.linalg.norm(rotvec) < 1e-8
+    return jax.lax.cond(close_zero, rotvec_to_R9_approx, rotvec_to_R9_exact,
+                        rotvec)
 
 
 @jit
@@ -204,9 +213,9 @@ def rotvec_to_R3_approx(rotvec):
 
 @jit
 def rotvec_to_R3(rotvec):
-    return jnp.where(
-        jnp.linalg.norm(rotvec) < 1e-8, rotvec_to_R3_approx(rotvec),
-        rotvec_to_R3_Rodrigues(rotvec))
+    return jax.lax.cond(
+        jnp.linalg.norm(rotvec) < 1e-8, rotvec_to_R3_approx,
+        rotvec_to_R3_Rodrigues, rotvec)
 
 
 # rotvec_to_R9(rotvec) @ sh4_canonical
@@ -288,7 +297,7 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     @value_and_grad
     def loss_func(params):
         return jnp.power(
-            vmap(rotvec_to_sh4_expm)(params['rotvec']) - sh4s_target,
+            vmap(rotvec_to_sh4)(params['rotvec']) - sh4s_target,
             2).sum(axis=1).mean()
 
     @jit
