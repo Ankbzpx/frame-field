@@ -491,6 +491,14 @@ if __name__ == '__main__':
     sh4 = rotvec_to_sh4(rotvec)
     R3 = rotvec_to_R3(rotvec)
 
+    @jit
+    def rep_polynomial_origin(v, R):
+        v = R.T @ v
+        x = v[0]
+        y = v[1]
+        z = v[2]
+        return x**4 + y**4 + z**4
+
     v = vmap(normalize)(np.random.randn(1000, 3))
 
     ps.init()
@@ -510,4 +518,11 @@ if __name__ == '__main__':
                                                                           sh4))
 
     ps.register_point_cloud('pc_converge', v)
+
+    for _ in range(1000):
+        v = vmap(normalize)(vmap(grad(rep_polynomial_origin),
+                                 in_axes=[0, None])(v, R3))
+
+    ps.register_point_cloud('pc_converge_origin', v)
+
     ps.show()
