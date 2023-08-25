@@ -420,13 +420,22 @@ sh_basis_funcs = [
 
 
 @jit
-def rep_polynomial(v, sh4):
+def rep_polynomial_sh(v, sh4):
     x = v[0]
     y = v[1]
     z = v[2]
     sh4 = jnp.concatenate([jnp.array([3 * jnp.sqrt(21) / 2]), normalize(sh4)])
     basis = jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
     return jnp.dot(sh4, basis)
+
+
+@jit
+def rep_polynomial(v, R3):
+    v = R3.T @ v
+    x = v[0]
+    y = v[1]
+    z = v[2]
+    return x**4 + y**4 + z**4
 
 
 # Repeat evaluating normalized spherical polynomial gradient converges to one of orthogonal basis
@@ -462,9 +471,9 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 
     @jit
     def body_func(state):
-        v1 = vmap(grad(rep_polynomial))(state['v1'], sh4s_target)
+        v1 = vmap(grad(rep_polynomial_sh))(state['v1'], sh4s_target)
         v1 = vmap(normalize)(v1)
-        v2 = vmap(grad(rep_polynomial))(state['v2'], sh4s_target)
+        v2 = vmap(grad(rep_polynomial_sh))(state['v2'], sh4s_target)
         v2 = vmap(project_orth)(v1, v2)
         v2 = vmap(normalize)(v2)
 
@@ -491,14 +500,6 @@ if __name__ == '__main__':
     sh4 = rotvec_to_sh4(rotvec)
     R3 = rotvec_to_R3(rotvec)
 
-    @jit
-    def rep_polynomial_origin(v, R):
-        v = R.T @ v
-        x = v[0]
-        y = v[1]
-        z = v[2]
-        return x**4 + y**4 + z**4
-
     v = vmap(normalize)(np.random.randn(1000, 3))
 
     ps.init()
@@ -514,14 +515,14 @@ if __name__ == '__main__':
     ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(rep_polynomial), in_axes=[0, None])(v,
-                                                                          sh4))
+        v = vmap(normalize)(vmap(grad(rep_polynomial_sh),
+                                 in_axes=[0, None])(v, sh4))
 
     ps.register_point_cloud('pc_converge', v)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(rep_polynomial_origin),
-                                 in_axes=[0, None])(v, R3))
+        v = vmap(normalize)(vmap(grad(rep_polynomial), in_axes=[0, None])(v,
+                                                                          R3))
 
     ps.register_point_cloud('pc_converge_origin', v)
 
