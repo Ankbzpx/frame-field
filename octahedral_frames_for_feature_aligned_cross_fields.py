@@ -7,6 +7,7 @@ from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_n_to_z, r
 
 import scipy.sparse
 import scipy.sparse.linalg
+from sksparse.cholmod import cholesky
 import open3d as o3d
 import argparse
 import os
@@ -59,7 +60,8 @@ if __name__ == '__main__':
     boundary_weight = 0.1
     Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
     c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
-    x, _ = scipy.sparse.linalg.cg(Q.T @ Q, Q.T @ c)
+    factor = cholesky((Q.T @ Q).tocsc())
+    x = factor(Q.T @ c)
 
     # Quadratic
     # prob = osqp.OSQP()
