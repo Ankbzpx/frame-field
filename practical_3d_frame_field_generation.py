@@ -47,7 +47,7 @@ if __name__ == '__main__':
 
     # For vertex belongs to sharp edges, current implementation simply pick a random adjacent face normal
     # FIXME: Duplicate vertices to handle sharp edge
-    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based laplacian
+    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based quadrature
     # Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
     # V2F = np.zeros(NV, dtype=np.int64)
     # V2F[F.reshape(-1,)] = Fid.reshape(-1,)
@@ -61,15 +61,15 @@ if __name__ == '__main__':
     L = igl.cotmatrix(V, T)
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
 
-    sh0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
-    sh4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
-    sh8 = jnp.array([0, 0, 0, 0, 0, 0, 0, 0, jnp.sqrt(5 / 12)])
+    sh4_0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
+    sh4_4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
+    sh4_8 = jnp.array([0, 0, 0, 0, 0, 0, 0, 0, jnp.sqrt(5 / 12)])
 
-    # R9_zn a = sh4 + c0 sh0 + c1 sh8
-    # => a = R9_zn.T @ sh4 + c0 R9_zn.T @ sh0 + c1 R9_zn.T @ sh8
-    sh0_n = jnp.einsum('bji,j->bi', R9_zn, sh0)
-    sh4_n = jnp.einsum('bji,j->bi', R9_zn, sh4)
-    sh8_n = jnp.einsum('bji,j->bi', R9_zn, sh8)
+    # R9_zn @ sh4 = sh4_4 + c0 sh4_0 + c1 sh4_8
+    # => sh4 = R9_zn.T @ sh4_4 + c0 R9_zn.T @ sh4_0 + c1 R9_zn.T @ sh4_8
+    sh4_0_n = jnp.einsum('bji,j->bi', R9_zn, sh4_0)
+    sh4_4_n = jnp.einsum('bji,j->bi', R9_zn, sh4_4)
+    sh4_8_n = jnp.einsum('bji,j->bi', R9_zn, sh4_8)
 
     # Build system
     # NV x 9 + NB x 2, have to unroll...
@@ -83,12 +83,12 @@ if __name__ == '__main__':
                               np.arange(9)[None, ...]).reshape(-1))),
         shape=(9 * NB, 9 * NV)).tocsc()
     A_br = scipy.sparse.block_diag(boundary_weight *
-                                   np.stack([sh0_n, sh8_n], -1))
+                                   np.stack([sh4_0_n, sh4_8_n], -1))
     A = scipy.sparse.vstack(
         [scipy.sparse.hstack([A_tl, A_tr]),
          scipy.sparse.hstack([A_bl, A_br])])
     b = np.concatenate(
-        [np.zeros((NV * 9,)), boundary_weight * sh4_n.reshape(-1,)])
+        [np.zeros((NV * 9,)), boundary_weight * sh4_4_n.reshape(-1,)])
 
     # A @ x = b
     # => (A.T @ A) @ x = A.T @ b
@@ -99,8 +99,8 @@ if __name__ == '__main__':
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
 
     # Optimize field via non-linear objective function
-    sh4_n_pad = jnp.zeros((NV, 9))
-    sh4_n_pad = sh4_n_pad.at[boundary_vid].set(sh4_n)
+    sh4_4_n_pad = jnp.zeros((NV, 9))
+    sh4_4_n_pad = sh4_4_n_pad.at[boundary_vid].set(sh4_4_n)
 
     boundary_mask = np.zeros(NV)
     boundary_mask[boundary_vid] = 1
@@ -119,7 +119,7 @@ if __name__ == '__main__':
         sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
         loss_smooth = jnp.trace(sh4.T @ -L_jax @ sh4)
         loss_align = jnp.where(
-            boundary_mask, (7 / 12 - jnp.einsum('ni,ni->n', sh4, sh4_n_pad)),
+            boundary_mask, (7 / 12 - jnp.einsum('ni,ni->n', sh4, sh4_4_n_pad)),
             0).sum()
 
         return loss_smooth + align_weight * loss_align
