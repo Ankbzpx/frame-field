@@ -44,22 +44,25 @@ class MLP(eqx.Module):
     def __init__():
         pass
 
-    def single_call(self, x):
+    def single_call(self, x, z):
         pass
 
-    def single_call_split(self, x):
-        x = self.single_call(x)
+    def single_call_split(self, x, z):
+        x = self.single_call(x, z)
         return x[0], x[1:]
 
-    def call_grad(self, x):
+    def call_grad(self, x, z):
         return vmap(
-            eqx.filter_value_and_grad(self.single_call_split, has_aux=True))(x)
+            eqx.filter_value_and_grad(self.single_call_split, has_aux=True))(x,
+                                                                             z)
 
-    def call_jac(self, x):
-        return vmap(value_and_jacfwd, in_axes=[None, 0])(self.single_call, x)
+    def call_jac(self, x, z):
+        val = self.__call__(x, z)
+        jac = vmap(jacfwd(self.single_call, argnums=0))(x, z)
+        return val, jac
 
-    def __call__(self, x):
-        x = vmap(self.single_call)(x)
+    def __call__(self, x, z):
+        x = vmap(self.single_call)(x, z)
         return x
 
     def get_aux_loss(self):
@@ -93,8 +96,8 @@ class StandardMLP(MLP):
             for i in range(hidden_layers)
         ] + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
 
-    def single_call(self, x):
-        x = self.input_scale * x
+    def single_call(self, x, z):
+        x = jnp.hstack([self.input_scale * x, z])
         for i in range(len(self.layers)):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
@@ -120,6 +123,7 @@ class ResMLP(MLP):
 
         xavier_init = activation == 'tanh'
         self.activation = activation
+        self.input_scale = input_scale
 
         self.layers = [
             Linear(in_features, hidden_features, keys[0], xavier_init)
@@ -128,10 +132,11 @@ class ResMLP(MLP):
             for i in range(2 * hidden_layers)
         ] + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
 
-    def single_call(self, x):
+    def single_call(self, x, z):
         activation = getattr(jax.nn, self.activation)
 
-        x = self.layers[0](self.input_scale * x)
+        x = jnp.hstack([self.input_scale * x, z])
+        x = self.layers[0](x)
         x = activation(x)
 
         for i in range((len(self.layers) - 2) // 2):
@@ -196,8 +201,8 @@ class LipMLP(MLP):
                       xavier_init) for i in range(hidden_layers)
         ] + [LipLinear(hidden_features, out_features, keys[-1], xavier_init)]
 
-    def single_call(self, x):
-        x = self.input_scale * x
+    def single_call(self, x, z):
+        x = jnp.hstack([self.input_scale * x, z])
         for i in range(len(self.layers)):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
@@ -276,8 +281,8 @@ class Siren(MLP):
                       omega_0=hidden_omega_0) for i in range(hidden_layers)
         ] + [Linear(hidden_features, out_features, keys[-1], False)]
 
-    def single_call(self, x):
-        x = self.input_scale * x
+    def single_call(self, x, z):
+        x = jnp.hstack([self.input_scale * x, z])
         for i in range(len(self.layers)):
             x = self.layers[i](x)
         return x
@@ -294,8 +299,8 @@ class MLPComposer(MLP):
             for (mlp_type, mlp_cfg, subkey) in zip(mlp_types, mlp_cfgs, keys)
         ]
 
-    def single_call(self, x):
-        return jnp.concatenate([mlp.single_call(x) for mlp in self.mlps])
+    def single_call(self, x, z):
+        return jnp.concatenate([mlp.single_call(x, z) for mlp in self.mlps])
 
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()

@@ -38,7 +38,21 @@ def train(cfg: Config):
         jax.random.PRNGKey(cfg.training.seed), 2)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    n_models = len(cfg.sdf_paths)
+    # preload data in memory to speedup training
+    assert n_models > 0
 
+    # Latent
+    # Compute (n_models - 1) dim simplex vertices as latent
+    # Reference: https://mathoverflow.net/a/184585
+    q, _ = jnp.linalg.qr(jnp.ones((n_models, 1)), mode="complete")
+    latents = q[:, 1:]
+    latent_dim = (n_models - 1)
+
+    for mlp_cfg in cfg.mlps:
+        mlp_cfg.in_features += latent_dim
+
+    # lr scheduler, model, optimizer
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=5 * cfg.training.lr,
@@ -87,21 +101,26 @@ def train(cfg: Config):
             }, [param_spec])
         opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
-    sdf_data = np.load(cfg.sdf_path)
-    samples_on_sur = sdf_data['samples_on_sur']
-    normals_on_sur = sdf_data['normals_on_sur']
-    samples_off_sur = sdf_data['samples_off_sur']
-    sdf_off_sur = sdf_data['sdf_off_sur']
+    sample_size = cfg.training.n_samples // n_models
 
-    # preload data in memory to speedup training
-    idx = jax.random.choice(data_key, jnp.arange(len(samples_on_sur)),
-                            (cfg.training.n_steps, cfg.training.n_samples))
-    data = {
-        'samples_on_sur': samples_on_sur[idx],
-        'normals_on_sur': normals_on_sur[idx],
-        'samples_off_sur': samples_off_sur[idx],
-        'sdf_off_sur': sdf_off_sur[idx]
-    }
+    def sample_sdf_data(sdf_path, latent):
+        sdf_data = dict(np.load(sdf_path))
+        total_sample_size = len(sdf_data['samples_on_sur'])
+        idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
+                                (cfg.training.n_steps, sample_size))
+
+        data = jax.tree_map(lambda x: x[idx], sdf_data)
+        data['latent'] = latent[None, None,
+                                ...].repeat(cfg.training.n_steps,
+                                            axis=0).repeat(sample_size, axis=1)
+        return data
+
+    data_frags = [
+        sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
+    ]
+    data = {}
+    for key in data_frags[0].keys():
+        data[key] = jnp.hstack([frag[key] for frag in data_frags])
 
     checkpoints_folder = 'checkpoints'
     if not os.path.exists(checkpoints_folder):
@@ -111,27 +130,28 @@ def train(cfg: Config):
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: list[Array],
                   normals_on_sur: list[Array], samples_off_sur: list[Array],
-                  sdf_off_sur: list[Array], loss_cfg: LossConfig):
+                  sdf_off_sur: list[Array], latent: list[Array],
+                  loss_cfg: LossConfig):
 
         if loss_cfg.smooth > 0:
-            val, jac = model.call_jac(samples_on_sur)
+            val, jac = model.call_jac(samples_on_sur, latent)
             pred_on_sur_sdf = val[:, 0]
             aux = val[:, 1:]
             sh4 = aux[:, :9]
             pred_normals_on_sur = jac[:, 0]
 
-            val_off, jac_off = model.call_jac(samples_off_sur)
+            val_off, jac_off = model.call_jac(samples_off_sur, latent)
             pred_off_sur_sdf = val_off[:, 0]
             aux_off = val_off[:, 1:]
             sh4_off = aux_off[:, :9]
             pred_normals_off_sur = jac_off[:, 0]
         else:
-            (pred_on_sur_sdf,
-             aux), pred_normals_on_sur = model.call_grad(samples_on_sur)
+            (pred_on_sur_sdf, aux), pred_normals_on_sur = model.call_grad(
+                samples_on_sur, latent)
             sh4 = aux[:, :9]
 
-            (pred_off_sur_sdf,
-             aux_off), pred_normals_off_sur = model.call_grad(samples_off_sur)
+            (pred_off_sur_sdf, aux_off), pred_normals_off_sur = model.call_grad(
+                samples_off_sur, latent)
             sh4_off = aux_off[:, :9]
 
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])

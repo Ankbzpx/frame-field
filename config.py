@@ -40,7 +40,7 @@ class LossConfig:
 
 @dataclass
 class Config:
-    sdf_path: str
+    sdf_paths: list[str]
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()
 
