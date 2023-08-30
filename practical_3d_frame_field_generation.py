@@ -1,5 +1,6 @@
 import igl
 import numpy as np
+import jax
 from jax import vmap, jit, numpy as jnp
 from jax.experimental import sparse
 from jaxopt import LBFGS
@@ -8,8 +9,8 @@ from jaxopt import LBFGS
 import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import cholesky
-from common import unroll_identity_block, normalize_aabb
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9, project_n
+from common import unroll_identity_block, normalize_aabb, vis_oct_field
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9, sh4_z
 
 import open3d as o3d
 import argparse
@@ -45,21 +46,14 @@ if __name__ == '__main__':
 
     VN = igl.per_vertex_normals(V, F)
 
-    # For vertex belongs to sharp edges, current implementation simply pick a random adjacent face normal
-    # FIXME: Duplicate vertices to handle sharp edge
-    # NOTE: On second thought, I probably should keep them as they are, cause it is inevitable even for face based quadrature
-    # Fid = np.repeat(np.arange(len(F), dtype=np.int64)[:, None], 3, -1)
-    # V2F = np.zeros(NV, dtype=np.int64)
-    # V2F[F.reshape(-1,)] = Fid.reshape(-1,)
-
+    # TODO: Handle non-smooth vertices (paper precomputes and fixes those SH coefficients)
     # SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
     # sharp_vid = np.unique(SE)
-    # FN = igl.per_face_normals(V, F, np.array([0., 1., 0.]))
-    # VN[sharp_vid] = FN[V2F[sharp_vid]]
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
-    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN[boundary_vid]))
+    rotvec_zn = vmap(rotvec_n_to_z)(VN[boundary_vid])
+    R9_zn = vmap(rotvec_to_R9)(rotvec_zn)
 
     sh4_0 = jnp.array([jnp.sqrt(5 / 12), 0, 0, 0, 0, 0, 0, 0, 0])
     sh4_4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
@@ -76,6 +70,8 @@ if __name__ == '__main__':
     # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
     A_tl = unroll_identity_block(L, 9)
     A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
+
+    # Large alignment weight to ensure boundary align
     boundary_weight = 100.
     A_bl = scipy.sparse.coo_array(
         (boundary_weight * np.ones(9 * NB),
@@ -103,31 +99,45 @@ if __name__ == '__main__':
     R9_zn_pad = jnp.repeat(jnp.eye(9)[None, ...], NV, axis=0)
     R9_zn_pad = R9_zn_pad.at[boundary_vid].set(R9_zn)
 
-    boundary_mask = np.zeros(NV)
-    boundary_mask[boundary_vid] = 1
+    L_jax = sparse.BCOO.from_scipy_sparse(-L)
 
-    V_cot_adj_coo = scipy.sparse.coo_array(L)
-
-    L_jax = sparse.BCOO((V_cot_adj_coo.data,
-                         jnp.stack([V_cot_adj_coo.row, V_cot_adj_coo.col], -1)),
-                        shape=(NV, NV))
+    key = jax.random.PRNGKey(0)
+    theta = jax.random.normal(key, (len(boundary_vid),))
+    params = {'rotvec': rotvecs, 'theta': theta}
 
     @jit
-    def loss_func(rotvec, align_weight=100):
+    def loss_func(params):
+        rotvec = params['rotvec']
+        theta = params['theta']
+
         # LBFGS is second-order optimization method, has to use expm implementation here
         sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
-        loss_smooth = jnp.trace(sh4.T @ -L_jax @ sh4)
-        sh4_n = vmap(project_n)(sh4, R9_zn_pad)
-        loss_align = jnp.where(boundary_mask,
-                               (1 - jnp.einsum('ni,ni->n', sh4, sh4_n)),
-                               0).sum()
 
-        return loss_smooth + align_weight * loss_align
+        # sh4_n = R9_zn.T @ sh4_z
+        sh4_n = jnp.einsum('bji,bj->bi', R9_zn, vmap(sh4_z)(theta))
+        # Use theta parameterization for boundary
+        sh4 = sh4.at[boundary_vid].set(sh4_n)
+
+        # Integrated quantity
+        loss_smooth = jnp.trace(sh4.T @ L_jax @ sh4)
+        return loss_smooth
 
     lbfgs = LBFGS(loss_func)
-    rotvecs_opt = lbfgs.run(rotvecs).params
+    params = lbfgs.run(params).params
 
+    rotvecs_opt = params['rotvec']
     Rs = vmap(rotvec_to_R3)(rotvecs_opt)
+
+    # Recovery boundary rotation
+    theta = params['theta']
+    rotvec_z = theta[..., None] * jnp.array([0, 0, 1])[None, ...]
+    Rz = vmap(rotvec_to_R3)(rotvec_z)
+    R3_zn = vmap(rotvec_to_R3)(rotvec_zn)
+    # R_n = R3_zn.T @ Rz
+    Rs = Rs.at[boundary_vid].set(jnp.einsum('bjk,bji->bki', R3_zn, Rz))
+
+    V_vis_cube, F_vis_cube = vis_oct_field(Rs, V, T)
+
     Q = vmap(R3_to_repvec)(Rs, VN)
 
     V_vis, F_vis, VC_vis = flow_lines.trace(V,
@@ -144,6 +154,7 @@ if __name__ == '__main__':
     tet.add_vector_quantity("VN", VN)
     flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
     flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
+    ps.register_surface_mesh("cube", V_vis_cube, F_vis_cube, enabled=False)
     ps.show()
 
     stroke_mesh = o3d.geometry.TriangleMesh()

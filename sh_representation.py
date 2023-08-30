@@ -321,15 +321,15 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
 
 
 # Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
-sh4_z = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
+sh4_4 = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
 Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
                                  [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
-# exp(t L_z) @ sh4_canonical = sh4_z + Bz.T [cos(4t), sin(4t)].T
+# exp(t L_z) @ sh4_canonical = sh4_4 + Bz.T [cos(4t), sin(4t)].T
 # normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
 def project_z(sh4):
-    return sh4_z + Bz.T @ normalize(Bz @ sh4)
+    return sh4_4 + Bz.T @ normalize(Bz @ sh4)
 
 
 def project_n(sh4, R_zn):
