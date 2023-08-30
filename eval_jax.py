@@ -24,12 +24,35 @@ import time
 
 
 def eval(cfg: Config,
+         progress,
          out_dir,
          vis_mc=False,
          project_vn=False,
          vis_cube=False,
          vis_flowline=False):
     model_key = jax.random.PRNGKey(0)
+
+    n_models = len(cfg.sdf_paths)
+    # preload data in memory to speedup training
+    assert n_models > 0
+
+    # Latent
+    # Compute (n_models - 1) dim simplex vertices as latent
+    # Reference: https://mathoverflow.net/a/184585
+    q, _ = jnp.linalg.qr(jnp.ones((n_models, 1)), mode="complete")
+    latents = q[:, 1:]
+    latent_dim = (n_models - 1)
+
+    tokens = progress.split('_')
+    # Interpolate latent
+    i = int(tokens[0])
+    j = int(tokens[1])
+    t = float(tokens[2])
+    latent = (1 - t) * latents[i] + t * latents[j]
+
+    for mlp_cfg in cfg.mlps:
+        mlp_cfg.in_features += latent_dim
+
     if len(cfg.mlp_types) == 1:
         model: model_jax.MLP = getattr(model_jax,
                                        cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
@@ -48,11 +71,13 @@ def eval(cfg: Config,
 
     @jit
     def infer(x):
-        return model(x)[:, 0]
+        z = latent[None, ...].repeat(len(x), 0)
+        return model(x, z)[:, 0]
 
     @jit
     def infer_grad(x):
-        return model.call_grad(x)
+        z = latent[None, ...].repeat(len(x), 0)
+        return model.call_grad(x, z)
 
     indices = np.linspace(grid_min, grid_max, grid_res)
     grid = np.stack(np.meshgrid(indices, indices, indices), -1).reshape(-1, 3)
@@ -170,19 +195,24 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_mc.obj", V, F)
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{progress}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()
     stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
     stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
     stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_stroke.obj", stroke_mesh)
+    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{progress}_stroke.obj",
+                               stroke_mesh)
 
 
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file.')
+    parser.add_argument('--progress',
+                        type=str,
+                        default='0_1_0',
+                        help='Interpolation progress')
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
@@ -200,5 +230,5 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, "output", args.vis_mc, args.project_vn, args.vis_cube,
-         args.vis_flowline)
+    eval(cfg, args.progress, "output", args.vis_mc, args.project_vn,
+         args.vis_cube, args.vis_flowline)

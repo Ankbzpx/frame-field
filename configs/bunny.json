@@ -1,5 +1,5 @@
 {
-    "sdf_path": "data/sdf/bunny.npz",
+    "sdf_paths": ["data/sdf/bunny.npz"],
     "mlps": [
         {
             "hidden_layers": 6,

@@ -1,5 +1,5 @@
 {
-    "sdf_path": "data/sdf/rocker_arm.npz",
+    "sdf_paths": ["data/sdf/rocker_arm.npz"],
     "mlps": [
         {
             "hidden_layers": 6,

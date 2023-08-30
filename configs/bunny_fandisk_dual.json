@@ -1,6 +1,12 @@
 {
-    "sdf_path": "data/sdf/fandisk.npz",
-    "mlp_types": ["Siren", "StandardMLP"],
+    "sdf_paths": [
+        "data/sdf/bunny.npz",
+        "data/sdf/fandisk.npz"
+    ],
+    "mlp_types": [
+        "StandardMLP",
+        "StandardMLP"
+    ],
     "mlps": [
         {
             "hidden_layers": 4,

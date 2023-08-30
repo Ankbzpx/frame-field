@@ -1,5 +1,5 @@
 {
-    "sdf_path": "data/sdf/fandisk.npz",
+    "sdf_paths": ["data/sdf/fandisk.npz"],
     "mlp_types": [
         "Siren",
         "StandardMLP"
