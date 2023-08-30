@@ -63,6 +63,16 @@ def unroll_identity_block(A, dim):
                                   shape=(dim * H, dim * W)).tocsc()
 
 
+def unpack_stiffness(L):
+    V_cot_adj_coo = scipy.sparse.coo_array(L)
+    # We don't need diagonal
+    valid_entries_mask = V_cot_adj_coo.col != V_cot_adj_coo.row
+    E_i = V_cot_adj_coo.col[valid_entries_mask]
+    E_j = V_cot_adj_coo.row[valid_entries_mask]
+    E_weight = V_cot_adj_coo.data[valid_entries_mask]
+    return E_i, E_j, E_weight
+
+
 # Remove unreference vertices and assign new vertex indices
 def rm_unref_vertices(V, F):
     V_unique, V_unique_idx, V_unique_idx_inv = np.unique(F.flatten(),
