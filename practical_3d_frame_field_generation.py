@@ -7,9 +7,9 @@ from jaxopt import LBFGS
 # Facilitate vscode intellisense
 import scipy.sparse
 import scipy.sparse.linalg
-
-from common import vis_oct_field, unroll_identity_block, normalize_aabb
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9
+from sksparse.cholmod import cholesky
+from common import unroll_identity_block, normalize_aabb
+from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9, project_n
 
 import open3d as o3d
 import argparse
@@ -92,15 +92,16 @@ if __name__ == '__main__':
 
     # A @ x = b
     # => (A.T @ A) @ x = A.T @ b
-    x, _ = scipy.sparse.linalg.cg(A.T @ A, A.T @ b)
+    factor = cholesky((A.T @ A).tocsc())
+    x = factor(A.T @ b)
     sh4_opt = x[:NV * 9].reshape(NV, 9)
 
     # Project to acquire initialize
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
 
     # Optimize field via non-linear objective function
-    sh4_4_n_pad = jnp.zeros((NV, 9))
-    sh4_4_n_pad = sh4_4_n_pad.at[boundary_vid].set(sh4_4_n)
+    R9_zn_pad = jnp.repeat(jnp.eye(9)[None, ...], NV, axis=0)
+    R9_zn_pad = R9_zn_pad.at[boundary_vid].set(R9_zn)
 
     boundary_mask = np.zeros(NV)
     boundary_mask[boundary_vid] = 1
@@ -111,16 +112,15 @@ if __name__ == '__main__':
                          jnp.stack([V_cot_adj_coo.row, V_cot_adj_coo.col], -1)),
                         shape=(NV, NV))
 
-    V_vis, F_vis = vis_oct_field(vmap(rotvec_to_R3)(rotvecs), V, T)
-
     @jit
     def loss_func(rotvec, align_weight=100):
         # LBFGS is second-order optimization method, has to use expm implementation here
         sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
         loss_smooth = jnp.trace(sh4.T @ -L_jax @ sh4)
-        loss_align = jnp.where(
-            boundary_mask, (7 / 12 - jnp.einsum('ni,ni->n', sh4, sh4_4_n_pad)),
-            0).sum()
+        sh4_n = vmap(project_n)(sh4, R9_zn_pad)
+        loss_align = jnp.where(boundary_mask,
+                               (1 - jnp.einsum('ni,ni->n', sh4, sh4_n)),
+                               0).sum()
 
         return loss_smooth + align_weight * loss_align
 
