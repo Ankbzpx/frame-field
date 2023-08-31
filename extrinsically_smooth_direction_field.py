@@ -6,7 +6,6 @@ from functools import partial
 from typing import Callable
 import scipy
 import scipy.sparse.linalg
-from sksparse.cholmod import cholesky
 
 from common import normalize_aabb, normalize, rm_unref_vertices
 
@@ -486,10 +485,10 @@ if __name__ == '__main__':
     # Reference: Algorithm 2 in Globally Optimal Direction Fields by Knöppel et al.
     np.random.seed(0)
     X = np.random.randn(2 * NV, 1)
-    factor = cholesky(A)
+    solve = scipy.sparse.linalg.factorized(A)
 
     for _ in range(30):
-        X = factor(M @ X)
+        X = solve(M @ X)
         X /= np.sqrt(X.T @ M @ X)
 
     a = X[:NV, 0]
@@ -498,14 +497,7 @@ if __name__ == '__main__':
     # representation vector
     Q = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
 
-    V_vis, F_vis, VC_vis = flow_lines.trace(V,
-                                            F,
-                                            VN,
-                                            Q,
-                                            4000,
-                                            length_factor=5,
-                                            interval_factor=10,
-                                            width_factor=0.075)
+    V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
 
     ps.init()
     mesh = ps.register_surface_mesh("mesh", V, F)

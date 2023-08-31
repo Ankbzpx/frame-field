@@ -87,3 +87,30 @@ def rm_unref_vertices(V, F):
     V = V[V_unique][V_map]
 
     return V, F
+
+
+# Remove isolated components except for the most promising one
+def filter_components(V, F):
+    A = igl.adjacency_matrix(F)
+    (n_c, C, K) = igl.connected_components(A)
+
+    if n_c > 1:
+        K_mean = K.mean()
+        idx_top = list(filter(lambda x: K[x] > K_mean, np.argsort(K)))
+
+        def mass_center_to_origin(idx):
+            return np.linalg.norm(V[np.argwhere(C == idx).reshape(
+                -1,)].mean(axis=0))
+
+        idx = idx_top[np.argmin([mass_center_to_origin(idx) for idx in idx_top
+                                ])]
+
+        VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
+        FV = np.split(VF, NI[1:-1])
+
+        V_filter = np.argwhere(C != idx).reshape(-1,)
+        F_filter = np.unique(np.concatenate([FV[vid] for vid in V_filter]))
+        F = np.delete(F, F_filter, axis=0)
+        V, F = rm_unref_vertices(V, F)
+
+    return V, F

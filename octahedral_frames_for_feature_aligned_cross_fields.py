@@ -103,14 +103,7 @@ if __name__ == '__main__':
     Rs = proj_sh4_to_R3(x)
     Q = vmap(R3_to_repvec)(Rs, VN)
 
-    V_vis, F_vis, VC_vis = flow_lines.trace(V,
-                                            F,
-                                            VN,
-                                            Q,
-                                            4000,
-                                            length_factor=5,
-                                            interval_factor=10,
-                                            width_factor=0.075)
+    V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
 
     ps.init()
     mesh = ps.register_surface_mesh("mesh", V, F)

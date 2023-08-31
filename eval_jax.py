@@ -10,7 +10,7 @@ import os
 
 import model_jax
 from config import Config
-from common import normalize, vis_oct_field, rm_unref_vertices
+from common import normalize, vis_oct_field, filter_components
 from sh_representation import proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9, project_n
 import flow_lines
@@ -58,8 +58,18 @@ def eval(cfg: Config,
                                        cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
                                                          key=model_key)
     else:
-        model: model_jax.MLP = model_jax.MLPComposer(model_key, cfg.mlp_types,
-                                                     cfg.mlp_cfgs)
+        if cfg.conditioning:
+            # Do NOT modify config inside eqx.Module, because the __init__ will be called twice
+            cfg.mlps[1].in_features += cfg.mlps[0].in_features
+            MultiMLP = model_jax.MLPComposerCondition
+        else:
+            MultiMLP = model_jax.MLPComposer
+
+        model: model_jax.MLP = MultiMLP(
+            model_key,
+            cfg.mlp_types,
+            cfg.mlp_cfgs,
+        )
 
     model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
 
@@ -67,7 +77,8 @@ def eval(cfg: Config,
     grid_min = -1.0
     grid_max = 1.0
     # Smaller batch is somehow faster
-    group_size = 400000
+    group_size = 4 * grid_res**2
+    iter_size = grid_res**3 // group_size
 
     @jit
     def infer(x):
@@ -79,36 +90,41 @@ def eval(cfg: Config,
         z = latent[None, ...].repeat(len(x), 0)
         return model.call_grad(x, z)
 
-    indices = np.linspace(grid_min, grid_max, grid_res)
-    grid = np.stack(np.meshgrid(indices, indices, indices), -1).reshape(-1, 3)
+    @jit
+    def infer_sdf():
+        indices = jnp.linspace(grid_min, grid_max, grid_res)
+        grid = jnp.stack(jnp.meshgrid(indices, indices, indices),
+                         -1).reshape(iter_size, group_size, 3)
+
+        query_data = {"grid": grid, "sdf": jnp.zeros((iter_size, group_size))}
+
+        @jit
+        def body_func(i, query_data):
+            sdf = infer(query_data["grid"][i])
+            query_data["sdf"] = query_data["sdf"].at[i].set(sdf)
+            return query_data
+
+        query_data = jax.lax.fori_loop(0, iter_size, body_func, query_data)
+        return query_data["sdf"].reshape(grid_res, grid_res, grid_res)
 
     start_time = time.time()
-
-    sdfs_list = []
-    for x in np.array_split(grid, len(grid) // group_size, axis=0):
-        sdf = infer(x)
-        sdfs_list.append(np.array(sdf))
-    sdfs = np.concatenate(sdfs_list).reshape(grid_res, grid_res, grid_res)
-    sdfs = np.swapaxes(sdfs, 0, 1)
-
+    sdf = infer_sdf()
     print("Inference SDF", time.time() - start_time)
     start_time = time.time()
 
+    # This step is unfortunately slow
+    sdf_np = np.swapaxes(np.array(sdf), 0, 1)
+
     spacing = 1. / (grid_res - 1)
-    V, F, _, _ = marching_cubes(sdfs, 0., spacing=(spacing, spacing, spacing))
+    V, F, _, _ = marching_cubes(sdf_np, 0., spacing=(spacing, spacing, spacing))
     V = 2 * (V - 0.5)
+    V, F = filter_components(V, F)
 
-    A = igl.adjacency_matrix(F)
-    (n_c, C, K) = igl.connected_components(A)
-
-    if n_c > 1:
-        VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
-
-        V_filter = np.argwhere(C != np.argmax(K)).reshape(-1,)
-        FV = np.split(VF, NI[1:-1])
-        F_filter = np.unique(np.concatenate([FV[vid] for vid in V_filter]))
-        F = np.delete(F, F_filter, axis=0)
-        V, F = rm_unref_vertices(V, F)
+    if vis_mc:
+        ps.init()
+        ps.register_surface_mesh(f"{cfg.name}", V, F)
+        ps.show()
+        exit()
 
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
@@ -132,13 +148,6 @@ def eval(cfg: Config,
 
     print("Project SDF", time.time() - start_time)
     start_time = time.time()
-
-    if vis_mc:
-        ps.init()
-        mesh_vis = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        mesh_vis.add_vector_quantity("VN", VN, enabled=True)
-        ps.show()
-        exit()
 
     (_, aux), VN = infer_grad(V)
 
@@ -174,14 +183,7 @@ def eval(cfg: Config,
     start_time = time.time()
 
     Q = vmap(R3_to_repvec)(Rs, VN)
-    V_vis, F_vis, VC_vis = flow_lines.trace(V,
-                                            F,
-                                            VN,
-                                            Q,
-                                            4000,
-                                            length_factor=10,
-                                            interval_factor=10,
-                                            width_factor=0.125)
+    V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
     print("Trace flowlines", time.time() - start_time)
 
     if vis_flowline:

@@ -47,6 +47,8 @@ class Config:
     mlp_types: list[str] = field(default_factory=lambda: ['StandardMLP'])
     mlps: list[MLPConfig] = field(default_factory=lambda: [MLPConfig()])
 
+    conditioning: bool = False
+
     @property
     def mlp_cfgs(self) -> list[dict]:
         return [asdict(mlp) for mlp in self.mlps]

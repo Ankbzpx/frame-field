@@ -51,10 +51,12 @@ class MLP(eqx.Module):
         x = self.single_call(x, z)
         return x[0], x[1:]
 
+    def single_call_grad(self, x, z):
+        return eqx.filter_value_and_grad(self.single_call_split,
+                                         has_aux=True)(x, z)
+
     def call_grad(self, x, z):
-        return vmap(
-            eqx.filter_value_and_grad(self.single_call_split, has_aux=True))(x,
-                                                                             z)
+        return vmap(self.single_call_grad)(x, z)
 
     def call_jac(self, x, z):
         val = self.__call__(x, z)
@@ -304,3 +306,24 @@ class MLPComposer(MLP):
 
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
+
+
+class MLPComposerCondition(MLPComposer):
+
+    def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
+        super().__init__(key, mlp_types, mlp_cfgs)
+
+    def __single_call(self, x, z):
+        (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
+        # Should I stop gradient? jax.lax.stop_gradient(normal)
+        sh4 = self.mlps[1].single_call(x, jnp.hstack([normal, z]))
+        return jnp.hstack([sdf, sh4] +
+                          [mlp.single_call(x, z)
+                           for mlp in self.mlps[2:]]), normal
+
+    def single_call(self, x, z):
+        return self.__single_call(x, z)[0]
+
+    def single_call_grad(self, x, z):
+        x, grad = self.__single_call(x, z)
+        return (x[0], x[1:]), grad

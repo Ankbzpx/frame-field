@@ -75,9 +75,18 @@ def train(cfg: Config):
         opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     else:
-        model: model_jax.MLP = model_jax.MLPComposer(model_key, cfg.mlp_types,
-                                                     cfg.mlp_cfgs)
+        if cfg.conditioning:
+            # Do NOT modify config inside eqx.Module, because the __init__ will be called twice
+            cfg.mlps[1].in_features += cfg.mlps[0].in_features
+            MultiMLP = model_jax.MLPComposerCondition
+        else:
+            MultiMLP = model_jax.MLPComposer
 
+        model: model_jax.MLP = MultiMLP(
+            model_key,
+            cfg.mlp_types,
+            cfg.mlp_cfgs,
+        )
         # Reference: https://github.com/patrick-kidger/equinox/issues/79
         param_spec = jax.tree_map(lambda _: "standard", model)
         # I think `is_siren` treat `SineLayer` as a leaf, but tree_leaves still return other leaves during traversal, hence needs to call `is_siren` again
