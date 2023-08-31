@@ -50,10 +50,8 @@ def eval(cfg: Config,
     t = float(tokens[2])
     latent = (1 - t) * latents[i] + t * latents[j]
 
-    for mlp_cfg in cfg.mlps:
-        mlp_cfg.in_features += latent_dim
-
     if len(cfg.mlp_types) == 1:
+        cfg.mlps[0].in_features += latent_dim
         model: model_jax.MLP = getattr(model_jax,
                                        cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
                                                          key=model_key)
@@ -64,6 +62,9 @@ def eval(cfg: Config,
             MultiMLP = model_jax.MLPComposerCondition
         else:
             MultiMLP = model_jax.MLPComposer
+
+        for mlp_cfg in cfg.mlps:
+            mlp_cfg.in_features += latent_dim
 
         model: model_jax.MLP = MultiMLP(
             model_key,
