@@ -151,8 +151,11 @@ def eval(cfg: Config,
     start_time = time.time()
 
     (_, aux), VN = infer_grad(V)
-    sh4 = vmap(normalize)(aux[:, :9])
+    sh4 = aux[:, :9]
 
+    print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+
+    sh4 = vmap(normalize)(sh4)
     L = igl.cotmatrix(V, F)
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")

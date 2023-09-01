@@ -248,7 +248,6 @@ def train(cfg: Config):
         batch = jax.tree_map(lambda x: x[batch_id], data)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
                                                 cfg.loss_cfg)
-        pbar.set_postfix({"loss": loss_dict['loss_total']})
 
         if np.isnan(loss_dict['loss_total']):
             print("NaN occurred!")
@@ -261,10 +260,12 @@ def train(cfg: Config):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
+        pbar.set_postfix(loss_dict)
+
         # TODO: better plot like using tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
-        if epoch % 500 == 0:
+        if epoch % cfg.training.plot_every == 0:
             plt.close(1)
             plt.figure(1)
             plt.semilogy(loss_history['loss_total'][:epoch])

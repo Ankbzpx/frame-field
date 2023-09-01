@@ -17,7 +17,7 @@ class TrainingConfig:
     n_epochs: int = 1
     n_steps: int = 12500    # per epoch
     n_samples: int = 8192    # per step
-    plot_every: int = 1000
+    plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
 
 
