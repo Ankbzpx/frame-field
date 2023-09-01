@@ -24,7 +24,7 @@ import time
 
 
 def eval(cfg: Config,
-         progress,
+         interp,
          out_dir,
          vis_mc=False,
          project_vn=False,
@@ -43,7 +43,7 @@ def eval(cfg: Config,
     latents = q[:, 1:]
     latent_dim = (n_models - 1)
 
-    tokens = progress.split('_')
+    tokens = interp.split('_')
     # Interpolate latent
     i = int(tokens[0])
     j = int(tokens[1])
@@ -198,13 +198,14 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{progress}_mc.obj", V, F)
+    interp_tag = "" if n_models == 0 else interp
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()
     stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
     stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
     stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{progress}_stroke.obj",
+    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_stroke.obj",
                                stroke_mesh)
 
 
@@ -212,7 +213,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--progress',
+    parser.add_argument('--interp',
                         type=str,
                         default='0_1_0',
                         help='Interpolation progress')
@@ -233,5 +234,5 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, args.progress, "output", args.vis_mc, args.project_vn,
+    eval(cfg, args.interp, "output", args.vis_mc, args.project_vn,
          args.vis_cube, args.vis_flowline)
