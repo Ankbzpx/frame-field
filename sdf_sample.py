@@ -93,6 +93,38 @@ class SDFSampler:
 
 
 if __name__ == '__main__':
+    # from sklearn.cluster import KMeans
+    # from scipy.spatial.distance import cdist
+
+    # model_path = "data/mesh/bunny.obj"
+    # model_out_path = f"data/sdf/bunny_hole.npz"
+    # sample_size = 2500000
+
+    # sampler = SDFSampler(model_path)
+    # samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
+    # samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size)
+
+    # n_holes = 10
+
+    # hole_centers = KMeans(n_holes).fit(samples_on_sur).cluster_centers_
+    # hole_radius = 0.3
+    # valid_mask = (cdist(hole_centers, samples_on_sur) >
+    #               hole_radius).sum(0) == n_holes
+    # samples_on_sur = samples_on_sur[valid_mask]
+    # normals_on_sur = normals_on_sur[valid_mask]
+
+    # valid_mask = (cdist(hole_centers, samples_off_sur) >
+    #               hole_radius).sum(0) == n_holes
+    # samples_off_sur = samples_off_sur[valid_mask]
+    # sdf_off_sur = sdf_off_sur[valid_mask]
+
+    # np.savez(model_out_path,
+    #          samples_on_sur=samples_on_sur,
+    #          normals_on_sur=normals_on_sur,
+    #          samples_off_sur=samples_off_sur,
+    #          sdf_off_sur=sdf_off_sur)
+    # exit()
+
     model_path_list = sorted(glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
     sample_size = 2500000
 

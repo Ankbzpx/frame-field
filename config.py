@@ -33,7 +33,7 @@ class LossConfig:
     smooth: float = 0
     rot: float = 0
 
-    match_zero_level_set: bool = False
+    match_zero_level_set: bool = True
     match_all_level_set: bool = False
     allow_gradient: bool = False
 
