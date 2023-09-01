@@ -151,9 +151,13 @@ def eval(cfg: Config,
     start_time = time.time()
 
     (_, aux), VN = infer_grad(V)
+    sh4 = vmap(normalize)(aux[:, :9])
 
-    def R_from_sh4():
-        sh4 = aux[:, :9]
+    L = igl.cotmatrix(V, F)
+    smoothness = np.trace(sh4.T @ -L @ sh4)
+    print(f"Smoothness {smoothness}")
+
+    def R_from_sh4(sh4):
         if project_vn:
             R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
             sh4 = vmap(project_n)(sh4.reshape(len(V), 9), R9_zn)
@@ -163,7 +167,7 @@ def eval(cfg: Config,
     if cfg.loss_cfg.rot:
         Rs = vmap(rotvec_to_R3)(aux[:, 9:])
     else:
-        Rs = R_from_sh4()
+        Rs = R_from_sh4(sh4)
 
     print("Project SO(3)", time.time() - start_time)
 
