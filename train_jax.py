@@ -184,6 +184,8 @@ def train(cfg: Config):
         sh4_n = vmap(project_n)(sh4_align, R9_zn)
         loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                        (sh4_align, sh4_n)).mean()
+        # project_n does not penalize the norm
+        loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(sh4_align).mean()
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -194,14 +196,15 @@ def train(cfg: Config):
             pred_normals_on_sur, normals_on_sur)).mean()
         loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
 
-        loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_align
+        loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_align + loss_unit_norm
 
         loss_dict = {
             'loss_mse': loss_mse,
             'loss_off': loss_off,
             'loss_normal': loss_normal,
             'loss_eikonal': loss_eikonal,
-            'loss_align': loss_align
+            'loss_align': loss_align,
+            'loss_unit_norm': loss_unit_norm
         }
 
         if loss_cfg.lip > 0:
@@ -260,7 +263,7 @@ def train(cfg: Config):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
-        pbar.set_postfix(loss_dict)
+        pbar.set_postfix({"loss": loss_dict['loss_total']})
 
         # TODO: better plot like using tensorboardX
         # Loss plot

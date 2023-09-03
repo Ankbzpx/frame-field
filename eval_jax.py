@@ -205,7 +205,7 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    interp_tag = "" if n_models == 0 else interp
+    interp_tag = "" if n_models == 1 else interp
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()

@@ -29,6 +29,7 @@ class LossConfig:
     eikonal: float = 5e1
 
     align: float = 1e2
+    unit_norm: float = 1.0
     lip: float = 0
     smooth: float = 0
     rot: float = 0
