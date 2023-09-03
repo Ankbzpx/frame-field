@@ -87,6 +87,34 @@ def quad_crease_gap(cfg0, cfg1, angle, gap):
     return V, F, VN
 
 
+def quad_sample_even(width, height, grid_size, remove_edge=False, **kwargs):
+    n_sample_width = int(grid_size * width)
+    n_sample_height = int(2 * grid_size * height)
+
+    xx, zz = np.meshgrid(np.linspace(-width, 0, n_sample_width),
+                         np.linspace(-height, height, n_sample_height))
+    yy = np.zeros((n_sample_height, n_sample_width))
+
+    samples = np.stack([xx, yy, zz], -1)
+
+    if remove_edge:
+        samples = samples[:, :-1, :]
+
+    return samples.reshape(-1, 3)
+
+
+def quad_crease_eval(cfg0, cfg1, angle, grid_size):
+    samples_0 = quad_sample_even(**cfg0, grid_size=grid_size)
+    samples_1 = quad_sample_even(**cfg1, grid_size=grid_size, remove_edge=True)
+
+    theta = np.deg2rad(angle)
+    length = np.copy(samples_1[:, 0])
+    samples_1[:, 0] = -length * np.cos(theta)
+    samples_1[:, 1] = length * np.sin(theta)
+
+    return np.vstack([samples_0, samples_1])
+
+
 @jit
 def sh4_n_align(R9_zn, theta):
     sh4_z_align = sh4_z(theta)
@@ -101,8 +129,17 @@ if __name__ == '__main__':
     cfg1 = {'width': 2.0, 'height': 2.0, 'cfg': 0}
     V, F, VN = quad_crease(cfg0, cfg1, 30)
 
-    # Gap ones no connectivity
-    # V, F, VN = quad_crease_gap(cfg0, cfg1, 10, 0.1)
+    # Generate toy eval samples
+    # for angle in [10, 30, 90, 120, 150]:
+    #     samples = quad_crease_eval(cfg0, cfg1, angle, 10)
+    #     np.save(f"data/toy_eval/crease_{angle}.npy", samples)
+
+    # Gap ones no connectivity, used to gen toy data
+    # for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
+    #     for angle in [10, 30, 90, 120, 150]:
+    #         V, F, VN = quad_crease_gap(cfg0, cfg1, angle, gap)
+    #         igl.write_triangle_mesh(f"data/toy/crease_{gap}_{angle}.obj", V, F)
+    # exit()
 
     NV = len(V)
     rotvec_zn = vmap(rotvec_n_to_z)(VN)

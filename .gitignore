@@ -2,5 +2,6 @@
 __pycache__
 results
 data/sdf
+data/toy_sdf
 checkpoints
 output
