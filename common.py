@@ -30,7 +30,7 @@ def normalize_aabb(V):
 
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
-def vis_oct_field(R3s, V, T, scale=0.1):
+def vis_oct_field(R3s, V, size):
     V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
                        [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1]])
 
@@ -42,7 +42,6 @@ def vis_oct_field(R3s, V, T, scale=0.1):
     F_vis = (np.repeat(F_cube[None, ...], NV, 0) +
              (len(V_cube) * np.arange(NV))[:, None, None]).reshape(-1, 3)
 
-    size = scale * igl.avg_edge_length(V, T)
     V_vis = (V[:, None, :] +
              np.einsum('nij,bj->nbi', R3s, size * V_cube)).reshape(-1, 3)
 

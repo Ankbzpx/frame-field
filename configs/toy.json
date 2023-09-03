@@ -1,0 +1,25 @@
+{
+    "mlp_types": [
+        "StandardMLP",
+        "StandardMLP"
+    ],
+    "mlps": [
+        {
+            "hidden_features": 64,
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_features": 64,
+            "hidden_layers": 2,
+            "out_features": 9
+        }
+    ],
+    "loss_cfg": {
+        "match_zero_level_set": false,
+        "smooth": 1.0
+    },
+    "training": {
+        "n_steps": 5000
+    }
+}

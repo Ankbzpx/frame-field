@@ -8,7 +8,7 @@ from jax.experimental import sparse
 from icecream import ic
 import polyscope as ps
 
-from common import vis_oct_field, unroll_identity_block
+from common import vis_oct_field, unroll_identity_block, normalize_aabb
 from sh_representation import sh4_z, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9
 
 
@@ -124,20 +124,23 @@ def sh4_n_align(R9_zn, theta):
 
 
 if __name__ == '__main__':
+    # Normalize aabb
+    scale = 0.45
     # For this config, oct field starts to align crease at around 10 degree
-    cfg0 = {'width': 0.5, 'height': 2.0, 'cfg': 3}
-    cfg1 = {'width': 2.0, 'height': 2.0, 'cfg': 0}
+    cfg0 = {'width': scale * 0.5, 'height': scale * 2.0, 'cfg': 3}
+    cfg1 = {'width': scale * 2.0, 'height': scale * 2.0, 'cfg': 0}
     V, F, VN = quad_crease(cfg0, cfg1, 30)
 
     # Generate toy eval samples
     # for angle in [10, 30, 90, 120, 150]:
     #     samples = quad_crease_eval(cfg0, cfg1, angle, 10)
+    #     samples[:, 0] -= scale * 0.75
     #     np.save(f"data/toy_eval/crease_{angle}.npy", samples)
 
-    # Gap ones no connectivity, used to gen toy data
     # for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
     #     for angle in [10, 30, 90, 120, 150]:
     #         V, F, VN = quad_crease_gap(cfg0, cfg1, angle, gap)
+    #         V[:, 0] -= scale * 0.75
     #         igl.write_triangle_mesh(f"data/toy/crease_{gap}_{angle}.obj", V, F)
     # exit()
 
@@ -166,7 +169,8 @@ if __name__ == '__main__':
         rotvecs = thetas[:, None] * jnp.repeat(
             jnp.array([0, 0, 1])[None, :], NV, axis=0)
         Rs = vmap(rotvec_to_R3)(rotvecs)
-        return vis_oct_field(jnp.einsum('bji,bjk->bik', R3_zn, Rs), V, F)
+        return vis_oct_field(jnp.einsum('bji,bjk->bik', R3_zn, Rs), V,
+                             0.1 * igl.avg_edge_length(V, F))
 
     V_vis, F_vis = vis_theta(thetas)
     V_vis_opt, F_vis_opt = vis_theta(thetas_opt)

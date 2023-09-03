@@ -136,7 +136,8 @@ if __name__ == '__main__':
     # R_n = R3_zn.T @ Rz
     Rs = Rs.at[boundary_vid].set(jnp.einsum('bjk,bji->bki', R3_zn, Rz))
 
-    V_vis_cube, F_vis_cube = vis_oct_field(Rs, V, T)
+    V_vis_cube, F_vis_cube = vis_oct_field(Rs, V,
+                                           0.1 * igl.avg_edge_length(V, T))
 
     Q = vmap(R3_to_repvec)(Rs, VN)
 

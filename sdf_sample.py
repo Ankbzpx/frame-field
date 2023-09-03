@@ -14,11 +14,13 @@ class SDFSampler:
 
     def __init__(self,
                  model_path,
+                 normalize=True,
                  surface_ratio=0.6,
                  close_ratio=0.3,
                  sigma=5e-2):
         V, F = igl.read_triangle_mesh(model_path)
-        V = normalize_aabb(V)
+        if normalize:
+            V = normalize_aabb(V)
 
         self.V = V
         self.F = F
@@ -100,7 +102,7 @@ if __name__ == '__main__':
         model_name = '.'.join(model_path.split('/')[-1].split('.')[:-1])
         model_out_path = f"data/toy_sdf/{model_name}.npz"
 
-        sampler = SDFSampler(model_path)
+        sampler = SDFSampler(model_path, normalize=False)
         samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
         samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size)
 

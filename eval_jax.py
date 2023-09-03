@@ -175,7 +175,7 @@ def eval(cfg: Config,
     print("Project SO(3)", time.time() - start_time)
 
     if vis_cube:
-        V_vis, F_vis = vis_oct_field(Rs, V, F)
+        V_vis, F_vis = vis_oct_field(Rs, V, 0.1 * igl.avg_edge_length(V, F))
 
         ps.init()
         mesh = ps.register_surface_mesh("mesh", V, F)
@@ -183,7 +183,8 @@ def eval(cfg: Config,
         ps.register_surface_mesh("Oct frames", V_vis, F_vis)
         if cfg.loss_cfg.rot:
             Rs2 = R_from_sh4()
-            V_vis2, F_vis2 = vis_oct_field(Rs2, V, F)
+            V_vis2, F_vis2 = vis_oct_field(Rs2, V,
+                                           0.1 * igl.avg_edge_length(V, F))
             ps.register_surface_mesh("Oct frames sh4", V_vis2, F_vis2)
         ps.show()
         exit()
