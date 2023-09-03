@@ -65,19 +65,45 @@ def quad_crease(cfg0, cfg1, angle):
     return V, F, VN
 
 
+def quad_crease_gap(cfg0, cfg1, angle, gap):
+    V0, F0 = quad_patch(**cfg0)
+    V1, F1 = quad_patch(**cfg1)
+
+    theta = np.deg2rad(angle)
+    V1[:3, 0] = (gap) * np.cos(theta)
+    V1[:3, 1] = -(gap) * np.sin(theta)
+    length = np.copy(V1[3:, 0])
+    V1[3:, 0] = -(length - gap) * np.cos(theta)
+    V1[3:, 1] = (length - gap) * np.sin(theta)
+    F1 = F1[:, ::-1]
+
+    V0[:, 0] -= gap
+
+    offset = F0.max() + 1
+    V = np.vstack([V0, V1])
+    F = np.vstack([F0, F1 + offset])
+    VN = igl.per_vertex_normals(V, F)
+
+    return V, F, VN
+
+
 @jit
 def sh4_n_align(R9_zn, theta):
-    sh4_z = sh4_z(theta)
-    # R9_zn.T @ sh4_z
-    return R9_zn[0, :] * sh4_z[0] + R9_zn[4, :] * sh4_z[4] + R9_zn[
-        -1, :] * sh4_z[-1]
+    sh4_z_align = sh4_z(theta)
+    # R9_zn.T @ sh4_z_align
+    return R9_zn[0, :] * sh4_z_align[0] + R9_zn[4, :] * sh4_z_align[4] + R9_zn[
+        -1, :] * sh4_z_align[-1]
 
 
 if __name__ == '__main__':
     # For this config, oct field starts to align crease at around 10 degree
     cfg0 = {'width': 0.5, 'height': 2.0, 'cfg': 3}
     cfg1 = {'width': 2.0, 'height': 2.0, 'cfg': 0}
-    V, F, VN = quad_crease(cfg0, cfg1, 60)
+    V, F, VN = quad_crease(cfg0, cfg1, 30)
+
+    # Gap ones no connectivity
+    # V, F, VN = quad_crease_gap(cfg0, cfg1, 10, 0.1)
+
     NV = len(V)
     rotvec_zn = vmap(rotvec_n_to_z)(VN)
     R3_zn = vmap(rotvec_to_R3)(rotvec_zn)
