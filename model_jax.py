@@ -15,30 +15,6 @@ def value_and_jacfwd(f, x):
     return y, jac
 
 
-class Linear(eqx.Module):
-    W: Array
-    b: Array
-
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 xavier_init: bool = False):
-
-        if xavier_init:
-            self.W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(6. / (in_features + out_features))
-        else:
-            self.W = jax.random.normal(
-                key, (out_features, in_features)) * jnp.sqrt(2. / in_features)
-
-        self.b = jnp.zeros(out_features)
-
-    def __call__(self, x):
-        return self.W @ x + self.b
-
-
 class MLP(eqx.Module):
 
     def __init__():
@@ -69,6 +45,30 @@ class MLP(eqx.Module):
 
     def get_aux_loss(self):
         return 0
+
+
+class Linear(eqx.Module):
+    W: Array
+    b: Array
+
+    def __init__(self,
+                 in_features: int,
+                 out_features: int,
+                 key: jax.random.PRNGKey,
+                 xavier_init: bool = False):
+
+        if xavier_init:
+            self.W = jax.random.uniform(
+                key, (out_features, in_features), minval=-1.,
+                maxval=1.) * jnp.sqrt(6. / (in_features + out_features))
+        else:
+            self.W = jax.random.normal(
+                key, (out_features, in_features)) * jnp.sqrt(2. / in_features)
+
+        self.b = jnp.zeros(out_features)
+
+    def __call__(self, x):
+        return self.W @ x + self.b
 
 
 class StandardMLP(MLP):
