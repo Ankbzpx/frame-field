@@ -365,6 +365,32 @@ def y_00(x, y, z):
 
 
 @jit
+def y_2_2(x, y, z):
+    return (1 / 2) * jnp.sqrt(15 / jnp.pi) * x * y * r_2(x, y, z)
+
+
+@jit
+def y_2_1(x, y, z):
+    return (1 / 2) * jnp.sqrt(15 / jnp.pi) * y * z * r_2(x, y, z)
+
+
+@jit
+def y_20(x, y, z):
+    return (1 / 4) * jnp.sqrt(
+        5 / jnp.pi) * (3 * z**2 * r_2(x, y, z) - r_4(x, y, z))
+
+
+@jit
+def y_21(x, y, z):
+    return (1 / 2) * jnp.sqrt(15 / jnp.pi) * x * z * r_2(x, y, z)
+
+
+@jit
+def y_22(x, y, z):
+    return (1 / 4) * jnp.sqrt(15 / jnp.pi) * (x**2 - y**2) * r_2(x, y, z)
+
+
+@jit
 def y_4_4(x, y, z):
     return (3 / 4) * jnp.sqrt(35 / jnp.pi) * x * y * (x**2 - y**2)
 
