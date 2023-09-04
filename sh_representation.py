@@ -418,15 +418,32 @@ sh_basis_funcs = [
     y_00, y_4_4, y_4_3, y_4_2, y_4_1, y_40, y_41, y_42, y_43, y_44
 ]
 
+# poly_scale * (x^4 + y^4 + z^4) = c_00 * y_00(x, y, z) + sqrt(7 / 12) * y_40(x, y, z) + sqrt(5 / 12) * y_44(x, y, z)
+c_00 = 3 * jnp.sqrt(21) / 4
+# r^4 is NOT in denominator because it has been **pre-multiplied** to basis
+poly_scale = 5 * jnp.sqrt(21 / np.pi) / 8
+
 
 @jit
-def rep_polynomial_sh(v, sh4):
+def sh4_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    sh4 = jnp.concatenate([jnp.array([3 * jnp.sqrt(21) / 2]), normalize(sh4)])
-    basis = jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
-    return jnp.dot(sh4, basis)
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs[1:]))
+
+
+@jit
+def sh0_4_basis(v):
+    x = v[0]
+    y = v[1]
+    z = v[2]
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
+
+
+@jit
+def rep_polynomial_sh(v, sh4):
+    sh4 = jnp.hstack([c_00, normalize(sh4)])
+    return jnp.dot(sh4, sh0_4_basis(v) / poly_scale)
 
 
 @jit
@@ -514,9 +531,15 @@ if __name__ == '__main__':
                        [4, 6, 7], [7, 5, 4]])
     ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
+    dps = vmap(rep_polynomial_sh, in_axes=[0, None])(v, sh4)
+    print(f"Dot product before {dps.mean()}")
+
     for _ in range(1000):
         v = vmap(normalize)(vmap(grad(rep_polynomial_sh),
                                  in_axes=[0, None])(v, sh4))
+
+    dps = vmap(rep_polynomial_sh, in_axes=[0, None])(v, sh4)
+    print(f"Dot product after {dps.mean()}")
 
     ps.register_point_cloud('pc_converge', v)
 
