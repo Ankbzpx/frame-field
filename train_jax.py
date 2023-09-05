@@ -13,7 +13,7 @@ import os
 import model_jax
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal
 
 import polyscope as ps
 from icecream import ic
@@ -69,11 +69,15 @@ def train(cfg: Config):
         else:
             (pred_on_sur_sdf, aux), pred_normals_on_sur = model.call_grad(
                 samples_on_sur, latent)
-            sh4 = aux[:, :9]
+
+            sh4 = vmap(rot6d_to_sh4_zonal)(
+                aux[:, :6]) if loss_cfg.rot6d else aux[:, :9]
 
             (pred_off_sur_sdf, aux_off), pred_normals_off_sur = model.call_grad(
                 samples_off_sur, latent)
-            sh4_off = aux_off[:, :9]
+
+            sh4_off = vmap(rot6d_to_sh4_zonal)(
+                aux_off[:, :6]) if loss_cfg.rot6d else aux_off[:, :9]
 
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
 
@@ -134,13 +138,6 @@ def train(cfg: Config):
             loss_smooth = loss_cfg.smooth * sh4_grad_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
-
-        # if loss_cfg.rot > 0:
-        #     sh4_est = vmap(rotvec_to_sh4)(aux[:, 9:])
-        #     loss_rot = loss_cfg.rot * (1 - vmap(cosine_similarity)(
-        #         sh4_est, jax.lax.stop_gradient(sh4)).mean())
-        #     loss += loss_rot
-        #     loss_dict['loss_rot'] = loss_rot
 
         loss_dict['loss_total'] = loss
 

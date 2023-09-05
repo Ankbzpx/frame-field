@@ -13,7 +13,7 @@ from config import Config
 from config_utils import config_latent, config_model
 from common import normalize, vis_oct_field, filter_components
 from sh_representation import proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
-    rotvec_to_R9, project_n
+    rotvec_to_R9, project_n, rot6d_to_R3, R3_to_sh4_zonal
 import flow_lines
 import open3d as o3d
 import pymeshlab
@@ -78,7 +78,6 @@ def eval(cfg: Config,
          interp,
          out_dir,
          vis_mc=False,
-         project_vn=False,
          vis_cube=False,
          vis_flowline=False):
 
@@ -132,7 +131,12 @@ def eval(cfg: Config,
     start_time = time.time()
 
     (_, aux), VN = infer_grad(V)
-    sh4 = aux[:, :9]
+
+    Rs = vmap(rot6d_to_R3)(
+        aux[:, :6]) if cfg.loss_cfg.rot6d else proj_sh4_to_R3(sh4)
+    print("Project SO(3)", time.time() - start_time)
+
+    sh4 = vmap(R3_to_sh4_zonal)(Rs) if cfg.loss_cfg.rot6d else aux[:, :9]
 
     print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
 
@@ -140,20 +144,6 @@ def eval(cfg: Config,
     L = igl.cotmatrix(V, F)
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")
-
-    def R_from_sh4(sh4):
-        if project_vn:
-            R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(VN))
-            sh4 = vmap(project_n)(sh4.reshape(len(V), 9), R9_zn)
-
-        return proj_sh4_to_R3(sh4)
-
-    # if cfg.loss_cfg.rot:
-    #     Rs = vmap(rotvec_to_R3)(aux[:, 9:])
-    # else:
-    Rs = R_from_sh4(sh4)
-
-    print("Project SO(3)", time.time() - start_time)
 
     if vis_cube:
         V_vis, F_vis = vis_oct_field(Rs, V, 0.1 * igl.avg_edge_length(V, F))
@@ -209,9 +199,6 @@ if __name__ == '__main__':
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
-    parser.add_argument('--project_vn',
-                        action='store_true',
-                        help='Project sh4 to vertex normal')
     parser.add_argument('--vis_cube',
                         action='store_true',
                         help='Visualize cube')
@@ -223,5 +210,5 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, args.interp, "output", args.vis_mc, args.project_vn,
-         args.vis_cube, args.vis_flowline)
+    eval(cfg, args.interp, "output", args.vis_mc, args.vis_cube,
+         args.vis_flowline)

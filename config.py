@@ -33,6 +33,7 @@ class LossConfig:
     lip: float = 0
     smooth: float = 0
 
+    rot6d: bool = False
     match_zero_level_set: bool = True
     match_all_level_set: bool = False
     allow_gradient: bool = False

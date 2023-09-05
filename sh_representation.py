@@ -633,6 +633,12 @@ def rotvec_to_sh4_zonal(rotvec):
 
 
 @jit
+def rot6d_to_sh4_zonal(rot6d):
+    R3 = rot6d_to_R3(rot6d)
+    return R3_to_sh4_zonal(R3)
+
+
+@jit
 def oct_polynomial_zonal(v, R3):
     return vmap(zonal_oct_coeffs)(
         R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale
