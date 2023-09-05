@@ -10,6 +10,7 @@ import os
 
 import model_jax
 from config import Config
+from config_utils import config_latent, config_model
 from common import normalize, vis_oct_field, filter_components
 from sh_representation import proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
     rotvec_to_R9, project_n
@@ -23,73 +24,11 @@ from icecream import ic
 import time
 
 
-def eval(cfg: Config,
-         interp,
-         out_dir,
-         vis_mc=False,
-         project_vn=False,
-         vis_cube=False,
-         vis_flowline=False):
-    model_key = jax.random.PRNGKey(0)
-
-    n_models = len(cfg.sdf_paths)
-    # preload data in memory to speedup training
-    assert n_models > 0
-
-    # Latent
-    # Compute (n_models - 1) dim simplex vertices as latent
-    # Reference: https://mathoverflow.net/a/184585
-    q, _ = jnp.linalg.qr(jnp.ones((n_models, 1)), mode="complete")
-    latents = q[:, 1:]
-    latent_dim = (n_models - 1)
-
-    tokens = interp.split('_')
-    # Interpolate latent
-    i = int(tokens[0])
-    j = int(tokens[1])
-    t = float(tokens[2])
-    latent = (1 - t) * latents[i] + t * latents[j]
-
-    if len(cfg.mlp_types) == 1:
-        cfg.mlps[0].in_features += latent_dim
-        model: model_jax.MLP = getattr(model_jax,
-                                       cfg.mlp_types[0])(**cfg.mlp_cfgs[0],
-                                                         key=model_key)
-    else:
-        if cfg.conditioning:
-            # Do NOT modify config inside eqx.Module, because the __init__ will be called twice
-            cfg.mlps[1].in_features += cfg.mlps[0].in_features
-            MultiMLP = model_jax.MLPComposerCondition
-        else:
-            MultiMLP = model_jax.MLPComposer
-
-        for mlp_cfg in cfg.mlps:
-            mlp_cfg.in_features += latent_dim
-
-        model: model_jax.MLP = MultiMLP(
-            model_key,
-            cfg.mlp_types,
-            cfg.mlp_cfgs,
-        )
-
-    model = eqx.tree_deserialise_leaves(f"checkpoints/{cfg.name}.eqx", model)
-
-    grid_res = 512
-    grid_min = -1.0
-    grid_max = 1.0
+# infer: R^3 -> R (sdf)
+def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
     # Smaller batch is somehow faster
     group_size = 4 * grid_res**2
     iter_size = grid_res**3 // group_size
-
-    @jit
-    def infer(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        return model(x, z)[:, 0]
-
-    @jit
-    def infer_grad(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        return model.call_grad(x, z)
 
     @jit
     def infer_sdf():
@@ -108,25 +47,20 @@ def eval(cfg: Config,
         query_data = jax.lax.fori_loop(0, iter_size, body_func, query_data)
         return query_data["sdf"].reshape(grid_res, grid_res, grid_res)
 
-    start_time = time.time()
     sdf = infer_sdf()
-    print("Inference SDF", time.time() - start_time)
-    start_time = time.time()
-
-    # This step is unfortunately slow
+    # This step is surprising slow, memory copy?
     sdf_np = np.swapaxes(np.array(sdf), 0, 1)
 
     spacing = 1. / (grid_res - 1)
     V, F, _, _ = marching_cubes(sdf_np, 0., spacing=(spacing, spacing, spacing))
     V = 2 * (V - 0.5)
-    V, F = filter_components(V, F)
 
-    if vis_mc:
-        ps.init()
-        ps.register_surface_mesh(f"{cfg.name}", V, F)
-        ps.show()
-        exit()
+    return V, F
 
+
+# Reduce face count to speed up visualization
+# TODO: Use edge collapsing like one in Instant meshes
+def mehslab_remesh(V, F):
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
@@ -137,10 +71,57 @@ def eval(cfg: Config,
     ms.save_current_mesh(f'tmp/{cfg.name}.obj')
     V, F = igl.read_triangle_mesh(f'tmp/{cfg.name}.obj')
     os.system(f'rm tmp/{cfg.name}.obj')
+    return V, F
 
-    print("Meshlab Remesh", time.time() - start_time)
+
+def eval(cfg: Config,
+         interp,
+         out_dir,
+         vis_mc=False,
+         project_vn=False,
+         vis_cube=False,
+         vis_flowline=False):
+
+    latents, latent_dim = config_latent(cfg)
+    tokens = interp.split('_')
+    # Interpolate latent
+    i = int(tokens[0])
+    j = int(tokens[1])
+    t = float(tokens[2])
+    latent = (1 - t) * latents[i] + t * latents[j]
+
+    model_key = jax.random.PRNGKey(0)
+    model = config_model(cfg, model_key, latent_dim)
+    model: model_jax.MLP = eqx.tree_deserialise_leaves(
+        f"checkpoints/{cfg.name}.eqx", model)
+
+    @jit
+    def infer(x):
+        z = latent[None, ...].repeat(len(x), 0)
+        return model(x, z)[:, 0]
+
+    @jit
+    def infer_grad(x):
+        z = latent[None, ...].repeat(len(x), 0)
+        return model.call_grad(x, z)
+
     start_time = time.time()
+    V, F = extract_surface(infer)
+    print("Extract surface", time.time() - start_time)
 
+    V, F = filter_components(V, F)
+
+    if vis_mc:
+        ps.init()
+        ps.register_surface_mesh(f"{cfg.name}", V, F)
+        ps.show()
+        exit()
+
+    start_time = time.time()
+    V, F = mehslab_remesh(V, F)
+    print("Meshlab Remesh", time.time() - start_time)
+
+    start_time = time.time()
     # Project on isosurface
     (sdf, _), VN = infer_grad(V)
     VN = vmap(normalize)(VN)
@@ -167,10 +148,10 @@ def eval(cfg: Config,
 
         return proj_sh4_to_R3(sh4)
 
-    if cfg.loss_cfg.rot:
-        Rs = vmap(rotvec_to_R3)(aux[:, 9:])
-    else:
-        Rs = R_from_sh4(sh4)
+    # if cfg.loss_cfg.rot:
+    #     Rs = vmap(rotvec_to_R3)(aux[:, 9:])
+    # else:
+    Rs = R_from_sh4(sh4)
 
     print("Project SO(3)", time.time() - start_time)
 
@@ -181,11 +162,11 @@ def eval(cfg: Config,
         mesh = ps.register_surface_mesh("mesh", V, F)
         mesh.add_vector_quantity("VN", VN)
         ps.register_surface_mesh("Oct frames", V_vis, F_vis)
-        if cfg.loss_cfg.rot:
-            Rs2 = R_from_sh4()
-            V_vis2, F_vis2 = vis_oct_field(Rs2, V,
-                                           0.1 * igl.avg_edge_length(V, F))
-            ps.register_surface_mesh("Oct frames sh4", V_vis2, F_vis2)
+        # if cfg.loss_cfg.rot:
+        #     Rs2 = R_from_sh4()
+        #     V_vis2, F_vis2 = vis_oct_field(Rs2, V,
+        #                                    0.1 * igl.avg_edge_length(V, F))
+        #     ps.register_surface_mesh("Oct frames sh4", V_vis2, F_vis2)
         ps.show()
         exit()
 
@@ -206,7 +187,7 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    interp_tag = "" if n_models == 1 else interp
+    interp_tag = "" if len(cfg.sdf_paths) == 1 else interp
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()

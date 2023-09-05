@@ -32,7 +32,6 @@ class LossConfig:
     unit_norm: float = 1.0
     lip: float = 0
     smooth: float = 0
-    rot: float = 0
 
     match_zero_level_set: bool = True
     match_all_level_set: bool = False
