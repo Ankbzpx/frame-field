@@ -440,40 +440,65 @@ def y_44(x, y, z):
                                                (3 * x**2 - y**2))
 
 
-sh_basis_funcs = [
-    y_00, y_4_4, y_4_3, y_4_2, y_4_1, y_40, y_41, y_42, y_43, y_44
-]
+sh0_basis = [y_00]
+sh2_basis = [y_2_2, y_2_1, y_20, y_21, y_22]
+sh4_basis = [y_4_4, y_4_3, y_4_2, y_4_1, y_40, y_41, y_42, y_43, y_44]
 
-# poly_scale * (x^4 + y^4 + z^4) = c_00 * y_00(x, y, z) + sqrt(7 / 12) * y_40(x, y, z) + sqrt(5 / 12) * y_44(x, y, z)
-c_00 = 3 * jnp.sqrt(21) / 4
+# oct_poly_scale * (x^4 + y^4 + z^4) = oct_00 * y_00 + sqrt(7 / 12) * y_40 + sqrt(5 / 12) * y_44
+oct_00 = 3 * jnp.sqrt(21) / 4
 # r^4 is NOT in denominator because it has been **pre-multiplied** to basis
-poly_scale = 5 * jnp.sqrt(21 / np.pi) / 8
+oct_poly_scale = 5 * jnp.sqrt(21 / np.pi) / 8
 
 
 @jit
-def sh4_basis(v):
+def eval_sh0_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs[1:]))
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh0_basis))
 
 
 @jit
-def sh0_4_basis(v):
+def eval_sh2_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh_basis_funcs))
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh2_basis))
 
 
 @jit
-def rep_polynomial_sh(v, sh4):
-    sh4 = jnp.hstack([c_00, normalize(sh4)])
-    return jnp.dot(sh4, sh0_4_basis(v) / poly_scale)
+def eval_sh4_basis(v):
+    x = v[0]
+    y = v[1]
+    z = v[2]
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh4_basis))
 
 
 @jit
-def rep_polynomial(v, R3):
+def eval_oct_basis(v):
+    x = v[0]
+    y = v[1]
+    z = v[2]
+    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh0_basis + sh4_basis))
+
+
+@jit
+def eval_non_orth_basis(v):
+    x = v[0]
+    y = v[1]
+    z = v[2]
+    return jnp.array(
+        jax.tree_map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis))
+
+
+@jit
+def oct_polynomial_sh4(v, sh4):
+    sh4 = jnp.hstack([oct_00, normalize(sh4)])
+    return jnp.dot(sh4, eval_oct_basis(v) / oct_poly_scale)
+
+
+@jit
+def oct_polynomial(v, R3):
     v = R3.T @ v
     x = v[0]
     y = v[1]
@@ -514,9 +539,9 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 
     @jit
     def body_func(state):
-        v1 = vmap(grad(rep_polynomial_sh))(state['v1'], sh4s_target)
+        v1 = vmap(grad(oct_polynomial_sh4))(state['v1'], sh4s_target)
         v1 = vmap(normalize)(v1)
-        v2 = vmap(grad(rep_polynomial_sh))(state['v2'], sh4s_target)
+        v2 = vmap(grad(oct_polynomial_sh4))(state['v2'], sh4s_target)
         v2 = vmap(project_orth)(v1, v2)
         v2 = vmap(normalize)(v2)
 
@@ -537,11 +562,101 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
     return jnp.stack([v1, v2, v3], -1)
 
 
+# Zonal Harmonics
+# Reference: http://www.ppsloan.org/publications/StupidSH36.pdf
+
+# z-axis symmetry
+# zonal_z_poly_scale * z**4 = zonal_z_00 * y_00 + zonal_z_20 * y_20 + zonal_z_40 * y_40
+zonal_z_poly_scale = (3 * 35) / (16 * jnp.sqrt(jnp.pi))
+zonal_z_00 = 21 / 8
+zonal_z_20 = (3 * jnp.sqrt(5) / 2)
+zonal_z_40 = 1
+
+
+@jit
+def zonal_z_polynomial(z):
+    return z**4
+
+
+@jit
+def zonal_z_polynomial_sh(z):
+    sum = zonal_z_00 * y_00(0, 0, z) + zonal_z_20 * y_20(
+        0, 0, z) + zonal_z_40 * y_40(0, 0, z)
+    return sum / zonal_z_poly_scale
+
+
+@jit
+def zonal_band_coeff(l):
+    return jnp.sqrt(4 * jnp.pi / (2 * l + 1))
+
+
+@jit
+def zonal_sh0_coeffs(u):
+    return jnp.hstack([zonal_band_coeff(0) * zonal_z_00 * eval_sh0_basis(u)])
+
+
+@jit
+def zonal_sh2_coeffs(u):
+    return jnp.hstack([zonal_band_coeff(2) * zonal_z_20 * eval_sh2_basis(u)])
+
+
+@jit
+def zonal_sh4_coeffs(u):
+    return jnp.hstack([zonal_band_coeff(4) * zonal_z_40 * eval_sh4_basis(u)])
+
+
+@jit
+# Rotate to direction u
+def zonal_oct_coeffs(u):
+    return jnp.hstack([zonal_sh0_coeffs(u), zonal_sh4_coeffs(u)])
+
+
+@jit
+# Rotate to direction u
+def zonal_non_orth_coeffs(u):
+    return jnp.hstack(
+        [zonal_sh0_coeffs(u),
+         zonal_sh2_coeffs(u),
+         zonal_sh4_coeffs(u)])
+
+
+@jit
+def R3_to_sh4_zonal(R3):
+    scale = oct_poly_scale / zonal_z_poly_scale
+    return scale * vmap(zonal_sh4_coeffs)(R3.T).sum(0)
+
+
+@jit
+def rotvec_to_sh4_zonal(rotvec):
+    R3 = rotvec_to_R3(rotvec)
+    return R3_to_sh4_zonal(R3)
+
+
+@jit
+def oct_polynomial_zonal(v, R3):
+    return vmap(zonal_oct_coeffs)(
+        R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale
+
+
+@jit
+def non_orth_polynomial_zonal(v, basis):
+    return vmap(zonal_non_orth_coeffs)(
+        basis.T).sum(0) @ eval_non_orth_basis(v) / zonal_z_poly_scale
+
+
 if __name__ == '__main__':
     np.random.seed(0)
     rotvec = np.random.randn(3)
     sh4 = rotvec_to_sh4(rotvec)
+    sh4_zonal = rotvec_to_sh4_zonal(rotvec)
     R3 = rotvec_to_R3(rotvec)
+
+    s = normalize(np.random.randn(3))
+    print("L2 sh4 v.s. zonal", jnp.linalg.norm(sh4 - sh4_zonal))
+    print("L2 poly v.s. zonal oct",
+          jnp.linalg.norm(oct_polynomial(s, R3) - oct_polynomial_zonal(s, R3)))
+    print("L2 sh4 oct v.s. zonal oct",
+          jnp.linalg.norm(oct_polynomial(s, R3) - oct_polynomial_sh4(s, sh4)))
 
     v = vmap(normalize)(np.random.randn(1000, 3))
 
@@ -557,20 +672,20 @@ if __name__ == '__main__':
                        [4, 6, 7], [7, 5, 4]])
     ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
-    dps = vmap(rep_polynomial_sh, in_axes=[0, None])(v, sh4)
+    dps = vmap(oct_polynomial_sh4, in_axes=[0, None])(v, sh4)
     print(f"Dot product before {dps.mean()}")
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(rep_polynomial_sh),
+        v = vmap(normalize)(vmap(grad(oct_polynomial_sh4),
                                  in_axes=[0, None])(v, sh4))
 
-    dps = vmap(rep_polynomial_sh, in_axes=[0, None])(v, sh4)
+    dps = vmap(oct_polynomial_sh4, in_axes=[0, None])(v, sh4)
     print(f"Dot product after {dps.mean()}")
 
     ps.register_point_cloud('pc_converge', v)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(rep_polynomial), in_axes=[0, None])(v,
+        v = vmap(normalize)(vmap(grad(oct_polynomial), in_axes=[0, None])(v,
                                                                           R3))
 
     ps.register_point_cloud('pc_converge_origin', v)
