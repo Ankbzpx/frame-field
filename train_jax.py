@@ -55,13 +55,17 @@ def train(cfg: Config):
                   loss_cfg: LossConfig):
 
         if loss_cfg.smooth > 0:
-            val, jac = model.call_jac(samples_on_sur, latent)
+            val, jac = model.call_jac(
+                samples_on_sur, latent,
+                rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x)
             pred_on_sur_sdf = val[:, 0]
             aux = val[:, 1:]
             sh4 = aux[:, :9]
             pred_normals_on_sur = jac[:, 0]
 
-            val_off, jac_off = model.call_jac(samples_off_sur, latent)
+            val_off, jac_off = model.call_jac(
+                samples_off_sur, latent,
+                rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x)
             pred_off_sur_sdf = val_off[:, 0]
             aux_off = val_off[:, 1:]
             sh4_off = aux_off[:, :9]

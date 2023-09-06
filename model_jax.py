@@ -34,9 +34,14 @@ class MLP(eqx.Module):
     def call_grad(self, x, z):
         return vmap(self.single_call_grad)(x, z)
 
-    def call_jac(self, x, z):
-        val = self.__call__(x, z)
-        jac = vmap(jacfwd(self.single_call, argnums=0))(x, z)
+    def call_jac(self, x, z, func):
+
+        def __single_call(x, z):
+            sdf, aux = self.single_call_split(x, z)
+            return jnp.hstack([sdf, func(aux)])
+
+        val = vmap(__single_call)(x, z)
+        jac = vmap(jacfwd(__single_call))(x, z)
         return val, jac
 
     def __call__(self, x, z):
@@ -313,11 +318,12 @@ class MLPComposerCondition(MLPComposer):
     def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
         super().__init__(key, mlp_types, mlp_cfgs)
 
+    # For simplicity, assume the first mlp predicts sdf
     def __single_call(self, x, z):
         (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
         # Should I stop gradient? jax.lax.stop_gradient(normal)
-        sh4 = self.mlps[1].single_call(x, jnp.hstack([normal, z]))
-        return jnp.hstack([sdf, sh4] +
+        aux = self.mlps[1].single_call(x, jnp.hstack([normal, z]))
+        return jnp.hstack([sdf, aux] +
                           [mlp.single_call(x, z)
                            for mlp in self.mlps[2:]]), normal
 
