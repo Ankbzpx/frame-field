@@ -132,11 +132,14 @@ def eval(cfg: Config,
 
     (_, aux), VN = infer_grad(V)
 
-    Rs = vmap(rot6d_to_R3)(
-        aux[:, :6]) if cfg.loss_cfg.rot6d else proj_sh4_to_R3(sh4)
-    print("Project SO(3)", time.time() - start_time)
+    if cfg.loss_cfg.rot6d:
+        Rs = vmap(rot6d_to_R3)(aux[:, :6])
+        sh4 = vmap(R3_to_sh4_zonal)(Rs)
+    else:
+        sh4 = aux[:, :9]
+        Rs = proj_sh4_to_R3(sh4)
 
-    sh4 = vmap(R3_to_sh4_zonal)(Rs) if cfg.loss_cfg.rot6d else aux[:, :9]
+    print("Project SO(3)", time.time() - start_time)
 
     print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
 
