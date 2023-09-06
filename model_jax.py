@@ -1,19 +1,10 @@
 import jax
-from jax import vmap, numpy as jnp
+from jax import vmap, numpy as jnp, jacfwd
 from jax.tree_util import Partial
 import equinox as eqx
 from jaxtyping import Array
 
 from icecream import ic
-
-
-# https://github.com/google/jax/pull/762
-def value_and_jacfwd(f, x):
-    pushfwd = Partial(jax.jvp, f, (x,))
-    # Cartesian basis as tangents
-    basis = jnp.eye(x.size, dtype=x.dtype)
-    y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
-    return y, jac
 
 
 class MLP(eqx.Module):
@@ -33,19 +24,23 @@ class MLP(eqx.Module):
                                          has_aux=True)(x, z)
 
     def call_grad(self, x, z):
-        return vmap(self.single_call_grad)(x, z)
+        return self.call_grad_param(x, z, lambda x: x)
 
-    def call_jac(self, x, z, func):
+    def call_grad_param(self, x, z, param_func):
+        (sdf, aux), normal = vmap(self.single_call_grad)(x, z)
+        return (sdf, vmap(param_func)(aux)), normal
+
+    def call_jac(self, x, z):
+        return self.call_jac_param(x, z, lambda x: x)
+
+    def call_jac_param(self, x, z, param_func):
 
         def __single_call(x, z):
-            sdf, aux = self.single_call_split(x, z)
-            return jnp.hstack([sdf, func(aux)])
+            (sdf, aux), normal = self.single_call_grad(x, z)
+            aux_param = param_func(aux)
+            return aux_param, ((sdf, aux_param), normal)
 
-        # Around 10% faster than evaluating in two passes
-        def __single_call_jac(x, z):
-            return value_and_jacfwd(Partial(__single_call, z=z), x)
-
-        return vmap(__single_call_jac)(x, z)
+        return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
     def __call__(self, x, z):
         x = vmap(self.single_call)(x, z)

@@ -54,34 +54,19 @@ def train(cfg: Config):
                   sdf_off_sur: list[Array], latent: list[Array],
                   loss_cfg: LossConfig):
 
+        param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
+
         if loss_cfg.smooth > 0:
-            val, jac = model.call_jac(
-                samples_on_sur, latent,
-                rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x)
-            pred_on_sur_sdf = val[:, 0]
-            aux = val[:, 1:]
-            sh4 = aux[:, :9]
-            pred_normals_on_sur = jac[:, 0]
-
-            val_off, jac_off = model.call_jac(
-                samples_off_sur, latent,
-                rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x)
-            pred_off_sur_sdf = val_off[:, 0]
-            aux_off = val_off[:, 1:]
-            sh4_off = aux_off[:, :9]
-            pred_normals_off_sur = jac_off[:, 0]
+            jac, out_on = model.call_jac_param(samples_on_sur, latent,
+                                               param_func)
+            jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
+                                                    param_func)
         else:
-            (pred_on_sur_sdf, aux), pred_normals_on_sur = model.call_grad(
-                samples_on_sur, latent)
+            out_on = model.call_grad_param(samples_on_sur, latent, param_func)
+            out_off = model.call_grad_param(samples_off_sur, latent, param_func)
 
-            sh4 = vmap(rot6d_to_sh4_zonal)(
-                aux[:, :6]) if loss_cfg.rot6d else aux[:, :9]
-
-            (pred_off_sur_sdf, aux_off), pred_normals_off_sur = model.call_grad(
-                samples_off_sur, latent)
-
-            sh4_off = vmap(rot6d_to_sh4_zonal)(
-                aux_off[:, :6]) if loss_cfg.rot6d else aux_off[:, :9]
+        ((pred_on_sur_sdf, sh4), pred_normals_on_sur) = out_on
+        ((pred_off_sur_sdf, sh4_off), pred_normals_off_sur) = out_off
 
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
 
@@ -133,13 +118,13 @@ def train(cfg: Config):
 
         if loss_cfg.smooth > 0:
             if loss_cfg.match_all_level_set:
-                sh4_grad = jnp.vstack([jac[:, 1:10], jac_off[:, 1:10]])
+                sh4_jac = jnp.vstack([jac, jac_off])
             else:
-                sh4_grad = jac[:, 1:10]
+                sh4_jac = jac
 
-            sh4_grad_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_grad,
-                                                                     'f')
-            loss_smooth = loss_cfg.smooth * sh4_grad_norm.mean()
+            sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
+                                                                    'f')
+            loss_smooth = loss_cfg.smooth * sh4_jac_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
