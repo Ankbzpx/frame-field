@@ -1,15 +1,16 @@
 import jax
-from jax import vmap, numpy as jnp, jacfwd
+from jax import vmap, numpy as jnp
+from jax.tree_util import Partial
 import equinox as eqx
 from jaxtyping import Array
 
 from icecream import ic
-from functools import partial
 
 
 # https://github.com/google/jax/pull/762
 def value_and_jacfwd(f, x):
-    pushfwd = partial(jax.jvp, f, (x,))
+    pushfwd = Partial(jax.jvp, f, (x,))
+    # Cartesian basis as tangents
     basis = jnp.eye(x.size, dtype=x.dtype)
     y, jac = jax.vmap(pushfwd, out_axes=(None, 1))((basis,))
     return y, jac
@@ -40,9 +41,11 @@ class MLP(eqx.Module):
             sdf, aux = self.single_call_split(x, z)
             return jnp.hstack([sdf, func(aux)])
 
-        val = vmap(__single_call)(x, z)
-        jac = vmap(jacfwd(__single_call))(x, z)
-        return val, jac
+        # Around 10% faster than evaluating in two passes
+        def __single_call_jac(x, z):
+            return value_and_jacfwd(Partial(__single_call, z=z), x)
+
+        return vmap(__single_call_jac)(x, z)
 
     def __call__(self, x, z):
         x = vmap(self.single_call)(x, z)
