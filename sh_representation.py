@@ -658,11 +658,11 @@ if __name__ == '__main__':
     R3 = rotvec_to_R3(rotvec)
 
     s = normalize(np.random.randn(3))
-    print("L2 sh4 v.s. zonal", jnp.linalg.norm(sh4 - sh4_zonal))
-    print("L2 poly v.s. zonal oct",
-          jnp.linalg.norm(oct_polynomial(s, R3) - oct_polynomial_zonal(s, R3)))
-    print("L2 sh4 oct v.s. zonal oct",
-          jnp.linalg.norm(oct_polynomial(s, R3) - oct_polynomial_sh4(s, sh4)))
+    print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal))
+    print("L2 poly ≈ zonal oct: ",
+          jnp.allclose(oct_polynomial(s, R3), oct_polynomial_zonal(s, R3)))
+    print("L2 sh4 oct ≈ zonal oct: ",
+          jnp.allclose(oct_polynomial(s, R3), oct_polynomial_sh4(s, sh4)))
 
     v = vmap(normalize)(np.random.randn(1000, 3))
 
@@ -678,15 +678,12 @@ if __name__ == '__main__':
                        [4, 6, 7], [7, 5, 4]])
     ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
-    dps = vmap(oct_polynomial_sh4, in_axes=[0, None])(v, sh4)
-    print(f"Dot product before {dps.mean()}")
-
     for _ in range(1000):
         v = vmap(normalize)(vmap(grad(oct_polynomial_sh4),
                                  in_axes=[0, None])(v, sh4))
 
     dps = vmap(oct_polynomial_sh4, in_axes=[0, None])(v, sh4)
-    print(f"Dot product after {dps.mean()}")
+    print(f"Dot product ≈ 1: {jnp.allclose(dps, 1)}")
 
     ps.register_point_cloud('pc_converge', v)
 
