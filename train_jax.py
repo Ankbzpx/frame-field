@@ -1,6 +1,6 @@
 import numpy as np
 import jax
-from jax import vmap, numpy as jnp, jit
+from jax import vmap, numpy as jnp, jit, grad
 import equinox as eqx
 from jaxtyping import PyTree, Array
 from tqdm import tqdm
@@ -11,9 +11,10 @@ import json
 import os
 
 import model_jax
+from common import normalize
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal, oct_polynomial_sh4
 
 import polyscope as ps
 from icecream import ic
@@ -31,6 +32,14 @@ def cosine_similarity(x, y):
 @jit
 def eikonal(x):
     return jnp.abs(jnp.linalg.norm(x) - 1)
+
+
+# TODO: Should I call it for more iteration?
+@jit
+def closest_rep_vec(v, sh4):
+    v = jax.lax.stop_gradient(v)
+    sh4 = jax.lax.stop_gradient(sh4)
+    return normalize(grad(oct_polynomial_sh4)(v, sh4))
 
 
 def train(cfg: Config):
@@ -111,6 +120,14 @@ def train(cfg: Config):
             'loss_unit_norm': loss_unit_norm
         }
 
+        if loss_cfg.regularize > 0:
+            rep_vec = vmap(closest_rep_vec)(pred_normals_off_sur, sh4_off)
+            loss_regularize = loss_cfg.regularize * (
+                1 -
+                vmap(cosine_similarity)(pred_normals_off_sur, rep_vec)).mean()
+            loss += loss_regularize
+            loss_dict['loss_regularize'] = loss_regularize
+
         if loss_cfg.lip > 0:
             loss_lip = loss_cfg.lip * model.get_aux_loss()
             loss += loss_lip
@@ -162,7 +179,7 @@ def train(cfg: Config):
 
         pbar.set_postfix({"loss": loss_dict['loss_total']})
 
-        # TODO: better plot like using tensorboardX
+        # TODO: Better plot such as using tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
         if epoch % cfg.training.plot_every == 0:

@@ -28,13 +28,14 @@ class LossConfig:
     normal: float = 1e2
     eikonal: float = 5e1
 
-    align: float = 1e2
-    unit_norm: float = 1.0
+    align: float = 1e2    # sh4
+    unit_norm: float = 1.0    # sh4 norm
     lip: float = 0
-    smooth: float = 0
+    smooth: float = 0    # sh4 jac
+    regularize: float = 0    # off surface
 
     rot6d: bool = False
-    match_zero_level_set: bool = True
+    match_zero_level_set: bool = False
     match_all_level_set: bool = False
     allow_gradient: bool = False
 
