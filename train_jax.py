@@ -11,10 +11,10 @@ import json
 import os
 
 import model_jax
-from common import normalize
+from common import normalize, vis_oct_field
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal, oct_polynomial_sh4
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3
 
 import polyscope as ps
 from icecream import ic
@@ -34,12 +34,20 @@ def eikonal(x):
     return jnp.abs(jnp.linalg.norm(x) - 1)
 
 
-# TODO: Should I call it for more iteration?
 @jit
-def closest_rep_vec(v, sh4):
+def closest_rep_vec(v, sh4, max_iter=10):
     v = jax.lax.stop_gradient(v)
     sh4 = jax.lax.stop_gradient(sh4)
-    return normalize(grad(oct_polynomial_sh4)(v, sh4))
+
+    def proj_sh4(i, v):
+        return normalize(grad(oct_polynomial_sh4)(v, sh4))
+
+    return jax.lax.fori_loop(0, max_iter, proj_sh4, v)
+
+
+@jit
+def double_well_potential(x):
+    return 16 * (x - 0.5)**4 - 8 * (x - 0.5)**2 + 1
 
 
 def train(cfg: Config):
@@ -48,6 +56,10 @@ def train(cfg: Config):
 
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
+
+    # model: model_jax.MLP = eqx.tree_deserialise_leaves(
+    #     f"checkpoints/{cfg.name}.eqx", model)
+
     optim, opt_state = config_optim(cfg, model)
     data = config_training_data(cfg, data_key, latents)
 
@@ -121,10 +133,26 @@ def train(cfg: Config):
         }
 
         if loss_cfg.regularize > 0:
-            rep_vec = vmap(closest_rep_vec)(pred_normals_off_sur, sh4_off)
-            loss_regularize = loss_cfg.regularize * (
-                1 -
-                vmap(cosine_similarity)(pred_normals_off_sur, rep_vec)).mean()
+            basis = proj_sh4_to_R3(jax.lax.stop_gradient(sh4_off), max_iter=50)
+
+            # V_vis, F_vis = vis_oct_field(basis, samples_off_sur, 0.005)
+            # ps.init()
+            # ps.register_surface_mesh('cubes', V_vis, F_vis)
+            # pc = ps.register_point_cloud('samples_off_sur', samples_off_sur, radius=1e-4)
+            # pc.add_vector_quantity('pred_normals_off_sur', jax.lax.stop_gradient(pred_normals_off_sur))
+            # ps.show()
+            # exit()
+
+            dps = jnp.einsum('bij,bi->bj', basis,
+                             vmap(normalize)(pred_normals_off_sur))
+            loss_regularize = loss_cfg.regularize * double_well_potential(
+                jnp.abs(dps)).sum(-1).mean()
+
+            # rep_vec = vmap(closest_rep_vec)(pred_normals_off_sur, sh4_off)
+            # loss_regularize = loss_cfg.regularize * (
+            #     1 -
+            #     vmap(cosine_similarity)(pred_normals_off_sur, rep_vec)).mean()
+
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize
 

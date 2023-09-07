@@ -16,7 +16,7 @@
         }
     ],
     "loss_cfg": {
-        "match_zero_level_set": false,
+        "regularize": 1e2,
         "smooth": 1.0
     },
     "training": {

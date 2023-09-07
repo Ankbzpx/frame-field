@@ -104,7 +104,18 @@ if __name__ == '__main__':
 
         sampler = SDFSampler(model_path, normalize=False)
         samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
-        samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size)
+        samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size //
+                                                                 2)
+
+        cylinder_samples = np.stack([
+            0.4 / 3 * np.random.randn(sample_size // 2) - 0.45 * 0.75,
+            0.4 / 3 * np.random.randn(sample_size // 2),
+            2 * np.random.rand(sample_size // 2) - 1
+        ], -1)
+
+        samples_off_sur = np.vstack([samples_off_sur, cylinder_samples])
+        sdf_off_sur = np.concatenate(
+            [sdf_off_sur, sampler.sample_sdf_igl(cylinder_samples)])
 
         np.savez(model_out_path,
                  samples_on_sur=samples_on_sur,

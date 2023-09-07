@@ -10,7 +10,7 @@ from config import Config
 from config_utils import config_model
 from common import vis_oct_field
 from eval_jax import extract_surface
-from sh_representation import proj_sh4_to_R3
+from sh_representation import proj_sh4_to_R3, rot6d_to_R3, R3_to_sh4_zonal
 
 import polyscope as ps
 from icecream import ic
@@ -29,15 +29,26 @@ def eval(cfg: Config, eval_samples, out_dir):
     @jit
     def infer(x):
         z = latent[None, ...].repeat(len(x), 0)
-        return model(x, z)
+        return model(x, z)[:, 0]
 
     start_time = time.time()
     V, F = extract_surface(infer)
     print("Extract surface", time.time() - start_time)
     start_time = time.time()
 
-    V_vis, F_vis = vis_oct_field(proj_sh4_to_R3(infer(eval_samples)[:, 1:]),
-                                 eval_samples, 0.01)
+    @jit
+    def infer_aux(x):
+        z = latent[None, ...].repeat(len(x), 0)
+        return model(x, z)[:, 1:]
+
+    aux = infer_aux(eval_samples)
+    if cfg.loss_cfg.rot6d:
+        Rs = vmap(rot6d_to_R3)(aux[:, :6])
+    else:
+        sh4 = aux[:, :9]
+        Rs = proj_sh4_to_R3(sh4)
+
+    V_vis, F_vis = vis_oct_field(Rs, eval_samples, 0.01)
 
     ps.init()
     ps.register_surface_mesh("mesh", V, F)
@@ -49,8 +60,10 @@ def eval(cfg: Config, eval_samples, out_dir):
 
 
 if __name__ == '__main__':
-    for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
-        for angle in [10, 30, 90, 120, 150]:
+    # 0.05, 0.1, 0.2, 0.3, 0.4
+    # 10, 30, 90, 120, 150
+    for gap in [0.2]:
+        for angle in [120]:
             name = f"crease_{gap}_{angle}"
 
             config = json.load(open('configs/toy.json'))
@@ -64,4 +77,4 @@ if __name__ == '__main__':
 
             eval(cfg, eval_samples, "output/toy")
 
-            exit()
+            # exit()
