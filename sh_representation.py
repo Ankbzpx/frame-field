@@ -506,14 +506,15 @@ def oct_polynomial(v, R3):
     return x**4 + y**4 + z**4
 
 
-# Repeat evaluating normalized spherical polynomial gradient converges to one of orthogonal basis
-# Reference: https://github.com/dpa1mer/arff/blob/master/src/io/Octa2Frames.m
+# The goal here is to find R \in SO(3) that induces sh4
 #
-# Intuition:
-# For base polynomial f = x^4 + y^4 + z^4, it has directional derivative df = [4 x^3, 4 y^3, 4 z^3]
-# Let v = (x_0, y_0, z_0), x_0 > y_0 > z_0, |x_0^2 + y_0^2 + z_0^2| = 1
-# Repeat evaluating normalize(df(x_0, y_0, z_0)) will increase the ratio of x component, which will eventually converge to (1, 0, 0)
-# For more general case, the polynomial is rotated on the sphere, so the process will converge to one rotated orthogonal basis
+# Note our polynomial f(R(v)) = (e_x^T @ v)^4 + (e_y^T @ v)^4 + (e_z^T @ v)^4
+#   is the polynomial of symmetric tensor T, whose eigenvectors are (e_x, e_y, e_z)
+#
+# From section 2 of "Orthogonal Decomposition of Symmetric Tensors" by Elina Robeva
+#   "The eigenvector of f are precisely the fixed points of \nabla f"
+#
+# Thus, we can recover R by applying power iteration to \nabla f
 @jit
 def proj_sh4_to_R3(sh4s_target, max_iter=1000):
     if len(sh4s_target.shape) < 2:
@@ -539,6 +540,7 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 
     @jit
     def body_func(state):
+        # Power iteration
         v1 = vmap(grad(oct_polynomial_sh4))(state['v1'], sh4s_target)
         v1 = vmap(normalize)(v1)
         v2 = vmap(grad(oct_polynomial_sh4))(state['v2'], sh4s_target)
@@ -656,6 +658,9 @@ if __name__ == '__main__':
     sh4 = rotvec_to_sh4(rotvec)
     sh4_zonal = rotvec_to_sh4_zonal(rotvec)
     R3 = rotvec_to_R3(rotvec)
+
+    oct_polynomial
+    exit()
 
     s = normalize(np.random.randn(3))
     print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal))
