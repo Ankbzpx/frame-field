@@ -14,40 +14,13 @@ import model_jax
 from common import normalize, vis_oct_field
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3, oct_polynomial_sh4, oct_polynomial_sh4_unit_norm
+from loss import cosine_similarity, eikonal, double_well_potential
 
 import polyscope as ps
 from icecream import ic
 
 matplotlib.use('Agg')
-
-
-@jit
-def cosine_similarity(x, y):
-    demo = jnp.linalg.norm(x) * jnp.linalg.norm(y)
-
-    return jnp.dot(x, y) / jnp.where(demo > 1e-8, demo, 1e-8)
-
-
-@jit
-def eikonal(x):
-    return jnp.abs(jnp.linalg.norm(x) - 1)
-
-
-@jit
-def closest_rep_vec(v, sh4, max_iter=10):
-    v = jax.lax.stop_gradient(v)
-    sh4 = jax.lax.stop_gradient(sh4)
-
-    def proj_sh4(i, v):
-        return normalize(grad(oct_polynomial_sh4)(v, sh4))
-
-    return jax.lax.fori_loop(0, max_iter, proj_sh4, v)
-
-
-@jit
-def double_well_potential(x):
-    return 16 * (x - 0.5)**4 - 8 * (x - 0.5)**2 + 1
 
 
 def train(cfg: Config):
@@ -56,9 +29,6 @@ def train(cfg: Config):
 
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
-
-    # model: model_jax.MLP = eqx.tree_deserialise_leaves(
-    #     f"checkpoints/{cfg.name}.eqx", model)
 
     optim, opt_state = config_optim(cfg, model)
     data = config_training_data(cfg, data_key, latents)
@@ -75,42 +45,33 @@ def train(cfg: Config):
                   sdf_off_sur: list[Array], latent: list[Array],
                   loss_cfg: LossConfig):
 
-        param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
-
         if loss_cfg.smooth > 0:
+            param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
             jac, out_on = model.call_jac_param(samples_on_sur, latent,
                                                param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
                                                     param_func)
         else:
-            out_on = model.call_grad_param(samples_on_sur, latent, param_func)
-            out_off = model.call_grad_param(samples_off_sur, latent, param_func)
+            out_on = model.call_grad(samples_on_sur, latent)
+            out_off = model.call_grad(samples_off_sur, latent)
 
-        ((pred_on_sur_sdf, sh4), pred_normals_on_sur) = out_on
-        ((pred_off_sur_sdf, sh4_off), pred_normals_off_sur) = out_off
+        ((pred_on_sur_sdf, aux), pred_normals_on_sur) = out_on
+        ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
 
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
 
         if loss_cfg.match_all_level_set:
             normal_align = jnp.where(loss_cfg.allow_gradient, normal_pred,
                                      jax.lax.stop_gradient(normal_pred))
-            sh4_align = jnp.vstack([sh4, sh4_off])
+            aux_align = jnp.vstack([aux, aux_off])
         elif loss_cfg.match_zero_level_set:
             normal_align = jnp.where(loss_cfg.allow_gradient,
                                      pred_normals_on_sur,
                                      jax.lax.stop_gradient(pred_normals_on_sur))
-            sh4_align = sh4
+            aux_align = aux
         else:
             normal_align = normals_on_sur
-            sh4_align = sh4
-
-        # Alignment
-        R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-        sh4_n = vmap(project_n)(sh4_align, R9_zn)
-        loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                       (sh4_align, sh4_n)).mean()
-        # project_n does not penalize the norm
-        loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(sh4_align).mean()
+            aux_align = aux
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -121,37 +82,59 @@ def train(cfg: Config):
             pred_normals_on_sur, normals_on_sur)).mean()
         loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
 
-        loss = loss_mse + loss_off + loss_normal + loss_eikonal + loss_align + loss_unit_norm
+        loss = loss_mse + loss_off + loss_normal + loss_eikonal
 
         loss_dict = {
             'loss_mse': loss_mse,
             'loss_off': loss_off,
             'loss_normal': loss_normal,
-            'loss_eikonal': loss_eikonal,
-            'loss_align': loss_align,
-            'loss_unit_norm': loss_unit_norm
+            'loss_eikonal': loss_eikonal
         }
 
-        if loss_cfg.regularize > 0:
-            basis = proj_sh4_to_R3(jax.lax.stop_gradient(sh4_off), max_iter=50)
-
-            # V_vis, F_vis = vis_oct_field(basis, samples_off_sur, 0.005)
-            # ps.init()
-            # ps.register_surface_mesh('cubes', V_vis, F_vis)
-            # pc = ps.register_point_cloud('samples_off_sur', samples_off_sur, radius=1e-4)
-            # pc.add_vector_quantity('pred_normals_off_sur', jax.lax.stop_gradient(pred_normals_off_sur))
-            # ps.show()
-            # exit()
-
+        if loss_cfg.rot6d:
+            basis = vmap(rot6d_to_R3)(aux)
             dps = jnp.einsum('bij,bi->bj', basis,
-                             vmap(normalize)(pred_normals_off_sur))
-            loss_regularize = loss_cfg.regularize * double_well_potential(
+                             jax.lax.stop_gradient(normal_align))
+            loss_align = loss_cfg.align * double_well_potential(
                 jnp.abs(dps)).sum(-1).mean()
+            loss += loss_align
+            loss_dict['loss_align'] = loss_align
+        else:
+            # Alignment
+            R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
+            sh4_n = vmap(project_n)(aux_align, R9_zn)
+            loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
+                                           (aux_align, sh4_n)).mean()
+            loss += loss_align
+            loss_dict['loss_align'] = loss_align
 
-            # rep_vec = vmap(closest_rep_vec)(pred_normals_off_sur, sh4_off)
-            # loss_regularize = loss_cfg.regularize * (
-            #     1 -
-            #     vmap(cosine_similarity)(pred_normals_off_sur, rep_vec)).mean()
+            # project_n does not penalize the norm
+            loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
+                aux_align).mean()
+            loss += loss_unit_norm
+            loss_dict['loss_unit_norm'] = loss_unit_norm
+
+        if loss_cfg.regularize > 0:
+            if loss_cfg.rot6d:
+                basis = vmap(rot6d_to_R3)(jax.lax.stop_gradient(aux_off))
+                dps = jnp.einsum('bij,bi->bj', basis,
+                                 vmap(normalize)(pred_normals_off_sur))
+                loss_regularize = loss_cfg.regularize * double_well_potential(
+                    jnp.abs(dps)).sum(-1).mean()
+            else:
+                if loss_cfg.use_basis:
+                    # This is unavoidably expensive
+                    basis = proj_sh4_to_R3(jax.lax.stop_gradient(aux_off),
+                                           max_iter=50)
+                    dps = jnp.einsum('bij,bi->bj', basis,
+                                     vmap(normalize)(pred_normals_off_sur))
+                    loss_regularize = loss_cfg.regularize * double_well_potential(
+                        jnp.abs(dps)).sum(-1).mean()
+                else:
+                    dps = vmap(oct_polynomial_sh4_unit_norm)(
+                        pred_normals_off_sur, jax.lax.stop_gradient(aux_off))
+
+                    loss_regularize = loss_cfg.regularize * (1 - dps).mean()
 
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize

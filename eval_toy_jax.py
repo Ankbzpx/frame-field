@@ -62,7 +62,7 @@ def eval(cfg: Config, eval_samples, out_dir):
 if __name__ == '__main__':
     # 0.05, 0.1, 0.2, 0.3, 0.4
     # 10, 30, 90, 120, 150
-    for gap in [0.2]:
+    for gap in [0.4]:
         for angle in [120]:
             name = f"crease_{gap}_{angle}"
 

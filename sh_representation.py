@@ -3,7 +3,7 @@ import optax
 
 from common import normalize
 import jax
-from jax import numpy as jnp, vmap, grad, jit, value_and_grad, jacfwd
+from jax import numpy as jnp, vmap, grad, jit, value_and_grad
 
 import polyscope as ps
 from icecream import ic
@@ -498,6 +498,13 @@ def oct_polynomial_sh4(v, sh4):
 
 
 @jit
+def oct_polynomial_sh4_unit_norm(v, sh4):
+    sh4 = jnp.hstack([oct_00, normalize(sh4)])
+    return jnp.dot(sh4,
+                   eval_oct_basis(v) / oct_poly_scale) / r_4(v[0], v[1], v[2])
+
+
+@jit
 def oct_polynomial(v, R3):
     v = R3.T @ v
     x = v[0]
@@ -658,9 +665,6 @@ if __name__ == '__main__':
     sh4 = rotvec_to_sh4(rotvec)
     sh4_zonal = rotvec_to_sh4_zonal(rotvec)
     R3 = rotvec_to_R3(rotvec)
-
-    oct_polynomial
-    exit()
 
     s = normalize(np.random.randn(3))
     print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal))

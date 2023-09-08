@@ -24,21 +24,14 @@ class MLP(eqx.Module):
                                          has_aux=True)(x, z)
 
     def call_grad(self, x, z):
-        return self.call_grad_param(x, z, lambda x: x)
-
-    def call_grad_param(self, x, z, param_func):
-        (sdf, aux), normal = vmap(self.single_call_grad)(x, z)
-        return (sdf, vmap(param_func)(aux)), normal
-
-    def call_jac(self, x, z):
-        return self.call_jac_param(x, z, lambda x: x)
+        return vmap(self.single_call_grad)(x, z)
 
     def call_jac_param(self, x, z, param_func):
 
         def __single_call(x, z):
             (sdf, aux), normal = self.single_call_grad(x, z)
             aux_param = param_func(aux)
-            return aux_param, ((sdf, aux_param), normal)
+            return aux_param, ((sdf, aux), normal)
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
