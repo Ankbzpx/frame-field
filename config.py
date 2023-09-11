@@ -35,6 +35,7 @@ class LossConfig:
     regularize: float = 0    # off surface
 
     rot6d: bool = False
+    fix_basis: bool = False
     use_basis: bool = False
     match_zero_level_set: bool = False
     match_all_level_set: bool = False

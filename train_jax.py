@@ -95,8 +95,14 @@ def train(cfg: Config):
             basis = vmap(rot6d_to_R3)(aux)
             dps = jnp.einsum('bij,bi->bj', basis,
                              jax.lax.stop_gradient(normal_align))
-            loss_align = loss_cfg.align * double_well_potential(
-                jnp.abs(dps)).sum(-1).mean()
+            if loss_cfg.fix_basis:
+                # We assume the first axis is normal
+                loss_align = loss_cfg.align * (
+                    (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
+            else:
+
+                loss_align = loss_cfg.align * double_well_potential(
+                    jnp.abs(dps)).sum(-1).mean()
             loss += loss_align
             loss_dict['loss_align'] = loss_align
         else:
@@ -119,8 +125,12 @@ def train(cfg: Config):
                 basis = vmap(rot6d_to_R3)(jax.lax.stop_gradient(aux_off))
                 dps = jnp.einsum('bij,bi->bj', basis,
                                  vmap(normalize)(pred_normals_off_sur))
-                loss_regularize = loss_cfg.regularize * double_well_potential(
-                    jnp.abs(dps)).sum(-1).mean()
+                if loss_cfg.fix_basis:
+                    loss_regularize = loss_cfg.regularize * (
+                        (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
+                else:
+                    loss_regularize = loss_cfg.regularize * double_well_potential(
+                        jnp.abs(dps)).sum(-1).mean()
             else:
                 if loss_cfg.use_basis:
                     # This is unavoidably expensive
