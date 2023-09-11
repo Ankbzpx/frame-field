@@ -2,7 +2,7 @@ import numpy as np
 import jax
 from jax import numpy as jnp, vmap, jit, grad
 from common import normalize
-from sh_representation import oct_polynomial_sh4, oct_polynomial_sh4_unit_norm, oct_polynomial_zonal, oct_polynomial, sh4_canonical
+from sh_representation import oct_polynomial_sh4, oct_polynomial_sh4_unit_norm, oct_polynomial_zonal, oct_polynomial_zonal_unit_norm, oct_polynomial, sh4_canonical
 from loss import double_well_potential
 
 from icecream import ic
@@ -69,11 +69,17 @@ if __name__ == '__main__':
     def loss_zonal(VN, R):
         return vmap(oct_polynomial_zonal, in_axes=[0, None])(VN, R).mean()
 
+    @jit
+    def loss_zonal_unit_norm(VN, R):
+        return vmap(oct_polynomial_zonal_unit_norm,
+                    in_axes=[0, None])(VN, R).mean()
+
     # Note the gradient of both `loss_basis` and `loss_sh4_unit_norm` lies on the sphere, but with opposite source and sink
-    gradient = -grad(loss_basis)(VN, R)
+    # gradient = -grad(loss_basis)(VN, R)
     # gradient = grad(loss_sh4)(VN, sh4)
     # gradient = grad(loss_sh4_unit_norm)(VN, sh4)
     # gradient = grad(loss_poly)(VN, R)
     # gradient = grad(loss_zonal)(VN, R)
+    gradient = grad(loss_zonal_unit_norm)(VN, R)
 
     vis_gradient(VN, gradient, local_minimums)

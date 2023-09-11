@@ -14,7 +14,7 @@ import model_jax
 from common import normalize, vis_oct_field
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3, oct_polynomial_sh4, oct_polynomial_sh4_unit_norm
+from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3, oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm
 from loss import cosine_similarity, eikonal, double_well_potential
 
 import polyscope as ps
@@ -123,14 +123,21 @@ def train(cfg: Config):
         if loss_cfg.regularize > 0:
             if loss_cfg.rot6d:
                 basis = vmap(rot6d_to_R3)(jax.lax.stop_gradient(aux_off))
-                dps = jnp.einsum('bij,bi->bj', basis,
-                                 vmap(normalize)(pred_normals_off_sur))
-                if loss_cfg.fix_basis:
-                    loss_regularize = loss_cfg.regularize * (
-                        (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
+                if loss_cfg.use_basis:
+                    dps = jnp.einsum('bij,bi->bj', basis,
+                                     vmap(normalize)(pred_normals_off_sur))
+                    if loss_cfg.fix_basis:
+                        loss_regularize = loss_cfg.regularize * (
+                            (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
+                    else:
+                        loss_regularize = loss_cfg.regularize * double_well_potential(
+                            jnp.abs(dps)).sum(-1).mean()
                 else:
-                    loss_regularize = loss_cfg.regularize * double_well_potential(
-                        jnp.abs(dps)).sum(-1).mean()
+                    dps = vmap(oct_polynomial_zonal_unit_norm)(
+                        pred_normals_off_sur, basis)
+
+                    loss_regularize = loss_cfg.regularize * (1 - dps).mean()
+
             else:
                 if loss_cfg.use_basis:
                     # This is unavoidably expensive
@@ -198,7 +205,10 @@ def train(cfg: Config):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
-        pbar.set_postfix({"loss": loss_dict['loss_total']})
+        pbar.set_postfix({
+            "loss": loss_dict['loss_total'],
+            "loss_regularize": loss_dict['loss_regularize']
+        })
 
         # TODO: Better plot such as using tensorboardX
         # Loss plot

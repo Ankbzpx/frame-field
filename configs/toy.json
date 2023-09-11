@@ -19,7 +19,8 @@
         "regularize": 1e2,
         "smooth": 1,
         "rot6d": false,
-        "use_basis": true
+        "use_basis": false,
+        "fix_basis": false
     },
     "training": {
         "n_steps": 5000

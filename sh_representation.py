@@ -654,6 +654,13 @@ def oct_polynomial_zonal(v, R3):
 
 
 @jit
+def oct_polynomial_zonal_unit_norm(v, R3):
+    return vmap(zonal_oct_coeffs)(
+        R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale / r_4(
+            v[0], v[1], v[2])
+
+
+@jit
 def non_orth_polynomial_zonal(v, basis):
     return vmap(zonal_non_orth_coeffs)(
         basis.T).sum(0) @ eval_non_orth_basis(v) / zonal_z_poly_scale
