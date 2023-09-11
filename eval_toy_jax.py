@@ -41,22 +41,34 @@ def eval(cfg: Config, eval_samples, out_dir):
         z = latent[None, ...].repeat(len(x), 0)
         return model(x, z)[:, 1:]
 
-    aux = infer_aux(eval_samples)
-    if cfg.loss_cfg.rot6d:
-        Rs = vmap(rot6d_to_R3)(aux[:, :6])
-    else:
-        sh4 = aux[:, :9]
-        Rs = proj_sh4_to_R3(sh4)
+    def vis_oct(samples):
+        aux = infer_aux(samples)
+        if cfg.loss_cfg.rot6d:
+            Rs = vmap(rot6d_to_R3)(aux[:, :6])
+        else:
+            sh4 = aux[:, :9]
+            Rs = proj_sh4_to_R3(sh4)
 
-    V_vis, F_vis = vis_oct_field(Rs, eval_samples, 0.01)
+        return vis_oct_field(Rs, samples, 0.01)
+
+    V_vis_sup, F_vis_sup = vis_oct(eval_samples['samples'])
+    V_vis_interp, F_vis_interp = vis_oct(eval_samples['samples_gap'])
 
     ps.init()
     ps.register_surface_mesh("mesh", V, F)
-    ps.register_surface_mesh("Oct frames", V_vis, F_vis)
+    ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
+    ps.register_surface_mesh("Oct frames interpolation", V_vis_interp,
+                             F_vis_interp)
     ps.show()
 
+    # V_cube = np.vstack([V_vis_sup, V_vis_interp])
+    # F_cube = np.vstack([F_vis_sup, F_vis_interp + F_vis_sup.max() + 1])
+
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_mc.obj", V, F)
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_cube.obj", V_vis, F_vis)
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_sup.obj", V_vis_sup,
+                            F_vis_sup)
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_interp.obj", V_vis_interp,
+                            F_vis_interp)
 
 
 if __name__ == '__main__':
@@ -73,7 +85,7 @@ if __name__ == '__main__':
             cfg.name = name
             print(name)
 
-            eval_samples = np.load(f"data/toy_eval/crease_{angle}.npy")
+            eval_samples = np.load(f"data/toy_eval/crease_{gap}_{angle}.npz")
 
             eval(cfg, eval_samples, "output/toy")
 

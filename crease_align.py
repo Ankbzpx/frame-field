@@ -10,6 +10,7 @@ import polyscope as ps
 
 from common import vis_oct_field, unroll_identity_block, normalize_aabb
 from sh_representation import sh4_z, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9
+import copy
 
 
 def quad_patch(width, height, cfg):
@@ -43,14 +44,14 @@ def quad_crease(cfg0, cfg1, angle):
     V1, F1 = quad_patch(**cfg1)
 
     theta = np.deg2rad(angle)
-    R = rotvec_to_R3(0.5 * theta * np.array([0, 0, -1]))
+    # Crease normal
+    R = rotvec_to_R3(-0.5 * theta * np.array([0, 0, 1]))
     VN0[:3] = np.einsum('ni,ji->nj', VN0[:3], R)
 
-    length = np.copy(V1[:, 0])
-    V1[:, 0] = -length * np.cos(theta)
-    V1[:, 1] = length * np.sin(theta)
+    R = rotvec_to_R3((np.pi - theta) * np.array([0, 0, 1]))
+    V1 = V1 @ R.T
     F1 = F1[:, ::-1]
-    VN1 = igl.per_vertex_normals(V1, F1)
+    VN1 = igl.per_vertex_normals(np.float64(V1), F1)
 
     offset = F0.max()
     F1[F1 == 0] = 2 + 0 - offset
@@ -65,54 +66,76 @@ def quad_crease(cfg0, cfg1, angle):
     return V, F, VN
 
 
-def quad_crease_gap(cfg0, cfg1, angle, gap):
+def quad_sample_even(width,
+                     height,
+                     n_grid_width,
+                     n_grid_height,
+                     rm_front_edge=False,
+                     rm_back_edge=False,
+                     **kwargs):
+    n_sample_width = max(1, int(n_grid_width * width))
+    n_sample_height = int(2 * n_grid_height * height)
+
+    xx, zz = np.meshgrid(-np.linspace(0, width, n_sample_width)[::-1],
+                         np.linspace(-height, height, n_sample_height))
+    yy = np.zeros((n_sample_height, n_sample_width))
+
+    samples = np.stack([xx, yy, zz], -1)
+
+    if n_sample_width > 1 and rm_front_edge:
+        samples = samples[:, 1:, :]
+
+    if rm_back_edge:
+        samples = samples[:, :-1, :]
+
+    return samples.reshape(-1, 3)
+
+
+def quad_crease_gap(cfg0, cfg1, angle, gap, grid_size=10):
     V0, F0 = quad_patch(**cfg0)
     V1, F1 = quad_patch(**cfg1)
 
     theta = np.deg2rad(angle)
-    V1[:3, 0] = (gap) * np.cos(theta)
-    V1[:3, 1] = -(gap) * np.sin(theta)
-    length = np.copy(V1[3:, 0])
-    V1[3:, 0] = -(length - gap) * np.cos(theta)
-    V1[3:, 1] = (length - gap) * np.sin(theta)
-    F1 = F1[:, ::-1]
+    R = rotvec_to_R3((np.pi - theta) * np.array([0, 0, 1]))
+    t = np.array([gap, 0, 0])
 
-    V0[:, 0] -= gap
+    V0 = V0 - t[None, :]
+    V1 = (V1 - t[None, :]) @ R.T
+    F1 = F1[:, ::-1]
 
     offset = F0.max() + 1
     V = np.vstack([V0, V1])
     F = np.vstack([F0, F1 + offset])
     VN = igl.per_vertex_normals(V, F)
 
-    return V, F, VN
+    samples_0 = quad_sample_even(**cfg0,
+                                 n_grid_width=grid_size,
+                                 n_grid_height=grid_size)
+    samples_1 = quad_sample_even(**cfg1,
+                                 n_grid_width=grid_size,
+                                 n_grid_height=grid_size)
 
+    samples_0 = samples_0 - t[None, :]
+    samples_1 = (samples_1 - t[None, :]) @ R.T
+    samples = np.vstack([samples_0, samples_1])
 
-def quad_sample_even(width, height, grid_size, remove_edge=False, **kwargs):
-    n_sample_width = int(grid_size * width)
-    n_sample_height = int(2 * grid_size * height)
+    cfg0 = copy.deepcopy(cfg0)
+    cfg0['width'] = gap
+    samples_0 = quad_sample_even(**cfg0,
+                                 n_grid_width=2 * grid_size,
+                                 n_grid_height=grid_size,
+                                 rm_front_edge=True)
+    cfg1 = copy.deepcopy(cfg1)
+    cfg1['width'] = gap
+    samples_1 = quad_sample_even(**cfg1,
+                                 n_grid_width=2 * grid_size,
+                                 n_grid_height=grid_size,
+                                 rm_front_edge=True,
+                                 rm_back_edge=True)
+    samples_1 = samples_1 @ R.T
+    samples_gap = np.vstack([samples_0, samples_1])
 
-    xx, zz = np.meshgrid(np.linspace(-width, 0, n_sample_width),
-                         np.linspace(-height, height, n_sample_height))
-    yy = np.zeros((n_sample_height, n_sample_width))
-
-    samples = np.stack([xx, yy, zz], -1)
-
-    if remove_edge:
-        samples = samples[:, :-1, :]
-
-    return samples.reshape(-1, 3)
-
-
-def quad_crease_eval(cfg0, cfg1, angle, grid_size):
-    samples_0 = quad_sample_even(**cfg0, grid_size=grid_size)
-    samples_1 = quad_sample_even(**cfg1, grid_size=grid_size, remove_edge=True)
-
-    theta = np.deg2rad(angle)
-    length = np.copy(samples_1[:, 0])
-    samples_1[:, 0] = -length * np.cos(theta)
-    samples_1[:, 1] = length * np.sin(theta)
-
-    return np.vstack([samples_0, samples_1])
+    return V, F, VN, samples, samples_gap
 
 
 @jit
@@ -131,16 +154,19 @@ if __name__ == '__main__':
     cfg1 = {'width': scale * 2.0, 'height': scale * 2.0, 'cfg': 0}
     V, F, VN = quad_crease(cfg0, cfg1, 30)
 
-    # Generate toy eval samples
-    # for angle in [10, 30, 90, 120, 150]:
-    #     samples = quad_crease_eval(cfg0, cfg1, angle, 10)
-    #     samples[:, 0] -= scale * 0.75
-    #     np.save(f"data/toy_eval/crease_{angle}.npy", samples)
-
+    # Generate toy samples
     # for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
     #     for angle in [10, 30, 90, 120, 150]:
-    #         V, F, VN = quad_crease_gap(cfg0, cfg1, angle, gap)
+    #         V, F, VN, samples, samples_gap = quad_crease_gap(
+    #             cfg0, cfg1, angle, gap)
+
     #         V[:, 0] -= scale * 0.75
+    #         samples[:, 0] -= scale * 0.75
+    #         samples_gap[:, 0] -= scale * 0.75
+
+    #         np.savez(f"data/toy_eval/crease_{gap}_{angle}.npz",
+    #                  samples=samples,
+    #                  samples_gap=samples_gap)
     #         igl.write_triangle_mesh(f"data/toy/crease_{gap}_{angle}.obj", V, F)
     # exit()
 

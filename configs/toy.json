@@ -12,13 +12,14 @@
         {
             "hidden_features": 64,
             "hidden_layers": 2,
-            "out_features": 6
+            "out_features": 9
         }
     ],
     "loss_cfg": {
         "regularize": 1e2,
-        "smooth": 5e1,
-        "rot6d": true
+        "smooth": 1,
+        "rot6d": false,
+        "use_basis": true
     },
     "training": {
         "n_steps": 5000

@@ -11,11 +11,13 @@
         },
         {
             "hidden_layers": 2,
-            "out_features": 9,
-            "input_scale": 1e-2
+            "out_features": 9
         }
     ],
     "loss_cfg": {
-        "match_zero_level_set": true
+        "regularize": 0,
+        "smooth": 1,
+        "rot6d": false,
+        "use_basis": true
     }
 }
