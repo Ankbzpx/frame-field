@@ -46,7 +46,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr,
         peak_value=5 * cfg.training.lr,
-        warmup_steps=500,
+        warmup_steps=100,
         decay_steps=total_steps)
 
     # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren. So special care must be taken...
@@ -106,5 +106,28 @@ def config_training_data(cfg: Config, data_key, latents):
     data = {}
     for key in data_frags[0].keys():
         data[key] = jnp.hstack([frag[key] for frag in data_frags])
+
+    return data
+
+
+def config_toy_training_data(cfg: Config, data_key, sur_samples,
+                             sur_normal_samples, latents):
+    sample_size = cfg.training.n_samples
+    idx = jax.random.choice(data_key, jnp.arange(len(sur_samples)),
+                            (cfg.training.n_steps, sample_size))
+    samples_off_sur = jax.random.uniform(data_key,
+                                         (cfg.training.n_steps, sample_size, 3),
+                                         minval=-1.0,
+                                         maxval=1.0)
+    data = {
+        'samples_on_sur': sur_samples[idx],
+        'normals_on_sur': sur_normal_samples[idx],
+        'samples_off_sur': samples_off_sur,
+        'sdf_off_sur': jnp.zeros((cfg.training.n_steps, sample_size))
+    }
+
+    data['latent'] = latents[None, None, 0].repeat(cfg.training.n_steps,
+                                                   axis=0).repeat(sample_size,
+                                                                  axis=1)
 
     return data

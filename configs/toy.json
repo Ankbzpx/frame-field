@@ -23,6 +23,7 @@
         "fix_basis": false
     },
     "training": {
+        "n_samples": 1024,
         "n_steps": 5000
     }
 }

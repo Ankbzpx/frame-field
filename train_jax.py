@@ -23,15 +23,8 @@ from icecream import ic
 matplotlib.use('Agg')
 
 
-def train(cfg: Config):
-    model_key, data_key = jax.random.split(
-        jax.random.PRNGKey(cfg.training.seed), 2)
-
-    latents, latent_dim = config_latent(cfg)
-    model = config_model(cfg, model_key, latent_dim)
-
+def train(cfg: Config, model: model_jax.MLP, data):
     optim, opt_state = config_optim(cfg, model)
-    data = config_training_data(cfg, data_key, latents)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
     checkpoints_folder = 'checkpoints'
@@ -40,10 +33,9 @@ def train(cfg: Config):
 
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
-    def loss_func(model: model_jax.MLP, samples_on_sur: list[Array],
-                  normals_on_sur: list[Array], samples_off_sur: list[Array],
-                  sdf_off_sur: list[Array], latent: list[Array],
-                  loss_cfg: LossConfig):
+    def loss_func(model: model_jax.MLP, samples_on_sur: Array,
+                  normals_on_sur: Array, samples_off_sur: Array,
+                  sdf_off_sur: Array, latent: Array, loss_cfg: LossConfig):
 
         if loss_cfg.smooth > 0:
             param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
@@ -205,10 +197,7 @@ def train(cfg: Config):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
-        pbar.set_postfix({
-            "loss": loss_dict['loss_total'],
-            "loss_regularize": loss_dict['loss_regularize']
-        })
+        pbar.set_postfix({"loss": loss_dict['loss_total']})
 
         # TODO: Better plot such as using tensorboardX
         # Loss plot
@@ -232,4 +221,11 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    train(cfg)
+    model_key, data_key = jax.random.split(
+        jax.random.PRNGKey(cfg.training.seed), 2)
+
+    latents, latent_dim = config_latent(cfg)
+    model = config_model(cfg, model_key, latent_dim)
+    data = config_training_data(cfg, data_key, latents)
+
+    train(cfg, model, data)

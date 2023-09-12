@@ -155,27 +155,27 @@ if __name__ == '__main__':
     V, F, VN = quad_crease(cfg0, cfg1, 30)
 
     # Generate toy samples
-    for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
-        for angle in [10, 30, 90, 120, 150]:
-            V, F, VN, samples, samples_gap = quad_crease_gap(
-                cfg0, cfg1, angle, gap)
+    # for gap in [0.05, 0.1, 0.2, 0.3, 0.4]:
+    #     for angle in [10, 30, 90, 120, 150]:
+    #         V, F, VN, samples, samples_gap = quad_crease_gap(
+    #             cfg0, cfg1, angle, gap)
 
-            V[:, 0] -= scale * 0.75
-            samples[:, 0] -= scale * 0.75
-            samples_gap[:, 0] -= scale * 0.75
+    #         V[:, 0] -= scale * 0.75
+    #         samples[:, 0] -= scale * 0.75
+    #         samples_gap[:, 0] -= scale * 0.75
 
-            # Add small rotation to avoid oct being axis aligned
-            R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
-            V = V @ R.T
-            samples = samples @ R.T
-            samples_gap = samples_gap @ R.T
+    #         # Add small rotation to avoid oct being axis aligned
+    #         R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
+    #         V = V @ R.T
+    #         samples = samples @ R.T
+    #         samples_gap = samples_gap @ R.T
 
-            np.savez(f"data/toy_eval/crease_{gap}_{angle}.npz",
-                     samples=samples,
-                     samples_gap=samples_gap)
-            igl.write_triangle_mesh(f"data/toy/crease_{gap}_{angle}.obj",
-                                    np.float64(V), F)
-    exit()
+    #         np.savez(f"data/toy_eval/crease_{gap}_{angle}.npz",
+    #                  samples=samples,
+    #                  samples_gap=samples_gap)
+    #         igl.write_triangle_mesh(f"data/toy/crease_{gap}_{angle}.obj",
+    #                                 np.float64(V), F)
+    # exit()
 
     NV = len(V)
     rotvec_zn = vmap(rotvec_n_to_z)(VN)

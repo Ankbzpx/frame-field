@@ -8,11 +8,11 @@ import argparse
 
 import model_jax
 from config import Config
-from config_utils import config_model
+from config_utils import config_model, config_latent, config_toy_training_data
 from train_jax import train
 from common import vis_oct_field
 from eval_jax import extract_surface
-from sh_representation import proj_sh4_to_R3, rot6d_to_R3, R3_to_sh4_zonal
+from sh_representation import proj_sh4_to_R3, rot6d_to_R3, euler_to_R3
 
 import polyscope as ps
 from icecream import ic
@@ -20,7 +20,7 @@ from icecream import ic
 import time
 
 
-def eval(cfg: Config, eval_samples, out_dir, vis=False):
+def eval(cfg: Config, samples_sup, samples_interp, out_dir, vis=False):
     model_key = jax.random.PRNGKey(0)
     model = config_model(cfg, model_key, 0)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
@@ -53,8 +53,14 @@ def eval(cfg: Config, eval_samples, out_dir, vis=False):
 
         return vis_oct_field(Rs, samples, 0.01)
 
-    V_vis_sup, F_vis_sup = vis_oct(eval_samples['samples'])
-    V_vis_interp, F_vis_interp = vis_oct(eval_samples['samples_gap'])
+    V_vis_sup, F_vis_sup = vis_oct(samples_sup)
+    V_vis_interp, F_vis_interp = vis_oct(samples_interp)
+
+    # Compensate small rotation
+    R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
+    V = np.float64(V @ R)
+    V_vis_sup = np.float64(V_vis_sup @ R)
+    V_vis_interp = np.float64(V_vis_interp @ R)
 
     if vis:
         ps.init()
@@ -85,23 +91,35 @@ if __name__ == '__main__':
     parser.add_argument('--vis', action='store_true', help='Visualize')
     args = parser.parse_args()
 
-    # 0.05, 0.1, 0.2, 0.3, 0.4
-    # 10, 30, 90, 120, 150
-    for gap in [0.4]:
-        for angle in [150]:
-            name = f"crease_{gap}_{angle}"
+    # 1, 2, 3, 4
+    # 150, 135, 120, 90, 60, 45, 30
+    for gap in [4]:
+        for theta in [30]:
+            name = f"crease_{gap}_{theta}"
 
             config = json.load(open(args.config))
-            config['sdf_paths'] = [f"data/toy_sdf/{name}.npz"]
-
+            # Placeholder
+            config['sdf_paths'] = ['/']
             cfg = Config(**config)
             cfg.name = name
 
+            toy_sample = np.load(f"data/toy/crease_{gap}_{theta}.npz")
+            samples_sup = toy_sample['samples_sup']
+            samples_vn_sup = toy_sample['samples_vn_sup']
+            samples_interp = toy_sample['samples_interp']
+
+            model_key, data_key = jax.random.split(
+                jax.random.PRNGKey(cfg.training.seed), 2)
+
+            latents, latent_dim = config_latent(cfg)
+            model = config_model(cfg, model_key, latent_dim)
+
+            data = config_toy_training_data(cfg, data_key, samples_sup,
+                                            samples_vn_sup, latents)
+
             if not args.eval:
-                train(cfg)
+                train(cfg, model, data)
 
-            eval_samples = np.load(f"data/toy_eval/crease_{gap}_{angle}.npz")
-
-            eval(cfg, eval_samples, "output/toy", args.vis)
+            eval(cfg, samples_sup, samples_interp, "output/toy", args.vis)
 
             # exit()
