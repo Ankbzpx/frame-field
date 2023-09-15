@@ -12,13 +12,13 @@
         {
             "hidden_features": 64,
             "hidden_layers": 2,
-            "out_features": 9
+            "out_features": 6
         }
     ],
     "loss_cfg": {
         "regularize": 1e2,
-        "smooth": 1,
-        "rot6d": false,
+        "smooth": 2e1,
+        "rot6d": true,
         "use_basis": false,
         "fix_basis": false
     },

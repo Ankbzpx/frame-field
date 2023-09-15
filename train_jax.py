@@ -14,7 +14,11 @@ import model_jax
 from common import normalize, vis_oct_field
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal, oct_polynomial_sh4, proj_sh4_to_R3, oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm
+from sh_representation import (rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9,
+                               project_n, rot6d_to_R3, rot6d_to_sh4_zonal,
+                               oct_polynomial_sh4, proj_sh4_to_R3,
+                               oct_polynomial_zonal_unit_norm,
+                               oct_polynomial_sh4_unit_norm)
 from loss import cosine_similarity, eikonal, double_well_potential
 
 import polyscope as ps
@@ -85,16 +89,10 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
         if loss_cfg.rot6d:
             basis = vmap(rot6d_to_R3)(aux)
-            dps = jnp.einsum('bij,bi->bj', basis,
-                             jax.lax.stop_gradient(normal_align))
-            if loss_cfg.fix_basis:
-                # We assume the first axis is normal
-                loss_align = loss_cfg.align * (
-                    (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
-            else:
+            poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                jax.lax.stop_gradient(normal_align), basis)
+            loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
 
-                loss_align = loss_cfg.align * double_well_potential(
-                    jnp.abs(dps)).sum(-1).mean()
             loss += loss_align
             loss_dict['loss_align'] = loss_align
         else:
@@ -128,7 +126,8 @@ def train(cfg: Config, model: model_jax.MLP, data):
                     dps = vmap(oct_polynomial_zonal_unit_norm)(
                         pred_normals_off_sur, basis)
 
-                    loss_regularize = loss_cfg.regularize * (1 - dps).mean()
+                    loss_regularize = loss_cfg.regularize * jnp.abs(1 -
+                                                                    dps).mean()
 
             else:
                 if loss_cfg.use_basis:
