@@ -20,13 +20,12 @@ def gen_toy_sample(gap, theta, offset=4, grid_size=10):
     sub_samples2_vn = np.zeros_like(sub_samples2)
     sub_samples2_vn[:, 0] = -1
 
-    # Apply small rotation so the samples are not axis aligned
-    R = np.float64(euler_to_R3(0, 0, np.pi / 4))
+    R = np.float64(euler_to_R3(0, 0, -np.pi / 4))
     S = np.diag(np.array([np.cos(theta / 2),
                           np.sin(theta / 2),
                           np.sqrt(2) / 2]))
     A = np.float64(rotvec_to_R3(np.array([0, 0, np.pi / 4 - theta / 2
-                                         ]))) @ R.T @ S @ R
+                                         ]))) @ R @ S @ R.T
 
     grid_samples = grid_samples.reshape(-1, 3) @ A.T
     a = grid_samples[0]
@@ -45,6 +44,11 @@ if __name__ == '__main__':
         for theta in [150, 135, 120, 90, 60, 45, 30]:
             samples_sup, samples_vn_sup, samples_interp = gen_toy_sample(
                 gap, np.deg2rad(theta))
+
+            ps.init()
+            ps.register_point_cloud('samples_sup', samples_sup)
+            ps.show()
+            exit()
 
             # Add small rotation to avoid axis aligned bias
             R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
