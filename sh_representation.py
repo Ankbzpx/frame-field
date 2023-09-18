@@ -666,6 +666,47 @@ def non_orth_polynomial_zonal(v, basis):
         basis.T).sum(0) @ eval_non_orth_basis(v) / zonal_z_poly_scale
 
 
+# symmetric & column unit norm
+@jit
+def vec3_to_symmetric3(vec3):
+    a = vec3[0]
+    b = vec3[1]
+    c = vec3[2]
+
+    # From WolframAlpha
+    # |a| < 1
+    a = jnp.tanh(a)
+    # sqrt(1 - a^2) / sqrt(2) < |b| < sqrt(1 - a^2)
+    b = jnp.sign(b) * (jax.nn.sigmoid(b) * (1 - jnp.sqrt(2) / 2) +
+                       (jnp.sqrt(2) / 2)) * jnp.sqrt(1 - a**2)
+    # |c| < sqrt(1 - b^2)
+    c = jnp.tanh(c) * jnp.sqrt(1 - b**2)
+    d = jnp.sqrt(1 - a**2 - b**2)
+    e = jnp.sqrt(1 - b**2 - c**2)
+    f = jnp.sqrt(1 - d**2 - e**2)
+
+    return jnp.array([[a, b, d], [b, c, e], [d, e, f]])
+
+
+@jit
+def vec9_to_A3(vec9):
+    # Polar decomposition form
+    return rot6d_to_R3(vec9[:6]) @ vec3_to_symmetric3(vec9[6:])
+
+
+@jit
+def A3_to_non_orth_zonal(A3):
+    scale = oct_poly_scale / zonal_z_poly_scale
+    # Ignore constant coefficient
+    return scale * vmap(zonal_non_orth_coeffs)(A3.T).sum(0)[1:]
+
+
+@jit
+def vec9_to_non_orth_zonal(vec9):
+    A3 = vec9_to_A3(vec9)
+    return A3_to_non_orth_zonal(A3)
+
+
 if __name__ == '__main__':
     np.random.seed(0)
     rotvec = np.random.randn(3)

@@ -45,11 +45,6 @@ if __name__ == '__main__':
             samples_sup, samples_vn_sup, samples_interp = gen_toy_sample(
                 gap, np.deg2rad(theta))
 
-            ps.init()
-            ps.register_point_cloud('samples_sup', samples_sup)
-            ps.show()
-            exit()
-
             # Add small rotation to avoid axis aligned bias
             R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
             samples_sup = samples_sup @ R.T
