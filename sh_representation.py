@@ -497,6 +497,8 @@ def oct_polynomial_sh4(v, sh4):
     return jnp.dot(sh4, eval_oct_basis(v) / oct_poly_scale)
 
 
+# Divide by r^4 won't affect polynomial value (if v is unit vector),
+# but it forces gradient to lies on the tangent plane of unit sphere
 @jit
 def oct_polynomial_sh4_unit_norm(v, sh4):
     sh4 = jnp.hstack([oct_00, normalize(sh4)])
