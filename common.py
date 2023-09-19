@@ -1,8 +1,11 @@
 import numpy as np
 import igl
-from jax import jit, numpy as jnp
+from jax import jit, numpy as jnp, vmap
 import scipy.sparse
 import os
+
+import polyscope as ps
+from icecream import ic
 
 # Set off, cause conditional flow can evaluate NaN branch
 # from jax.config import config
@@ -89,20 +92,26 @@ def rm_unref_vertices(V, F):
 
 
 # Remove isolated components except for the most promising one
-def filter_components(V, F):
+def filter_components(V, F, VN):
     A = igl.adjacency_matrix(F)
     (n_c, C, K) = igl.connected_components(A)
 
     if n_c > 1:
-        K_mean = K.mean()
-        idx_top = list(filter(lambda x: K[x] > K_mean, np.argsort(K)))
+        # Purely heuristic
+        idx_top3 = np.argsort(K)[::-1][:3]
 
-        def mass_center_to_origin(idx):
-            return np.linalg.norm(V[np.argwhere(C == idx).reshape(
-                -1,)].mean(axis=0))
+        def validate_VN(k):
+            vid = np.argwhere(C == k).reshape(-1,)
+            V_filter = V[vid]
+            mass_center = V_filter.mean(axis=0)
+            dps = jnp.einsum('bi,bi->b',
+                             vmap(normalize)(V[vid] - mass_center[None, :]),
+                             VN[vid])
+            valid = np.sum(dps > 0) > K[k] // 2
 
-        idx = idx_top[np.argmin([mass_center_to_origin(idx) for idx in idx_top
-                                ])]
+            return len(V_filter) if valid else 0
+
+        idx = idx_top3[np.argmax([validate_VN(idx) for idx in idx_top3])]
 
         VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
         FV = np.split(VF, NI[1:-1])

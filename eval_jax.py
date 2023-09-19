@@ -52,15 +52,18 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
     sdf_np = np.swapaxes(np.array(sdf), 0, 1)
 
     spacing = 1. / (grid_res - 1)
-    V, F, _, _ = marching_cubes(sdf_np, 0., spacing=(spacing, spacing, spacing))
+    # It outputs inverse VN, even with gradient_direction set to ascent
+    V, F, VN_inv, _ = marching_cubes(sdf_np,
+                                     0.,
+                                     spacing=(spacing, spacing, spacing))
     V = 2 * (V - 0.5)
 
-    return V, F
+    return V, F, -VN_inv
 
 
 # Reduce face count to speed up visualization
 # TODO: Use edge collapsing like one in Instant meshes
-def mehslab_remesh(V, F):
+def meshlab_remesh(V, F):
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
@@ -74,12 +77,7 @@ def mehslab_remesh(V, F):
     return V, F
 
 
-def eval(cfg: Config,
-         interp,
-         out_dir,
-         vis_mc=False,
-         vis_cube=False,
-         vis_flowline=False):
+def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
 
     latents, latent_dim = config_latent(cfg)
     tokens = interp.split('_')
@@ -105,10 +103,12 @@ def eval(cfg: Config,
         return model.call_grad(x, z)
 
     start_time = time.time()
-    V, F = extract_surface(infer)
+    V, F, VN = extract_surface(infer)
     print("Extract surface", time.time() - start_time)
 
-    V, F = filter_components(V, F)
+    start_time = time.time()
+    V, F = filter_components(V, F, VN)
+    print("Filter VN", time.time() - start_time)
 
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
@@ -140,7 +140,7 @@ def eval(cfg: Config,
         exit()
 
     start_time = time.time()
-    V, F = mehslab_remesh(V, F)
+    V, F = meshlab_remesh(V, F)
     print("Meshlab Remesh", time.time() - start_time)
 
     start_time = time.time()
@@ -170,21 +170,6 @@ def eval(cfg: Config,
     L = igl.cotmatrix(V, F)
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")
-
-    if vis_cube:
-        V_vis, F_vis = vis_oct_field(Rs, V, 0.1 * igl.avg_edge_length(V, F))
-
-        ps.init()
-        mesh = ps.register_surface_mesh("mesh", V, F)
-        mesh.add_vector_quantity("VN", VN)
-        ps.register_surface_mesh("Oct frames", V_vis, F_vis)
-        # if cfg.loss_cfg.rot:
-        #     Rs2 = R_from_sh4()
-        #     V_vis2, F_vis2 = vis_oct_field(Rs2, V,
-        #                                    0.1 * igl.avg_edge_length(V, F))
-        #     ps.register_surface_mesh("Oct frames sh4", V_vis2, F_vis2)
-        ps.show()
-        exit()
 
     start_time = time.time()
 
@@ -219,9 +204,6 @@ if __name__ == '__main__':
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
-    parser.add_argument('--vis_cube',
-                        action='store_true',
-                        help='Visualize cube')
     parser.add_argument('--vis_flowline',
                         action='store_true',
                         help='Visualize flowline')
@@ -230,5 +212,4 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, args.interp, "output", args.vis_mc, args.vis_cube,
-         args.vis_flowline)
+    eval(cfg, args.interp, "output", args.vis_mc, args.vis_flowline)

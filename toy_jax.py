@@ -34,7 +34,7 @@ def eval(cfg: Config, samples_sup, samples_interp, out_dir, vis=False):
         return model(x, z)[:, 0]
 
     start_time = time.time()
-    V, F = extract_surface(infer)
+    V, F, _ = extract_surface(infer)
     print("Extract surface", time.time() - start_time)
     start_time = time.time()
 
