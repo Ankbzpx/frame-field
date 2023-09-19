@@ -87,34 +87,35 @@ def train(cfg: Config, model: model_jax.MLP, data):
             'loss_eikonal': loss_eikonal
         }
 
-        if loss_cfg.rot6d:
-            basis = vmap(rot6d_to_R3)(aux)
-            if loss_cfg.use_basis:
-                dps = jnp.einsum('bij,bi->bj', basis,
-                                 jax.lax.stop_gradient(normal_align))
-                loss_align = loss_cfg.align * double_well_potential(
-                    jnp.abs(dps)).sum(-1).mean()
+        if loss_cfg.align > 0:
+            if loss_cfg.rot6d:
+                basis = vmap(rot6d_to_R3)(aux)
+                if loss_cfg.use_basis:
+                    dps = jnp.einsum('bij,bi->bj', basis,
+                                     jax.lax.stop_gradient(normal_align))
+                    loss_align = loss_cfg.align * double_well_potential(
+                        jnp.abs(dps)).sum(-1).mean()
+                else:
+                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                        jax.lax.stop_gradient(normal_align), basis)
+                    loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
+
+                loss += loss_align
+                loss_dict['loss_align'] = loss_align
             else:
-                poly_val = vmap(oct_polynomial_zonal_unit_norm)(
-                    jax.lax.stop_gradient(normal_align), basis)
-                loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
+                # Alignment
+                R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
+                sh4_n = vmap(project_n)(aux_align, R9_zn)
+                loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
+                                               (aux_align, sh4_n)).mean()
+                loss += loss_align
+                loss_dict['loss_align'] = loss_align
 
-            loss += loss_align
-            loss_dict['loss_align'] = loss_align
-        else:
-            # Alignment
-            R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-            sh4_n = vmap(project_n)(aux_align, R9_zn)
-            loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                           (aux_align, sh4_n)).mean()
-            loss += loss_align
-            loss_dict['loss_align'] = loss_align
-
-            # project_n does not penalize the norm
-            loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                aux_align).mean()
-            loss += loss_unit_norm
-            loss_dict['loss_unit_norm'] = loss_unit_norm
+                # project_n does not penalize the norm
+                loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
+                    aux_align).mean()
+                loss += loss_unit_norm
+                loss_dict['loss_unit_norm'] = loss_unit_norm
 
         if loss_cfg.regularize > 0:
             if loss_cfg.rot6d:

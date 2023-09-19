@@ -31,6 +31,8 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
             # Do NOT modify config inside eqx.Module, because the __init__ will be called twice
             cfg.mlps[1].in_features += cfg.mlps[0].in_features
             MultiMLP = model_jax.MLPComposerCondition
+        elif cfg.tangent:
+            MultiMLP = model_jax.MLPComposerSplit
         else:
             MultiMLP = model_jax.MLPComposer
 

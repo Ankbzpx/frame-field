@@ -11,19 +11,18 @@
         },
         {
             "hidden_features": 64,
-            "hidden_layers": 2,
-            "out_features": 6
+            "hidden_layers": 4,
+            "out_features": 1
         }
     ],
     "loss_cfg": {
-        "regularize": 1e2,
-        "smooth": 2e1,
-        "rot6d": true,
-        "use_basis": false,
-        "fix_basis": false
+        "align": 0,
+        "smooth": 1e1,
+        "rot6d": true
     },
     "training": {
         "n_samples": 1024,
         "n_steps": 5000
-    }
+    },
+    "tangent": true
 }

@@ -52,6 +52,7 @@ class Config:
     mlps: list[MLPConfig] = field(default_factory=lambda: [MLPConfig()])
 
     conditioning: bool = False
+    tangent: bool = False
 
     @property
     def mlp_cfgs(self) -> list[dict]:

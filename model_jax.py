@@ -324,3 +324,21 @@ class MLPComposerCondition(MLPComposer):
     def single_call_grad(self, x, z):
         x, grad = self.__single_call(x, z)
         return (x[0], x[1:]), grad
+
+
+class MLPComposerSplit(MLPComposer):
+
+    def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
+        super().__init__(key, mlp_types, mlp_cfgs)
+
+    # For simplicity, assume the first 2 mlp predicts scalar output
+    def single_call_grad(self, x, z):
+        (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
+        _, tangent = self.mlps[1].single_call_grad(x, z)
+        aux = jnp.hstack([normal, tangent] +
+                         [mlp.single_call(x, z) for mlp in self.mlps[2:]])
+        return (sdf, aux), normal
+
+    def single_call(self, x, z):
+        (sdf, aux), _ = self.single_call_grad(x, z)
+        return jnp.hstack([sdf, aux])
