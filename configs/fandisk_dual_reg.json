@@ -1,7 +1,7 @@
 {
     "sdf_paths": ["data/sdf/fandisk.npz"],
     "mlp_types": [
-        "Siren",
+        "StandardMLP",
         "StandardMLP"
     ],
     "mlps": [
@@ -10,7 +10,7 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 2,
+            "hidden_layers": 4,
             "out_features": 6
         }
     ],

@@ -56,7 +56,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
         0.2 * cfg.training.lr,
         peak_value=cfg.training.lr,
-        warmup_steps=500,
+        warmup_steps=100,
         decay_steps=total_steps)
 
     # Reference: https://github.com/patrick-kidger/equinox/issues/79
@@ -94,6 +94,18 @@ def config_training_data(cfg: Config, data_key, latents):
     def sample_sdf_data(sdf_path, latent):
         sdf_data = dict(np.load(sdf_path))
 
+        on_sur_sample_size = len(sdf_data['samples_on_sur'])
+        samples_off_sur = (
+            1e-2 * jax.random.normal(data_key, (on_sur_sample_size, 128, 3)) +
+            sdf_data['samples_on_sur'][:, None, :]).reshape(-1, 3)
+
+        sdf_data['samples_off_sur'] = jnp.vstack([
+            samples_off_sur,
+            jax.random.uniform(data_key, (on_sur_sample_size * 128, 3),
+                               minval=-1.0,
+                               maxval=1.0)
+        ])
+
         def random_batch(x):
             total_sample_size = len(x)
             idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
@@ -101,11 +113,6 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-
-        data['samples_off_sur'] = jax.random.uniform(
-            data_key, (cfg.training.n_steps, sample_size, 3),
-            minval=-1.0,
-            maxval=1.0)
         data['sdf_off_sur'] = jnp.zeros((cfg.training.n_steps, sample_size))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,

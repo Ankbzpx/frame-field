@@ -130,8 +130,11 @@ def eval(cfg: Config,
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
+        _, VN = infer_grad(V)
+
         ps.init()
-        ps.register_surface_mesh(f"{cfg.name}", V, F)
+        mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
+        mesh.add_vector_quantity('VN', VN)
         ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
         ps.show()
         exit()
