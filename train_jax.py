@@ -89,9 +89,15 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
         if loss_cfg.rot6d:
             basis = vmap(rot6d_to_R3)(aux)
-            poly_val = vmap(oct_polynomial_zonal_unit_norm)(
-                jax.lax.stop_gradient(normal_align), basis)
-            loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
+            if loss_cfg.use_basis:
+                dps = jnp.einsum('bij,bi->bj', basis,
+                                 jax.lax.stop_gradient(normal_align))
+                loss_align = loss_cfg.align * double_well_potential(
+                    jnp.abs(dps)).sum(-1).mean()
+            else:
+                poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                    jax.lax.stop_gradient(normal_align), basis)
+                loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
 
             loss += loss_align
             loss_dict['loss_align'] = loss_align
@@ -116,12 +122,8 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 if loss_cfg.use_basis:
                     dps = jnp.einsum('bij,bi->bj', basis,
                                      vmap(normalize)(pred_normals_off_sur))
-                    if loss_cfg.fix_basis:
-                        loss_regularize = loss_cfg.regularize * (
-                            (1 - dps[:, 0]).mean() + jnp.abs(dps[:, 1]).mean())
-                    else:
-                        loss_regularize = loss_cfg.regularize * double_well_potential(
-                            jnp.abs(dps)).sum(-1).mean()
+                    loss_regularize = loss_cfg.regularize * double_well_potential(
+                        jnp.abs(dps)).sum(-1).mean()
                 else:
                     dps = vmap(oct_polynomial_zonal_unit_norm)(
                         pred_normals_off_sur, basis)

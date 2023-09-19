@@ -97,7 +97,7 @@ class SDFSampler:
 if __name__ == '__main__':
 
     model_path_list = sorted(glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
-    sample_size = 2500000
+    sample_size = 10000
 
     for model_path in tqdm(model_path_list):
 
@@ -106,10 +106,7 @@ if __name__ == '__main__':
 
         sampler = SDFSampler(model_path)
         samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
-        samples_off_sur, sdf_off_sur = sampler.sample_importance(sample_size)
 
         np.savez(model_out_path,
                  samples_on_sur=samples_on_sur,
-                 normals_on_sur=normals_on_sur,
-                 samples_off_sur=samples_off_sur,
-                 sdf_off_sur=sdf_off_sur)
+                 normals_on_sur=normals_on_sur)

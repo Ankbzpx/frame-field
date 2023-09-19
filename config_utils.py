@@ -7,6 +7,9 @@ import equinox as eqx
 import model_jax
 from config import Config
 
+import polyscope as ps
+from icecream import ic
+
 
 def config_latent(cfg: Config):
     n_models = len(cfg.sdf_paths)
@@ -90,11 +93,20 @@ def config_training_data(cfg: Config, data_key, latents):
 
     def sample_sdf_data(sdf_path, latent):
         sdf_data = dict(np.load(sdf_path))
-        total_sample_size = len(sdf_data['samples_on_sur'])
-        idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
-                                (cfg.training.n_steps, sample_size))
 
-        data = jax.tree_map(lambda x: x[idx], sdf_data)
+        def random_batch(x):
+            total_sample_size = len(x)
+            idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
+                                    (cfg.training.n_steps, sample_size))
+            return x[idx]
+
+        data = jax.tree_map(lambda x: random_batch(x), sdf_data)
+
+        data['samples_off_sur'] = jax.random.uniform(
+            data_key, (cfg.training.n_steps, sample_size, 3),
+            minval=-1.0,
+            maxval=1.0)
+        data['sdf_off_sur'] = jnp.zeros((cfg.training.n_steps, sample_size))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)

@@ -110,9 +110,29 @@ def eval(cfg: Config,
 
     V, F = filter_components(V, F)
 
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+
+    interp_tag = "" if len(cfg.sdf_paths) == 1 else interp
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
+
     if vis_mc:
+        # TODO support latent
+        sdf_data = dict(np.load(cfg.sdf_paths[0]))
+        sur_sample = sdf_data['samples_on_sur']
+        (_, aux), _ = infer_grad(sur_sample)
+
+        if cfg.loss_cfg.rot6d:
+            Rs = vmap(rot6d_to_R3)(aux[:, :6])
+        else:
+            sh4 = aux[:, :9]
+            Rs = proj_sh4_to_R3(sh4)
+
+        V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
+
         ps.init()
         ps.register_surface_mesh(f"{cfg.name}", V, F)
+        ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
         ps.show()
         exit()
 
@@ -176,12 +196,6 @@ def eval(cfg: Config,
         flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
         flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
         ps.show()
-
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-
-    interp_tag = "" if len(cfg.sdf_paths) == 1 else interp
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
 
     stroke_mesh = o3d.geometry.TriangleMesh()
     stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)

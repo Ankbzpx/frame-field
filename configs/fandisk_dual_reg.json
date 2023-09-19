@@ -15,6 +15,7 @@
         }
     ],
     "loss_cfg": {
+        "regularize": 1e2,
         "smooth": 2e-2,
         "rot6d": true,
         "use_basis": false
