@@ -2,6 +2,8 @@ import numpy as np
 import jax
 from jax import vmap, numpy as jnp, jit, grad
 import equinox as eqx
+import optax
+from typing import Callable
 from jaxtyping import PyTree, Array
 from tqdm import tqdm
 import matplotlib
@@ -9,6 +11,7 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
+from dataclasses import asdict
 
 import model_jax
 from common import normalize, vis_oct_field
@@ -31,6 +34,12 @@ def train(cfg: Config, model: model_jax.MLP, data):
     optim, opt_state = config_optim(cfg, model)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    smooth_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.smooth,
+                                                cfg.loss_cfg.smooth, 2,
+                                                total_steps)
+    regularize_schedule = optax.polynomial_schedule(
+        1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 2, total_steps)
+
     checkpoints_folder = 'checkpoints'
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -39,8 +48,13 @@ def train(cfg: Config, model: model_jax.MLP, data):
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: Array,
                   normals_on_sur: Array, samples_off_sur: Array,
-                  sdf_off_sur: Array, latent: Array, loss_cfg: LossConfig):
+                  sdf_off_sur: Array, latent: Array, loss_cfg: LossConfig,
+                  step_count: int):
 
+        smooth_weight = smooth_schedule(step_count)
+        regularize_weight = regularize_schedule(step_count)
+
+        # I'm not allowed to compare traced value
         if loss_cfg.smooth > 0:
             param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
             jac, out_on = model.call_jac_param(samples_on_sur, latent,
@@ -123,14 +137,14 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 if loss_cfg.use_basis:
                     dps = jnp.einsum('bij,bi->bj', basis,
                                      vmap(normalize)(pred_normals_off_sur))
-                    loss_regularize = loss_cfg.regularize * double_well_potential(
+                    loss_regularize = regularize_weight * double_well_potential(
                         jnp.abs(dps)).sum(-1).mean()
                 else:
                     dps = vmap(oct_polynomial_zonal_unit_norm)(
                         pred_normals_off_sur, basis)
 
-                    loss_regularize = loss_cfg.regularize * jnp.abs(1 -
-                                                                    dps).mean()
+                    loss_regularize = regularize_weight * jnp.abs(1 -
+                                                                  dps).mean()
 
             else:
                 if loss_cfg.use_basis:
@@ -139,13 +153,13 @@ def train(cfg: Config, model: model_jax.MLP, data):
                                            max_iter=50)
                     dps = jnp.einsum('bij,bi->bj', basis,
                                      vmap(normalize)(pred_normals_off_sur))
-                    loss_regularize = loss_cfg.regularize * double_well_potential(
+                    loss_regularize = regularize_weight * double_well_potential(
                         jnp.abs(dps)).sum(-1).mean()
                 else:
                     dps = vmap(oct_polynomial_sh4_unit_norm)(
                         pred_normals_off_sur, jax.lax.stop_gradient(aux_off))
 
-                    loss_regularize = loss_cfg.regularize * (1 - dps).mean()
+                    loss_regularize = regularize_weight * (1 - dps).mean()
 
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize
@@ -163,7 +177,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
             sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
                                                                     'f')
-            loss_smooth = loss_cfg.smooth * sh4_jac_norm.mean()
+            loss_smooth = smooth_weight * sh4_jac_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
@@ -174,8 +188,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
     @eqx.filter_jit
     def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
-
-        grads, loss_dict = loss_func(model, **batch, loss_cfg=loss_cfg)
+        step_count = opt_state.inner_states['standard'].inner_state[-1].count
+        grads, loss_dict = loss_func(model,
+                                     **batch,
+                                     loss_cfg=loss_cfg,
+                                     step_count=step_count)
         updates, opt_state = optim.update([grads], opt_state, [model])
         model = eqx.apply_updates([model], updates)[0]
         return model, opt_state, loss_dict

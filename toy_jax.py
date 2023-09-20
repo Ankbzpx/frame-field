@@ -68,6 +68,21 @@ def eval(cfg: Config, samples_sup, samples_interp, out_dir, vis=False):
         ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
         ps.register_surface_mesh("Oct frames interpolation", V_vis_interp,
                                  F_vis_interp)
+        if cfg.tangent:
+            aux = infer_aux(samples_interp)
+            VN_interp = aux[:, :3]
+            TAN_interp = aux[:, 3:]
+
+            pc_interp = ps.register_point_cloud('interp',
+                                                samples_interp @ R,
+                                                radius=1e-4)
+            pc_interp.add_vector_quantity('VN_interp',
+                                          VN_interp @ R,
+                                          enabled=True)
+            pc_interp.add_vector_quantity('TAN_interp',
+                                          TAN_interp @ R,
+                                          enabled=True)
+
         ps.show()
 
     # V_cube = np.vstack([V_vis_sup, V_vis_interp])

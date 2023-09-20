@@ -334,7 +334,9 @@ class MLPComposerSplit(MLPComposer):
     # For simplicity, assume the first 2 mlp predicts scalar output
     def single_call_grad(self, x, z):
         (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
-        _, tangent = self.mlps[1].single_call_grad(x, z)
+        tangent = self.mlps[1].single_call(x, z)
+        # If assume scalar
+        # _, tangent = self.mlps[1].single_call_grad(x, z)
         aux = jnp.hstack([normal, tangent] +
                          [mlp.single_call(x, z) for mlp in self.mlps[2:]])
         return (sdf, aux), normal
