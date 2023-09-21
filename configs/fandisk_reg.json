@@ -10,14 +10,14 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 4,
-            "out_features": 3
+            "hidden_layers": 2,
+            "out_features": 6
         }
     ],
     "loss_cfg": {
-        "align": 0,
-        "smooth": 5e-3,
-        "rot6d": true
-    },
-    "tangent": true
+        "regularize": 1e2,
+        "smooth": 1e-1,
+        "rot6d": true,
+        "use_basis": false
+    }
 }

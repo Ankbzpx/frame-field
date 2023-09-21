@@ -1,5 +1,5 @@
 {
-    "sdf_paths": ["data/sdf/fandisk.npz"],
+    "sdf_paths": ["data/sdf/cube_twist.npz"],
     "mlp_types": [
         "Siren",
         "StandardMLP"
@@ -10,13 +10,16 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 4,
+            "hidden_layers": 2,
             "out_features": 6
         }
     ],
     "loss_cfg": {
-        "smooth": 2e-2,
+        "smooth": 1e-1,
         "rot6d": true,
         "use_basis": false
+    },
+    "training": {
+        "lr": 5e-4
     }
 }

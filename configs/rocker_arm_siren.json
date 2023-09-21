@@ -1,5 +1,5 @@
 {
-    "sdf_paths": ["data/sdf/bunny.npz"],
+    "sdf_paths": ["data/sdf/rocker_arm.npz"],
     "mlp_types": [
         "Siren",
         "StandardMLP"
@@ -10,12 +10,13 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 1,
-            "out_features": 9
+            "hidden_layers": 2,
+            "out_features": 6
         }
     ],
     "loss_cfg": {
-        "match_zero_level_set": true
-    },
-    "conditioning": true
+        "smooth": 1e-1,
+        "rot6d": true,
+        "use_basis": false
+    }
 }

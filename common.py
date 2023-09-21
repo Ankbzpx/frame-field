@@ -109,9 +109,9 @@ def filter_components(V, F, VN):
                              VN[vid])
             valid = np.sum(dps > 0) > K[k] // 2
 
-            return len(V_filter) if valid else 0
+            return np.linalg.norm(mass_center) if valid else 0
 
-        idx = idx_top3[np.argmax([validate_VN(idx) for idx in idx_top3])]
+        idx = idx_top3[np.argmin([validate_VN(idx) for idx in idx_top3])]
 
         VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
         FV = np.split(VF, NI[1:-1])

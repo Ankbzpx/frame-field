@@ -38,7 +38,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
                                                 1e1 * cfg.loss_cfg.smooth, 0.5,
                                                 total_steps, 100)
     regularize_schedule = optax.polynomial_schedule(
-        1e-2 * cfg.loss_cfg.regularize, 1e1 * cfg.loss_cfg.regularize, 0.5,
+        1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
         total_steps, 100)
 
     checkpoints_folder = 'checkpoints'

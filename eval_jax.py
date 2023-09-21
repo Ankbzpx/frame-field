@@ -113,8 +113,8 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    interp_tag = "" if len(cfg.sdf_paths) == 1 else interp
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_mc.obj", V, F)
+    interp_tag = "" if len(cfg.sdf_paths) == 1 else f"{interp}_"
+    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}mc.obj", V, F)
 
     if vis_mc:
         # TODO support latent
@@ -189,7 +189,7 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
     stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
     stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
     stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}_stroke.obj",
+    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj",
                                stroke_mesh)
 
 

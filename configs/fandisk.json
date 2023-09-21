@@ -1,9 +1,22 @@
 {
     "sdf_paths": ["data/sdf/fandisk.npz"],
+    "mlp_types": [
+        "StandardMLP",
+        "StandardMLP"
+    ],
     "mlps": [
         {
-            "hidden_layers": 6,
-            "out_features": 10
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_layers": 2,
+            "out_features": 6
         }
-    ]
+    ],
+    "loss_cfg": {
+        "smooth": 1e-1,
+        "rot6d": true,
+        "use_basis": false
+    }
 }

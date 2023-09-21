@@ -1,5 +1,5 @@
 {
-    "sdf_paths": ["data/sdf/rocker_arm.npz"],
+    "sdf_paths": ["data/sdf/fandisk.npz"],
     "mlp_types": [
         "Siren",
         "StandardMLP"
@@ -15,6 +15,8 @@
         }
     ],
     "loss_cfg": {
-        "rot6d": true
+        "smooth": 1e-1,
+        "rot6d": true,
+        "use_basis": false
     }
 }

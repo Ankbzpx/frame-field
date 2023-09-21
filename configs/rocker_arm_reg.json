@@ -1,8 +1,5 @@
 {
-    "sdf_paths": [
-        "data/sdf/bunny.npz",
-        "data/sdf/fandisk.npz"
-    ],
+    "sdf_paths": ["data/sdf/rocker_arm.npz"],
     "mlp_types": [
         "StandardMLP",
         "StandardMLP"
@@ -14,11 +11,13 @@
         },
         {
             "hidden_layers": 2,
-            "out_features": 9,
-            "input_scale": 1e-2
+            "out_features": 6
         }
     ],
     "loss_cfg": {
-        "match_zero_level_set": true
+        "regularize": 1e2,
+        "smooth": 1e-1,
+        "rot6d": true,
+        "use_basis": false
     }
 }
