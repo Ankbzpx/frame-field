@@ -120,6 +120,7 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
         # TODO support latent
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
         sur_sample = sdf_data['samples_on_sur']
+        sur_normal = sdf_data['normals_on_sur']
         (_, aux), _ = infer_grad(sur_sample)
 
         if cfg.loss_cfg.rot6d:
@@ -135,7 +136,9 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
         mesh.add_vector_quantity('VN', VN)
-        ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
+        ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
+        pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
+        pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
         ps.show()
         exit()
 
