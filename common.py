@@ -109,7 +109,7 @@ def filter_components(V, F, VN):
                              VN[vid])
             valid = np.sum(dps > 0) > K[k] // 2
 
-            return np.linalg.norm(mass_center) if valid else 0
+            return np.linalg.norm(mass_center) if valid else np.inf
 
         idx = idx_top3[np.argmin([validate_VN(idx) for idx in idx_top3])]
 
