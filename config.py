@@ -40,6 +40,7 @@ class LossConfig:
     match_zero_level_set: bool = False
     match_all_level_set: bool = False
     allow_gradient: bool = False
+    tangent: bool = False
 
 
 @dataclass
@@ -50,9 +51,6 @@ class Config:
 
     mlp_types: list[str] = field(default_factory=lambda: ['StandardMLP'])
     mlps: list[MLPConfig] = field(default_factory=lambda: [MLPConfig()])
-
-    conditioning: bool = False
-    tangent: bool = False
 
     @property
     def mlp_cfgs(self) -> list[dict]:

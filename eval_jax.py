@@ -139,6 +139,23 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
         ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
+
+        if cfg.loss_cfg.tangent:
+
+            @jit
+            def infer_extra(x):
+                z = latent[None, ...].repeat(len(x), 0)
+                (_, aux), _, vec_potential = vmap(model._single_call_grad)(x, z)
+                return aux[:, :3], aux[:, 3:], vec_potential
+
+            _, TAN_sup, vec_potential_sup = infer_extra(sur_sample)
+            potential_interp = vmap(jnp.linalg.norm)(vec_potential_sup)
+
+            pc.add_vector_quantity('TAN_sup', TAN_sup, enabled=True)
+            pc.add_scalar_quantity('potential_interp',
+                                   potential_interp,
+                                   enabled=True)
+
         ps.show()
         exit()
 

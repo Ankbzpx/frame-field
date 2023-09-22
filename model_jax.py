@@ -1,6 +1,5 @@
 import jax
-from jax import vmap, numpy as jnp, jacfwd
-from jax.tree_util import Partial
+from jax import vmap, numpy as jnp, jacfwd, jit
 import equinox as eqx
 from jaxtyping import Array
 
@@ -23,8 +22,19 @@ class MLP(eqx.Module):
         return eqx.filter_value_and_grad(self.single_call_split,
                                          has_aux=True)(x, z)
 
+    def single_call_jac(self, x, z):
+
+        def __single_call(x, z):
+            val = self.single_call(x, z)
+            return val, val
+
+        return jacfwd(__single_call, has_aux=True)(x, z)
+
     def call_grad(self, x, z):
         return vmap(self.single_call_grad)(x, z)
+
+    def call_jac(self, x, z):
+        return vmap(self.single_call_jac)(x, z)
 
     def call_jac_param(self, x, z, param_func):
 
@@ -304,43 +314,39 @@ class MLPComposer(MLP):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
 
-class MLPComposerCondition(MLPComposer):
+@jit
+def curl(jac):
+    return jnp.array(
+        [jac[2, 1] - jac[1, 2], jac[0, 2] - jac[2, 0], jac[1, 0] - jac[0, 1]])
+
+
+class MLPComposerCurl(MLPComposer):
 
     def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
         super().__init__(key, mlp_types, mlp_cfgs)
 
-    # For simplicity, assume the first mlp predicts sdf
-    def __single_call(self, x, z):
+    # For simplicity, assume the first is sdf, the second is vector potential
+    def _single_call_grad(self, x, z):
         (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
-        # Should I stop gradient? jax.lax.stop_gradient(normal)
-        aux = self.mlps[1].single_call(x, jnp.hstack([normal, z]))
-        return jnp.hstack([sdf, aux] +
-                          [mlp.single_call(x, z)
-                           for mlp in self.mlps[2:]]), normal
-
-    def single_call(self, x, z):
-        return self.__single_call(x, z)[0]
-
-    def single_call_grad(self, x, z):
-        x, grad = self.__single_call(x, z)
-        return (x[0], x[1:]), grad
-
-
-class MLPComposerSplit(MLPComposer):
-
-    def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
-        super().__init__(key, mlp_types, mlp_cfgs)
-
-    # For simplicity, assume the first 2 mlp predicts scalar output
-    def single_call_grad(self, x, z):
-        (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
-        tangent = self.mlps[1].single_call(x, z)
-        # If assume scalar
-        # _, tangent = self.mlps[1].single_call_grad(x, z)
+        jac, vec_potential = self.mlps[1].single_call_jac(x, z)
+        tangent = curl(jac)
         aux = jnp.hstack([normal, tangent] +
                          [mlp.single_call(x, z) for mlp in self.mlps[2:]])
-        return (sdf, aux), normal
+        return (sdf, aux), normal, vec_potential
+
+    def single_call_grad(self, x, z):
+        return self._single_call_grad(x, z)[:-1]
 
     def single_call(self, x, z):
         (sdf, aux), _ = self.single_call_grad(x, z)
         return jnp.hstack([sdf, aux])
+
+    def call_jac_param(self, x, z, param_func):
+
+        def __single_call(x, z):
+            (sdf, aux), normal, vec_potential = self._single_call_grad(x, z)
+            potential = jax.lax.stop_gradient(jnp.linalg.norm(vec_potential))
+            aux_param = param_func(aux)
+            return aux_param, ((sdf, aux), normal)
+
+        return vmap(jacfwd(__single_call, has_aux=True))(x, z)

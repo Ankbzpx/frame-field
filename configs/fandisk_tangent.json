@@ -1,27 +1,22 @@
 {
+    "sdf_paths": ["data/sdf/fandisk.npz"],
     "mlp_types": [
         "StandardMLP",
         "StandardMLP"
     ],
     "mlps": [
         {
-            "hidden_features": 64,
             "hidden_layers": 4,
             "out_features": 1
         },
         {
-            "hidden_features": 64,
             "hidden_layers": 4,
             "out_features": 3
         }
     ],
     "loss_cfg": {
-        "smooth": 2e1,
+        "smooth": 1e-1,
         "rot6d": true,
         "tangent": true
-    },
-    "training": {
-        "n_samples": 1024,
-        "n_steps": 5000
     }
 }

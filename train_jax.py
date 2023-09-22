@@ -36,7 +36,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
     smooth_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.smooth,
                                                 1e1 * cfg.loss_cfg.smooth, 0.5,
-                                                total_steps, 100)
+                                                total_steps, total_steps // 2)
     regularize_schedule = optax.polynomial_schedule(
         1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
         total_steps, 100)
@@ -57,7 +57,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
         # I'm not allowed to compare traced value
         if loss_cfg.smooth > 0:
-            param_func = rot6d_to_sh4_zonal if loss_cfg.rot6d else lambda x: x
+            if loss_cfg.rot6d:
+                param_func = rot6d_to_sh4_zonal
+            else:
+                param_func = lambda x: x
+
             jac, out_on = model.call_jac_param(samples_on_sur, latent,
                                                param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
@@ -117,6 +121,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
                 loss += loss_align
                 loss_dict['loss_align'] = loss_align
+
+                dp = jnp.einsum('bi,bi->b', aux[:, :3], aux[:, 3:])
+                loss_orth = 1e2 * jnp.abs(dp).mean()
+                loss += loss_orth
+                loss_dict['loss_orth'] = loss_orth
             else:
                 # Alignment
                 R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
