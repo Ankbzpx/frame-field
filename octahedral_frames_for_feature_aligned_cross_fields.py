@@ -26,6 +26,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
     parser.add_argument('-p', type=str, default='2', help='Lp norm.')
+    parser.add_argument('-w', type=float, default=1e-1, help='Boundary weight')
     parser.add_argument('--out_path',
                         type=str,
                         default='results',
@@ -33,6 +34,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     norm = args.p
+    # May need to adjust for different geometry / norm
+    boundary_weight = args.w
     model_path = args.input
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_{norm}_oct.obj")
@@ -66,8 +69,6 @@ if __name__ == '__main__':
             except:
                 pass
 
-        # Need to adjust weight for different norm
-        boundary_weight = 0.5
         np.random.seed(0)
         x = np.random.randn(NV, 9)
         x = vmap(normalize)(x)
@@ -89,8 +90,7 @@ if __name__ == '__main__':
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
-        # May need to adjust weight for different geometry
-        boundary_weight = 0.1
+
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)

@@ -24,12 +24,15 @@ from icecream import ic
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
+    parser.add_argument('-w', type=float, default=100, help='Boundary weight')
     parser.add_argument('--out_path',
                         type=str,
                         default='results',
                         help='Path to output folder.')
     args = parser.parse_args()
 
+    # Large alignment weight to ensure boundary align
+    boundary_weight = args.w
     model_path = args.input
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
@@ -70,9 +73,6 @@ if __name__ == '__main__':
     # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
     A_tl = unroll_identity_block(L, 9)
     A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
-
-    # Large alignment weight to ensure boundary align
-    boundary_weight = 100.
     A_bl = scipy.sparse.coo_array(
         (boundary_weight * np.ones(9 * NB),
          (np.arange(9 * NB), ((9 * boundary_vid)[..., None] +
