@@ -1,0 +1,23 @@
+{
+    "sdf_paths": ["data/sdf/prism.npz"],
+    "mlp_types": [
+        "StandardMLP",
+        "StandardMLP"
+    ],
+    "mlps": [
+        {
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_layers": 2,
+            "out_features": 9
+        }
+    ],
+    "loss_cfg": {
+        "smooth": 1e-1
+    },
+    "training": {
+        "n_steps": 5000
+    }
+}
