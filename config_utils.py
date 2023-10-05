@@ -45,16 +45,16 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
 def config_optim(cfg: Config, model: model_jax.MLP):
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr,
-        peak_value=5 * cfg.training.lr,
-        warmup_steps=100,
+        cfg.training.lr_multiplier * cfg.training.lr,
+        peak_value=cfg.training.lr_peak_multiplier * cfg.training.lr,
+        warmup_steps=cfg.training.warmup_steps,
         decay_steps=total_steps)
 
     # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren. So special care must be taken...
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
-        0.2 * cfg.training.lr,
-        peak_value=cfg.training.lr,
-        warmup_steps=100,
+        cfg.training.lr_multiplier_siren * cfg.training.lr,
+        peak_value=cfg.training.lr_peak_multiplier_siren * cfg.training.lr,
+        warmup_steps=cfg.training.warmup_steps,
         decay_steps=total_steps)
 
     # Reference: https://github.com/patrick-kidger/equinox/issues/79
