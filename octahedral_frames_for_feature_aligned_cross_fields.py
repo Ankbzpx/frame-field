@@ -89,6 +89,7 @@ if __name__ == '__main__':
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
+        # May need to adjust weight for different geometry
         boundary_weight = 0.1
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
