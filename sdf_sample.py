@@ -95,9 +95,24 @@ class SDFSampler:
 
 
 if __name__ == '__main__':
+    import argparse
 
-    model_path_list = sorted(glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
-    sample_size = 10000
+    # Arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_path', type=str, help='Path to input model.')
+    parser.add_argument('--sample_size',
+                        type=int,
+                        default=10000,
+                        help='Number of samples.')
+    args = parser.parse_args()
+
+    if args.model_path is not None:
+        model_path_list = [args.model_path]
+    else:
+        model_path_list = sorted(
+            glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
+
+    sample_size = args.sample_size
 
     for model_path in tqdm(model_path_list):
 
