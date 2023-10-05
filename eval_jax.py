@@ -12,8 +12,9 @@ import model_jax
 from config import Config
 from config_utils import config_latent, config_model
 from common import normalize, vis_oct_field, filter_components
-from sh_representation import proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z, rotvec_to_R3, \
-    rotvec_to_R9, project_n, rot6d_to_R3, R3_to_sh4_zonal
+from sh_representation import (proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z,
+                               rotvec_to_R3, rotvec_to_R9, project_n,
+                               rot6d_to_R3, R3_to_sh4_zonal, rot6d_to_sh4_zonal)
 import flow_lines
 import open3d as o3d
 import pymeshlab
@@ -24,30 +25,43 @@ from icecream import ic
 import time
 
 
-# infer: R^3 -> R (sdf)
-def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
+# infer: R^3 -> R
+def voxel_infer(infer,
+                grid_res=512,
+                grid_min=-1.0,
+                grid_max=1.0,
+                group_size_mul=2):
     # Smaller batch is somehow faster
-    group_size = 4 * grid_res**2
+    group_size = group_size_mul * grid_res**2
     iter_size = grid_res**3 // group_size
 
+    # Cannot pass jitted function as argument to another jitted function
     @jit
-    def infer_sdf():
+    def infer_scalar():
         indices = jnp.linspace(grid_min, grid_max, grid_res)
-        grid = jnp.stack(jnp.meshgrid(indices, indices, indices),
-                         -1).reshape(iter_size, group_size, 3)
+        grid = jnp.stack(jnp.meshgrid(indices, indices, indices), -1)
 
-        query_data = {"grid": grid, "sdf": jnp.zeros((iter_size, group_size))}
+        query_data = {
+            "grid": grid.reshape(iter_size, group_size, 3),
+            "val": jnp.zeros((iter_size, group_size))
+        }
 
         @jit
         def body_func(i, query_data):
-            sdf = infer(query_data["grid"][i])
-            query_data["sdf"] = query_data["sdf"].at[i].set(sdf)
+            val = infer(query_data["grid"][i])
+            query_data["val"] = query_data["val"].at[i].set(val)
             return query_data
 
         query_data = jax.lax.fori_loop(0, iter_size, body_func, query_data)
-        return query_data["sdf"].reshape(grid_res, grid_res, grid_res)
+        return query_data["val"].reshape(grid_res, grid_res, grid_res), grid
 
-    sdf = infer_sdf()
+    return infer_scalar()
+
+
+# infer: R^3 -> R (sdf)
+def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
+
+    sdf, _ = voxel_infer(infer, grid_res, grid_min, grid_max, 4)
     # This step is surprising slow, memory copy?
     sdf_np = np.swapaxes(np.array(sdf), 0, 1)
 
@@ -77,7 +91,12 @@ def meshlab_remesh(V, F):
     return V, F
 
 
-def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
+def eval(cfg: Config,
+         interp,
+         out_dir,
+         vis_mc=False,
+         vis_smooth=False,
+         vis_flowline=False):
 
     latents, latent_dim = config_latent(cfg)
     tokens = interp.split('_')
@@ -101,6 +120,30 @@ def eval(cfg: Config, interp, out_dir, vis_mc=False, vis_flowline=False):
     def infer_grad(x):
         z = latent[None, ...].repeat(len(x), 0)
         return model.call_grad(x, z)
+
+    if cfg.loss_cfg.rot6d:
+        param_func = rot6d_to_sh4_zonal
+    else:
+        param_func = lambda x: x
+
+    @jit
+    def infer_smoothness(x):
+        z = latent[None, ...].repeat(len(x), 0)
+        jac, _ = model.call_jac_param(x, z, param_func)
+        return vmap(jnp.linalg.norm, in_axes=[0, None])(jac, 'f')
+
+    if vis_smooth:
+        smoothness, grid_samples = voxel_infer(infer_smoothness)
+
+        ps.init()
+        pc = ps.register_point_cloud('grid_samples',
+                                     grid_samples.reshape(-1, 3),
+                                     point_render_mode='quad')
+        pc.add_scalar_quantity('smoothness',
+                               smoothness.reshape(-1),
+                               enabled=True)
+        ps.show()
+        exit()
 
     start_time = time.time()
     V, F, VN = extract_surface(infer)
@@ -224,6 +267,9 @@ if __name__ == '__main__':
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
+    parser.add_argument('--vis_smooth',
+                        action='store_true',
+                        help='Visualize smoothness')
     parser.add_argument('--vis_flowline',
                         action='store_true',
                         help='Visualize flowline')
@@ -232,4 +278,5 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, args.interp, "output", args.vis_mc, args.vis_flowline)
+    eval(cfg, args.interp, "output", args.vis_mc, args.vis_smooth,
+         args.vis_flowline)
