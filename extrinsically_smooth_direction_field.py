@@ -441,8 +441,12 @@ if __name__ == '__main__':
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_ext.obj")
 
+    print("Load and preprocess mesh")
+
     V, F = igl.read_triangle_mesh(model_path)
     V = normalize_aabb(V)
+
+    print("Build traversal graph")
 
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)
@@ -455,11 +459,15 @@ if __name__ == '__main__':
     Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
         'bi,bj->bij', VN, VN)
 
+    print("Build local coordinate frame")
+
     # Local coordinate with random tangent vector as basis
     key = jax.random.PRNGKey(0)
     alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
+
+    print("Build stiffness and mass entries")
 
     idx_i, idx_j, weights, mass = smooth(Ws, V2E, E, E2E, FA, alpha, beta, NV)
 
@@ -475,6 +483,8 @@ if __name__ == '__main__':
     weights = np.float64(weights[valid_mask])
     mass = np.float64(mass[valid_mask])
 
+    print("Build sparse system")
+
     A = scipy.sparse.coo_array((weights, (idx_i, idx_j)),
                                shape=(2 * NV, 2 * NV)).tocsc()
 
@@ -487,12 +497,16 @@ if __name__ == '__main__':
     X = np.random.randn(2 * NV, 1)
     solve = scipy.sparse.linalg.factorized(A)
 
+    print("Solve (Generalized eigenproblem)")
+
     for _ in range(30):
         X = solve(M @ X)
         X /= np.sqrt(X.T @ M @ X)
 
     a = X[:NV, 0]
     b = X[NV:, 0]
+
+    print("Trace flowlines")
 
     # representation vector
     Q = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)

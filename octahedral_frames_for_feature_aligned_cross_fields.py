@@ -40,10 +40,14 @@ if __name__ == '__main__':
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_{norm}_oct.obj")
 
+    print("Load and preprocess mesh")
+
     V, F = igl.read_triangle_mesh(model_path)
     V = normalize_aabb(V)
     NV = len(V)
     VN = igl.per_vertex_normals(V, F)
+
+    print("Build stiffness and RHS")
 
     L = igl.cotmatrix(V, F)
 
@@ -87,13 +91,19 @@ if __name__ == '__main__':
                                          axis=1).mean()
             return loss_smooth + boundary_weight * loss_align
 
+        print("Solve (L-BFGS)")
+
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
 
+        print("Build sparse system")
+
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)
+
+        print("Solve (Linear)")
 
         # Linear system
         Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
@@ -101,8 +111,12 @@ if __name__ == '__main__':
         factor = cholesky((Q.T @ Q).tocsc())
         x = factor(Q.T @ c).reshape(NV, 9)
 
+    print("Project SO(3)")
+
     Rs = proj_sh4_to_R3(x)
     Q = vmap(R3_to_repvec)(Rs, VN)
+
+    print("Trace flowlines")
 
     V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
 

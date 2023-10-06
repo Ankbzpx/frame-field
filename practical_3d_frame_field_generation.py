@@ -29,6 +29,9 @@ if __name__ == '__main__':
                         type=str,
                         default='results',
                         help='Path to output folder.')
+    parser.add_argument('--save',
+                        action='store_true',
+                        help='Save for seamless parameterization')
     args = parser.parse_args()
 
     # Large alignment weight to ensure boundary align
@@ -36,6 +39,8 @@ if __name__ == '__main__':
     model_path = args.input
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
+
+    print("Load and preprocess tetrahedral mesh")
 
     V, T, _ = igl.read_off(model_path)
     V = normalize_aabb(V)
@@ -53,6 +58,8 @@ if __name__ == '__main__':
     # SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
     # sharp_vid = np.unique(SE)
 
+    print("Build stiffness and RHS")
+
     # Cotangent weights
     L = igl.cotmatrix(V, T)
     rotvec_zn = vmap(rotvec_n_to_z)(VN[boundary_vid])
@@ -67,6 +74,8 @@ if __name__ == '__main__':
     sh4_0_n = jnp.einsum('bji,j->bi', R9_zn, sh4_0)
     sh4_4_n = jnp.einsum('bji,j->bi', R9_zn, sh4_4)
     sh4_8_n = jnp.einsum('bji,j->bi', R9_zn, sh4_8)
+
+    print("Build sparse system")
 
     # Build system
     # NV x 9 + NB x 2, have to unroll...
@@ -86,11 +95,15 @@ if __name__ == '__main__':
     b = np.concatenate(
         [np.zeros((NV * 9,)), boundary_weight * sh4_4_n.reshape(-1,)])
 
+    print("Solve alignment (Linear)")
+
     # A @ x = b
     # => (A.T @ A) @ x = A.T @ b
     factor = cholesky((A.T @ A).tocsc())
     x = factor(A.T @ b)
     sh4_opt = x[:NV * 9].reshape(NV, 9)
+
+    print("Project SO(3)")
 
     # Project to acquire initialize
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
@@ -122,6 +135,8 @@ if __name__ == '__main__':
         loss_smooth = jnp.trace(sh4.T @ L_jax @ sh4)
         return loss_smooth
 
+    print("Solve smoothness (L-BFGS)")
+
     lbfgs = LBFGS(loss_func)
     params = lbfgs.run(params).params
 
@@ -136,8 +151,16 @@ if __name__ == '__main__':
     # R_n = R3_zn.T @ Rz
     Rs = Rs.at[boundary_vid].set(jnp.einsum('bjk,bji->bki', R3_zn, Rz))
 
+    if args.save:
+        print("Save for parameterization")
+
+        param_path = os.path.join(args.out_path, f"{model_name}_prac.npz")
+        np.savez(param_path, V=V, T=T, F=Rs)
+
     V_vis_cube, F_vis_cube = vis_oct_field(Rs, V,
                                            0.1 * igl.avg_edge_length(V, T))
+
+    print("Trace flowlines")
 
     Q = vmap(R3_to_repvec)(Rs, VN)
 
