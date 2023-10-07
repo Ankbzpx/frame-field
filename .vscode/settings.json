@@ -1,11 +1,5 @@
 {
-  "python.linting.pylintPath": "ruff",
-  "python.formatting.provider": "yapf",
-  "python.formatting.yapfArgs": [
-    "--style={based_on_style: google, indent_width: 4, split_before_logical_operator: true}"
-  ],
   "editor.formatOnSave": false,
-  "python.linting.enabled": true,
   "terminal.integrated.env.linux": {
     "__NV_PRIME_RENDER_OFFLOAD": "1",
     "__GLX_VENDOR_LIBRARY_NAME": "nvidia",
