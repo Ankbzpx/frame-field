@@ -126,7 +126,7 @@ def R3_to_repvec(R, vn):
 
 
 # JAX has no logm implementation yet
-# May not be correct for pi, but I don't think it matters?
+# **IMPORTANT** Do NOT use it for interpolation (i.e. Karcher mean)
 # https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
 @jit
 def R3_to_rotvec(R):
@@ -515,6 +515,8 @@ def oct_polynomial(v, R3):
     return x**4 + y**4 + z**4
 
 
+# **IMPORTANT** Unlike 'proj_sh4_to_rotvec', it assumes sh4 to valid (induced from SO(3))
+#
 # The goal here is to find R \in SO(3) that induces sh4
 #
 # Note our polynomial f(R(v)) = (e_x^T @ v)^4 + (e_y^T @ v)^4 + (e_z^T @ v)^4

@@ -11,17 +11,16 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
-from dataclasses import asdict
 
 import model_jax
-from common import normalize, vis_oct_field
+from common import normalize
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import (rotvec_to_sh4, rotvec_n_to_z, rotvec_to_R9,
-                               project_n, rot6d_to_R3, rot6d_to_sh4_zonal,
-                               oct_polynomial_sh4, proj_sh4_to_R3,
-                               oct_polynomial_zonal_unit_norm,
-                               oct_polynomial_sh4_unit_norm)
+from sh_representation import (
+    rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3, rotvec_n_to_z,
+    rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal,
+    oct_polynomial_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec,
+    oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm)
 from loss import cosine_similarity, eikonal, double_well_potential
 
 import polyscope as ps
@@ -55,10 +54,13 @@ def train(cfg: Config, model: model_jax.MLP, data):
         smooth_weight = smooth_schedule(step_count)
         regularize_weight = regularize_schedule(step_count)
 
-        # I'm not allowed to compare traced value
+        # I'm not allowed to compare jit traced value with a scalar
         if loss_cfg.smooth > 0:
             if loss_cfg.rot6d:
                 param_func = rot6d_to_sh4_zonal
+            elif loss_cfg.rotvec:
+                # Needs second order differentiable
+                param_func = rotvec_to_sh4_expm
             else:
                 param_func = lambda x: x
 
@@ -127,17 +129,22 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 loss += loss_orth
                 loss_dict['loss_orth'] = loss_orth
             else:
+                if loss_cfg.rotvec:
+                    sh4_align = vmap(rotvec_to_sh4)(aux_align)
+                else:
+                    sh4_align = aux_align
+
                 # Alignment
                 R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-                sh4_n = vmap(project_n)(aux_align, R9_zn)
+                sh4_n = vmap(project_n)(sh4_align, R9_zn)
                 loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                               (aux_align, sh4_n)).mean()
+                                               (sh4_align, sh4_n)).mean()
                 loss += loss_align
                 loss_dict['loss_align'] = loss_align
 
                 # project_n does not penalize the norm
                 loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                    aux_align).mean()
+                    sh4_align).mean()
                 loss += loss_unit_norm
                 loss_dict['loss_unit_norm'] = loss_unit_norm
 
@@ -158,16 +165,33 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
             else:
                 if loss_cfg.use_basis:
-                    # This is unavoidably expensive
-                    basis = proj_sh4_to_R3(jax.lax.stop_gradient(aux_off),
-                                           max_iter=50)
+                    if loss_cfg.rotvec:
+                        basis = rotvec_to_R3(jax.lax.stop_gradient(aux_off))
+                    else:
+                        # This is unavoidably expensive, especially when projecting to rotvec
+
+                        # rotvec = proj_sh4_to_rotvec(
+                        #     jax.lax.stop_gradient(aux_off))
+                        # basis = vmap(rotvec_to_R3)(rotvec)
+
+                        basis = proj_sh4_to_R3(jax.lax.stop_gradient(aux_off),
+                                               max_iter=50)
+
                     dps = jnp.einsum('bij,bi->bj', basis,
                                      vmap(normalize)(pred_normals_off_sur))
                     loss_regularize = regularize_weight * double_well_potential(
                         jnp.abs(dps)).sum(-1).mean()
                 else:
+
+                    if loss_cfg.rotvec:
+                        sh4_off = vmap(rotvec_to_sh4)(
+                            jax.lax.stop_gradient(aux_off))
+                    else:
+                        # This is inaccurate, because there is no guarantee that output sh4 can be induced from SO(3)
+                        sh4_off = jax.lax.stop_gradient(aux_off)
+
                     dps = vmap(oct_polynomial_sh4_unit_norm)(
-                        pred_normals_off_sur, jax.lax.stop_gradient(aux_off))
+                        pred_normals_off_sur, sh4_off)
 
                     loss_regularize = regularize_weight * (1 - dps).mean()
 

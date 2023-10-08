@@ -12,9 +12,10 @@ import model_jax
 from config import Config
 from config_utils import config_latent, config_model
 from common import normalize, vis_oct_field, filter_components
-from sh_representation import (proj_sh4_to_R3, R3_to_repvec, rotvec_n_to_z,
-                               rotvec_to_R3, rotvec_to_R9, project_n,
-                               rot6d_to_R3, R3_to_sh4_zonal, rot6d_to_sh4_zonal)
+from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
+                               rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
+                               project_n, rot6d_to_R3, R3_to_sh4_zonal,
+                               rot6d_to_sh4_zonal)
 import flow_lines
 import open3d as o3d
 import pymeshlab
@@ -92,24 +93,12 @@ def meshlab_remesh(V, F):
 
 
 def eval(cfg: Config,
-         interp,
          out_dir,
+         latents,
+         model,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False):
-
-    latents, latent_dim = config_latent(cfg)
-    tokens = interp.split('_')
-    # Interpolate latent
-    i = int(tokens[0])
-    j = int(tokens[1])
-    t = float(tokens[2])
-    latent = (1 - t) * latents[i] + t * latents[j]
-
-    model_key = jax.random.PRNGKey(0)
-    model = config_model(cfg, model_key, latent_dim)
-    model: model_jax.MLP = eqx.tree_deserialise_leaves(
-        f"checkpoints/{cfg.name}.eqx", model)
 
     @jit
     def infer(x):
@@ -170,15 +159,14 @@ def eval(cfg: Config,
             Rs = vmap(rot6d_to_R3)(aux[:, :6])
         else:
             sh4 = aux[:, :9]
-            Rs = proj_sh4_to_R3(sh4)
+            rotvec = proj_sh4_to_rotvec(sh4)
+            Rs = vmap(rotvec_to_R3)(rotvec)
+            # Rs = proj_sh4_to_R3(sh4)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
-        _, VN = infer_grad(V)
-
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        mesh.add_vector_quantity('VN', VN)
         ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
@@ -223,7 +211,9 @@ def eval(cfg: Config,
         sh4 = vmap(R3_to_sh4_zonal)(Rs)
     else:
         sh4 = aux[:, :9]
-        Rs = proj_sh4_to_R3(sh4)
+        rotvec = proj_sh4_to_rotvec(sh4)
+        Rs = vmap(rotvec_to_R3)(rotvec)
+        # Rs = proj_sh4_to_R3(sh4)
 
     print("Project SO(3)", time.time() - start_time)
 
@@ -273,10 +263,27 @@ if __name__ == '__main__':
     parser.add_argument('--vis_flowline',
                         action='store_true',
                         help='Visualize flowline')
+    parser.add_argument('--output',
+                        type=str,
+                        default='output',
+                        help='Output folder')
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    eval(cfg, args.interp, "output", args.vis_mc, args.vis_smooth,
+    latents, latent_dim = config_latent(cfg)
+    tokens = args.interp.split('_')
+    # Interpolate latent
+    i = int(tokens[0])
+    j = int(tokens[1])
+    t = float(tokens[2])
+    latent = (1 - t) * latents[i] + t * latents[j]
+
+    model_key = jax.random.PRNGKey(0)
+    model = config_model(cfg, model_key, latent_dim)
+    model: model_jax.MLP = eqx.tree_deserialise_leaves(
+        f"checkpoints/{cfg.name}.eqx", model)
+
+    eval(cfg, args.output, latents, model, args.vis_mc, args.vis_smooth,
          args.vis_flowline)

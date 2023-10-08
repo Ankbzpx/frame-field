@@ -39,6 +39,7 @@ class LossConfig:
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface
 
+    rotvec: bool = False
     rot6d: bool = False
     fix_basis: bool = False
     use_basis: bool = False

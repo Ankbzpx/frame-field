@@ -12,7 +12,8 @@ from config_utils import config_model, config_latent, config_toy_training_data
 from train_jax import train
 from common import vis_oct_field
 from eval_jax import extract_surface
-from sh_representation import proj_sh4_to_R3, rot6d_to_R3, euler_to_R3
+from sh_representation import (proj_sh4_to_R3, rot6d_to_R3, euler_to_R3,
+                               rotvec_to_R3, proj_sh4_to_rotvec)
 
 import polyscope as ps
 from icecream import ic
@@ -20,13 +21,13 @@ from icecream import ic
 import time
 
 
-def eval(cfg: Config, samples_sup, samples_interp, out_dir, vis=False):
-    model_key = jax.random.PRNGKey(0)
-    model = config_model(cfg, model_key, 0)
-    model: model_jax.MLP = eqx.tree_deserialise_leaves(
-        f"checkpoints/{cfg.name}.eqx", model)
-
-    latent = jnp.zeros((0,))
+def eval(cfg: Config,
+         model: model_jax.MLP,
+         latent,
+         samples_sup,
+         samples_interp,
+         out_dir,
+         vis=False):
 
     @jit
     def infer(x):
@@ -47,9 +48,13 @@ def eval(cfg: Config, samples_sup, samples_interp, out_dir, vis=False):
         aux = infer_aux(samples)
         if cfg.loss_cfg.rot6d:
             Rs = vmap(rot6d_to_R3)(aux[:, :6])
+        elif cfg.loss_cfg.rotvec:
+            Rs = vmap(rotvec_to_R3)(aux[:, :3])
         else:
             sh4 = aux[:, :9]
-            Rs = proj_sh4_to_R3(sh4)
+            rotvec = proj_sh4_to_rotvec(sh4)
+            Rs = vmap(rotvec_to_R3)(rotvec)
+            # Rs = proj_sh4_to_R3(sh4)
 
         return vis_oct_field(Rs, samples, 0.01)
 
@@ -146,6 +151,10 @@ if __name__ == '__main__':
             if not args.eval:
                 train(cfg, model, data)
 
-            eval(cfg, samples_sup, samples_interp, "output/toy", args.vis)
+            model: model_jax.MLP = eqx.tree_deserialise_leaves(
+                f"checkpoints/{cfg.name}.eqx", model)
+
+            eval(cfg, model, jnp.zeros((0,)), samples_sup, samples_interp,
+                 "output/toy", args.vis)
 
             # exit()
