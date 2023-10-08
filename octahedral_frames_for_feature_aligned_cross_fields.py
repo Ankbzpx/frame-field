@@ -3,7 +3,7 @@ import numpy as np
 from jax import vmap, jit, numpy as jnp
 from jaxopt import LBFGS
 from common import unroll_identity_block, normalize_aabb, normalize, unpack_stiffness
-from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3
+from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3, project_n
 
 import scipy.sparse
 import scipy.sparse.linalg
@@ -64,8 +64,9 @@ if __name__ == '__main__':
     if norm != "2":
         p = 1
         if norm == 'inf':
-            # FIXME: Don't know how to implement inf norm. Pick max will stop gradient flow for other pairs
-            p = 8
+            # FIXME: I don't know how to implement inf norm.
+            # Pick max will stop gradient flow for other pairs
+            p = 10
         else:
             try:
                 p = int(norm)
@@ -76,14 +77,14 @@ if __name__ == '__main__':
         np.random.seed(0)
         x = np.random.randn(NV, 9)
         x = vmap(normalize)(x)
-        E_i, E_j, E_weight = unpack_stiffness(-L)
+        # We are interested in pair (non diagonal) weight, so no need to negate
+        E_i, E_j, E_weight = unpack_stiffness(L)
 
         @jit
         def loss_func(x):
-            edge_energy = jnp.linalg.norm(E_weight[:, None] * (x[E_i] - x[E_j]),
-                                          ord=2,
-                                          axis=1)
-            loss_smooth = jnp.linalg.norm(edge_energy,
+            # (\sum_e (w * (|sh4_i - sh4_j|_2)^p))^(1 / p)
+            edge_energy = jnp.linalg.norm(x[E_i] - x[E_j], ord=2, axis=1)
+            loss_smooth = jnp.linalg.norm(E_weight * edge_energy,
                                           ord=p) / len(edge_energy)**(1 / p)
             loss_align = jnp.linalg.norm(jnp.einsum('bji,bi->bj', As, x) -
                                          b[None, :],
@@ -113,6 +114,9 @@ if __name__ == '__main__':
 
     print("Project SO(3)")
 
+    # IMPORTANT sh4 after optimization may longer be valid ones induced from SO(3)
+    # Since we only have boundary vertices, we can simply project (as opposed to interior using SDP)
+    x = vmap(project_n)(x, R9_zn)
     Rs = proj_sh4_to_R3(x)
     Q = vmap(R3_to_repvec)(Rs, VN)
 
