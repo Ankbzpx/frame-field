@@ -515,17 +515,22 @@ def oct_polynomial(v, R3):
     return x**4 + y**4 + z**4
 
 
-# **IMPORTANT** Unlike 'proj_sh4_to_rotvec', it assumes sh4 to valid (induced from SO(3))
-#
 # The goal here is to find R \in SO(3) that induces sh4
 #
 # Note our polynomial f(R(v)) = (e_x^T @ v)^4 + (e_y^T @ v)^4 + (e_z^T @ v)^4
-#   is the polynomial of symmetric tensor T, whose eigenvectors are (e_x, e_y, e_z)
+#   is the homogeneous polynomial of symmetric tensor T, whose eigenvectors are (e_x, e_y, e_z)
 #
 # From section 2 of "Orthogonal Decomposition of Symmetric Tensors" by Elina Robeva
 #   "The eigenvector of f are precisely the fixed points of \nabla f"
 #
 # Thus, we can recover R by applying power iteration to \nabla f
+#
+# Note: Unlike 'proj_sh4_to_rotvec', it doesn't attempt to find closest sh4 induced from SO(3), so the input may well be invalid
+# However, "Representing three-dimensional cross fields using 4th order tensors" by Chemin et al. shows that 4-th order tensor forms a linear space \mathbb{R}^9,
+#   such that its eigenvectors correspond to three largest eigenvalues are good enough approximation to its projection on SO(3) / O
+#
+# Empirically it reaches similar minimal as 'proj_sh4_to_rotvec', while being significantly faster
+#
 @jit
 def proj_sh4_to_R3(sh4s_target, max_iter=1000):
     if len(sh4s_target.shape) < 2:

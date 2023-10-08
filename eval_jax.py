@@ -159,9 +159,9 @@ def eval(cfg: Config,
             Rs = vmap(rot6d_to_R3)(aux[:, :6])
         else:
             sh4 = aux[:, :9]
-            rotvec = proj_sh4_to_rotvec(sh4)
-            Rs = vmap(rotvec_to_R3)(rotvec)
-            # Rs = proj_sh4_to_R3(sh4)
+            # rotvec = proj_sh4_to_rotvec(sh4)
+            # Rs = vmap(rotvec_to_R3)(rotvec)
+            Rs = proj_sh4_to_R3(sh4)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
@@ -211,9 +211,9 @@ def eval(cfg: Config,
         sh4 = vmap(R3_to_sh4_zonal)(Rs)
     else:
         sh4 = aux[:, :9]
-        rotvec = proj_sh4_to_rotvec(sh4)
-        Rs = vmap(rotvec_to_R3)(rotvec)
-        # Rs = proj_sh4_to_R3(sh4)
+        # rotvec = proj_sh4_to_rotvec(sh4)
+        # Rs = vmap(rotvec_to_R3)(rotvec)
+        Rs = proj_sh4_to_R3(sh4)
 
     print("Project SO(3)", time.time() - start_time)
 

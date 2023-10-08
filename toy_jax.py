@@ -52,9 +52,9 @@ def eval(cfg: Config,
             Rs = vmap(rotvec_to_R3)(aux[:, :3])
         else:
             sh4 = aux[:, :9]
-            rotvec = proj_sh4_to_rotvec(sh4)
-            Rs = vmap(rotvec_to_R3)(rotvec)
-            # Rs = proj_sh4_to_R3(sh4)
+            # rotvec = proj_sh4_to_rotvec(sh4)
+            # Rs = vmap(rotvec_to_R3)(rotvec)
+            Rs = proj_sh4_to_R3(sh4)
 
         return vis_oct_field(Rs, samples, 0.01)
 
