@@ -78,7 +78,7 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
 
 # Reduce face count to speed up visualization
 # TODO: Use edge collapsing like one in Instant meshes
-def meshlab_remesh(V, F):
+def meshlab_remesh(cfg, V, F):
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
@@ -94,11 +94,12 @@ def meshlab_remesh(V, F):
 
 def eval(cfg: Config,
          out_dir,
-         latents,
          model,
+         latent,
          vis_mc=False,
          vis_smooth=False,
-         vis_flowline=False):
+         vis_flowline=False,
+         interp_tag=''):
 
     @jit
     def infer(x):
@@ -145,7 +146,6 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    interp_tag = "" if len(cfg.sdf_paths) == 1 else f"{interp}_"
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}mc.obj", V, F)
 
     if vis_mc:
@@ -191,7 +191,7 @@ def eval(cfg: Config,
         exit()
 
     start_time = time.time()
-    V, F = meshlab_remesh(V, F)
+    V, F = meshlab_remesh(cfg, V, F)
     print("Meshlab Remesh", time.time() - start_time)
 
     start_time = time.time()
@@ -285,5 +285,5 @@ if __name__ == '__main__':
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 
-    eval(cfg, args.output, latents, model, args.vis_mc, args.vis_smooth,
+    eval(cfg, args.output, model, latent, args.vis_mc, args.vis_smooth,
          args.vis_flowline)

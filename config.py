@@ -13,7 +13,7 @@ class MLPConfig:
 
 @dataclass
 class TrainingConfig:
-    lr: float = 1e-3
+    lr: float = 5e-4
     lr_multiplier: float = 1
     lr_peak_multiplier: float = 5
     lr_multiplier_siren: float = 0.2

@@ -145,14 +145,13 @@ if __name__ == '__main__':
             latents, latent_dim = config_latent(cfg)
             model = config_model(cfg, model_key, latent_dim)
 
-            data = config_toy_training_data(cfg, data_key, samples_sup,
-                                            samples_vn_sup, latents)
-
-            if not args.eval:
-                train(cfg, model, data)
-
-            model: model_jax.MLP = eqx.tree_deserialise_leaves(
-                f"checkpoints/{cfg.name}.eqx", model)
+            if args.eval:
+                model: model_jax.MLP = eqx.tree_deserialise_leaves(
+                    f"checkpoints/{cfg.name}.eqx", model)
+            else:
+                data = config_toy_training_data(cfg, data_key, samples_sup,
+                                                samples_vn_sup, latents)
+                model = train(cfg, model, data, 'checkpoints')
 
             eval(cfg, model, jnp.zeros((0,)), samples_sup, samples_interp,
                  "output/toy", args.vis)

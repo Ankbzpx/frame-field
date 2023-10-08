@@ -2,6 +2,7 @@
 __pycache__
 results
 data/sdf
+data/mesh/*/*.ply
 data/toy_sdf
 checkpoints
 output

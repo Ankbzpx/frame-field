@@ -29,7 +29,7 @@ from icecream import ic
 matplotlib.use('Agg')
 
 
-def train(cfg: Config, model: model_jax.MLP, data):
+def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     optim, opt_state = config_optim(cfg, model)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
@@ -40,7 +40,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
         1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
         total_steps, 100)
 
-    checkpoints_folder = 'checkpoints'
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
 
@@ -265,6 +264,8 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
     eqx.tree_serialise_leaves(f"{checkpoints_folder}/{cfg.name}.eqx", model)
 
+    return model
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -281,4 +282,4 @@ if __name__ == '__main__':
     model = config_model(cfg, model_key, latent_dim)
     data = config_training_data(cfg, data_key, latents)
 
-    train(cfg, model, data)
+    train(cfg, model, data, 'checkpoints')

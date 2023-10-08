@@ -5,6 +5,7 @@ from joblib import Parallel, delayed
 import multiprocessing
 from glob import glob
 from tqdm import tqdm
+import os
 
 from icecream import ic
 import polyscope as ps
@@ -100,27 +101,45 @@ if __name__ == '__main__':
     # Arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, help='Path to input model.')
+    parser.add_argument('--subfolder',
+                        type=str,
+                        default='',
+                        help='Subfolder path.')
     parser.add_argument('--sample_size',
                         type=int,
                         default=10000,
                         help='Number of samples.')
     args = parser.parse_args()
 
+    model_base_folder_path = 'data/mesh'
+    subfolder = args.subfolder
+
     if args.model_path is not None:
+        subfolder = '/'.join(args.model_path.split('/')[2:-1])
         model_path_list = [args.model_path]
     else:
+        model_folder_path = os.path.join(model_base_folder_path, subfolder)
         model_path_list = sorted(
-            glob('data/mesh/*.obj') + glob('data/mesh/*.ply'))
+            glob(os.path.join(model_folder_path, '*.obj')) +
+            glob(os.path.join(model_folder_path, '*.ply')))
 
     sample_size = args.sample_size
 
-    for model_path in tqdm(model_path_list):
+    sdf_base_path = os.path.join('data/sdf', subfolder, str(sample_size))
 
+    if not os.path.exists(sdf_base_path):
+        os.makedirs(sdf_base_path)
+
+    for model_path in tqdm(model_path_list):
         model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = f"data/sdf/{model_name}.npz"
+        model_out_path = os.path.join(sdf_base_path, f'{model_name}.npz')
 
         sampler = SDFSampler(model_path)
         samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
+
+        # ps.init()
+        # ps.register_point_cloud('samples_on_sur', samples_on_sur)
+        # ps.show()
 
         np.savez(model_out_path,
                  samples_on_sur=samples_on_sur,
