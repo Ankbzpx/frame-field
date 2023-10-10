@@ -44,6 +44,8 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
 
 def config_optim(cfg: Config, model: model_jax.MLP):
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    # lr_scheduler_standard = optax.constant_schedule(cfg.training.lr_multiplier *
+    #                                                 cfg.training.lr)
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr_multiplier * cfg.training.lr,
         peak_value=cfg.training.lr_peak_multiplier * cfg.training.lr,
@@ -51,6 +53,8 @@ def config_optim(cfg: Config, model: model_jax.MLP):
         decay_steps=total_steps)
 
     # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren. So special care must be taken...
+    # lr_scheduler_siren = optax.constant_schedule(
+    #     cfg.training.lr_multiplier_siren * cfg.training.lr)
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
         cfg.training.lr_multiplier_siren * cfg.training.lr,
         peak_value=cfg.training.lr_peak_multiplier_siren * cfg.training.lr,
@@ -93,16 +97,6 @@ def config_training_data(cfg: Config, data_key, latents):
         sdf_data = dict(np.load(sdf_path))
 
         on_sur_sample_size = len(sdf_data['samples_on_sur'])
-        samples_off_sur = (
-            1e-2 * jax.random.normal(data_key, (on_sur_sample_size, 128, 3)) +
-            sdf_data['samples_on_sur'][:, None, :]).reshape(-1, 3)
-
-        sdf_data['samples_off_sur'] = jnp.vstack([
-            samples_off_sur,
-            jax.random.uniform(data_key, (on_sur_sample_size * 128, 3),
-                               minval=-1.0,
-                               maxval=1.0)
-        ])
 
         def random_batch(x):
             total_sample_size = len(x)
@@ -111,6 +105,14 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
+
+        # Progressive sample: 5 -> 2 -> 1
+        scale = 5e-2 * np.ones(cfg.training.n_steps)
+        scale[cfg.training.n_steps // 3:] = 2e-2
+        scale[int(2 * cfg.training.n_steps / 3):] = 1e-2
+
+        data['samples_off_sur'] = scale[:, None, None] * jax.random.normal(
+            data_key, data['samples_on_sur'].shape) + data['samples_on_sur']
         data['sdf_off_sur'] = jnp.zeros((cfg.training.n_steps, sample_size))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,

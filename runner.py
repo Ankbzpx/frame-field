@@ -40,7 +40,7 @@ if __name__ == '__main__':
     else:
         sdf_paths = glob(os.path.join('data/sdf', subfolder, '*.npz'))
 
-    # config_list = ['siren']
+    # config_list = ['siren_reg']
     config_list = ['siren', 'siren_reg']
 
     output_folder = os.path.join('output', subfolder)
@@ -76,4 +76,4 @@ if __name__ == '__main__':
                 data = config_training_data(cfg, data_key, latents)
                 model = train(cfg, model, data, checkpoints_folder)
 
-            eval(cfg, output_folder, model, jnp.zeros((0,)))
+            eval(cfg, output_folder, model, jnp.zeros((0,)), geo_only=True)

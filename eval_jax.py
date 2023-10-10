@@ -99,6 +99,7 @@ def eval(cfg: Config,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False,
+         geo_only=False,
          interp_tag=''):
 
     @jit
@@ -147,6 +148,9 @@ def eval(cfg: Config,
         os.mkdir(out_dir)
 
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}mc.obj", V, F)
+
+    if geo_only:
+        return
 
     if vis_mc:
         # TODO support latent
