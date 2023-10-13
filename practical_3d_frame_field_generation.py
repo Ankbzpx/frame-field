@@ -10,7 +10,9 @@ import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import cholesky
 from common import unroll_identity_block, normalize_aabb, vis_oct_field
-from sh_representation import proj_sh4_to_rotvec, R3_to_repvec, rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9, sh4_z
+from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
+                               rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3,
+                               rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
 
 import open3d as o3d
 import argparse
@@ -21,6 +23,211 @@ import flow_lines
 import polyscope as ps
 from icecream import ic
 
+
+# DEBUG
+def register_curve_network(name, V, E):
+    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(E,
+                                                         return_index=True,
+                                                         return_inverse=True)
+    V_id_new = np.arange(len(V_unique))
+    V_map = V_id_new[np.argsort(V_unique_idx)]
+    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
+    V_map_inv[V_map] = V_id_new
+
+    ps.register_curve_network(name, V[V_unique][V_map],
+                              V_map_inv[V_unique_idx_inv].reshape(E.shape))
+
+
+def handle_sharp_vertices(V, F, sharp_angle=45):
+    SE, _, _, _, _, _ = igl.sharp_edges(V, F, sharp_angle / 180 * np.pi)
+
+    # Use directed edge for traversal
+    SDE = np.vstack([SE, SE[:, ::-1]])
+    E_sort_idx = np.argsort(SDE[:, 0])
+    uV, uV_count = np.unique(SDE[:, 0][E_sort_idx], return_counts=True)
+    Vid_joint = uV[np.where(uV_count > 2)[0]]
+    V2V = dict(
+        zip(uV, np.split(SDE[:, 1][E_sort_idx],
+                         np.cumsum(uV_count)[:-1])))
+
+    # For directed edges, force them to consistent along the path
+    Vid_start = uV[np.where(uV_count != 2)[0]]
+    V_mask = np.zeros(len(V), dtype=bool)
+    V2V_ordered = {}
+
+    def traverse(v):
+        V_mask[v] = True
+        for vi in V2V[v]:
+            if not V_mask[vi]:
+
+                # For whatever reason, it could be double?!
+                v = np.int64(v)
+                vi = np.int64(vi)
+
+                if v not in V2V_ordered:
+                    V2V_ordered[v] = [vi]
+                else:
+                    V2V_ordered[v].append(vi)
+
+                traverse(vi)
+
+    # Ignore joint
+    V_mask[Vid_joint] = True
+    for vi in Vid_start:
+        traverse(vi)
+
+    # For cycles
+    Vid_cycle_start = []
+    for vi in uV[np.logical_not(V_mask[uV])]:
+        if not V_mask[vi]:
+            traverse(vi)
+            Vid_cycle_start.append(vi)
+
+    # print(f"Find {len(Vid_cycle_start)} cycles")
+
+    Vid_start = np.concatenate([Vid_cycle_start, Vid_start])
+
+    # Trace edges to get path
+    path_list = []
+
+    for vi in Vid_start:
+        if vi in V2V_ordered:
+            for vj in V2V_ordered[vi]:
+
+                # For whatever reason, it could be double?!
+                vi = np.int64(vi)
+                vj = np.int64(vj)
+
+                path = [vi]
+                end = False
+                while not end:
+                    path.append(vj)
+
+                    if vj in V2V_ordered:
+                        vj = V2V_ordered[vj][0]
+                    else:
+                        end = True
+
+                path_list.append(path)
+
+    # Form a cycle
+    for i in range(len(Vid_cycle_start)):
+        v0 = np.int64(path_list[i][-1])
+        v1 = np.int64(Vid_cycle_start[i])
+        path_list[i].append(v1)
+        V2V_ordered[v0] = [v1]
+
+    # ps.init()
+    # for i in range(len(path_list)):
+    #     path = np.array(path_list[i])
+    #     edges = np.stack([path[:-1], path[1:]], -1)
+    #     register_curve_network(f'{i}', V, edges)
+    # ps.show()
+    # return
+
+    # Find adjacent faces
+    V2T = {}
+    V2Ti = {}
+    V2T_joint = {}
+    V2Ti_joint = {}
+
+    TT, TTi = igl.triangle_triangle_adjacency(F)
+    FN = igl.per_face_normals(V, F, np.array([0., 0., 0.])[None, :])
+
+    for i in range(len(F)):
+        for j in range(3):
+            v0 = F[i][j]
+            v1 = F[i][(j + 1) % 3]
+
+            # If the directed edge lies on this triangle
+            # Edge direction matters because we want consistent normal
+            if v0 in V2V_ordered and v1 in V2V_ordered[v0]:
+
+                # **IMPORTANT** Match the vertex order of V2V_ordered
+                idx = np.argwhere(V2V_ordered[v0] == v1)[0][0]
+
+                # Index of current triangle
+                if v0 not in V2T:
+                    V2T[v0] = [0] * len(V2V_ordered[v0])
+                V2T[v0][idx] = i
+
+                # Index of adjacent triangle sharing the edge
+                if v0 not in V2Ti:
+                    V2Ti[v0] = [0] * len(V2V_ordered[v0])
+                V2Ti[v0][idx] = TT[i][j]
+
+            # For joint, we ignore edge direction and think it as a heat source
+            # So it's always from joint to neighbor (order doesn't matter here)
+            if v0 in Vid_joint:
+                if v0 in V2V and v1 in V2V[v0]:
+
+                    # Index of current triangle
+                    if v0 not in V2T_joint:
+                        V2T_joint[v0] = [i]
+                    else:
+                        V2T_joint[v0].append(i)
+
+                    # Index of adjacent triangle sharing the edge
+                    if v0 not in V2Ti_joint:
+                        V2Ti_joint[v0] = [TT[i][j]]
+                    else:
+                        V2Ti_joint[v0].append(TT[i][j])
+
+    # Note the adjacent of triangles of joint sharp edges may NOT form one-ring
+    # I don't think there is a better approach, unless I can trace a path that has at least one consistent normal?
+    def compatible_oct_joint(v0):
+        fns = np.vstack([FN[V2T_joint[v0]], FN[V2Ti_joint[v0]]])
+        dps = np.abs(np.einsum('ni,mi->nm', fns, fns))
+
+        xx, yy = np.where(dps == np.min(dps))
+
+        n0 = fns[xx[0]]
+        n2 = np.cross(n0, fns[yy[0]])
+        return np.stack([n0, np.cross(n0, n2), n2], -1)
+
+    # First fix joint (> 2 adjacent sharp edges)
+    Rs_joint = np.stack([compatible_oct_joint(v) for v in Vid_joint])
+
+    Vid_sharp = Vid_joint
+    Rs_sharp = Rs_joint
+
+    # Directed, just pick left triangle and edge dir (I don't think there is much else I can do)
+    def compatible_oct_edge(e):
+        v0 = e[0]
+        v1 = e[1]
+        fid = V2T[v0][np.where(V2V_ordered[v0] == v1)[0][0]]
+
+        n0 = V[v1] - V[v0]
+        n0 /= (np.linalg.norm(n0) + 1e-8)
+        # Face normal is always orthogonal to one of its edge
+        n1 = FN[fid]
+        n1 /= (np.linalg.norm(n1) + 1e-8)
+
+        return np.stack([n0, n1, np.cross(n0, n1)], -1)
+
+    for i in range(len(path_list)):
+        path = np.array(path_list[i])
+        edges = np.stack([path[:-1], path[1:]], -1)
+
+        Vid_path = edges[:, 1]
+        Rs_path = np.stack([compatible_oct_edge(e) for e in edges])
+
+        v0 = edges[0, 0]
+        if v0 not in Vid_joint and v0 not in Vid_cycle_start:
+            Vid_path = np.concatenate([[v0], Vid_path])
+            Rs_path = np.vstack([[Rs_path[0]], Rs_path])
+
+        Vid_sharp = np.concatenate([Vid_sharp, Vid_path])
+        Rs_sharp = np.vstack([Rs_sharp, Rs_path])
+
+    assert len(Vid_sharp) == len(Rs_sharp)
+
+    # FIXME: Figure out why this check fails
+    # assert np.alltrue(np.sort(Vid_sharp) == uV)
+
+    return Vid_sharp, Rs_sharp
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
@@ -29,6 +236,9 @@ if __name__ == '__main__':
                         type=str,
                         default='results',
                         help='Path to output folder.')
+    parser.add_argument('--sharp',
+                        action='store_true',
+                        help='Handle sharp edge')
     parser.add_argument('--save',
                         action='store_true',
                         help='Save for seamless parameterization')
@@ -50,13 +260,18 @@ if __name__ == '__main__':
     boundary_vid = np.unique(F)
 
     NV = len(V)
-    NB = len(boundary_vid)
 
     VN = igl.per_vertex_normals(V, F)
 
-    # TODO: Handle non-smooth vertices (paper precomputes and fixes those SH coefficients)
-    # SE, _, _, _, _, _ = igl.sharp_edges(V, F, 45 / 180 * np.pi)
-    # sharp_vid = np.unique(SE)
+    if args.sharp:
+        # Handle non-smooth vertices (paper precomputes and fixes those SH coefficients)
+        sharp_vid, Rs_sharp = handle_sharp_vertices(V, F)
+        sh4_sharp = vmap(R3_to_sh4_zonal)(Rs_sharp)
+        NS = len(sharp_vid)
+        boundary_vid = boundary_vid[np.logical_not(
+            np.in1d(boundary_vid, sharp_vid))]
+
+    NB = len(boundary_vid)
 
     print("Build stiffness and RHS")
 
@@ -82,6 +297,7 @@ if __name__ == '__main__':
     # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
     A_tl = unroll_identity_block(L, 9)
     A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
+    # Pick boundary vertex
     A_bl = scipy.sparse.coo_array(
         (boundary_weight * np.ones(9 * NB),
          (np.arange(9 * NB), ((9 * boundary_vid)[..., None] +
@@ -94,6 +310,21 @@ if __name__ == '__main__':
          scipy.sparse.hstack([A_bl, A_br])])
     b = np.concatenate(
         [np.zeros((NV * 9,)), boundary_weight * sh4_4_n.reshape(-1,)])
+
+    if args.sharp:
+        sharp_weight = boundary_weight
+        # Pick sharp vertex
+        S_l = scipy.sparse.hstack([
+            scipy.sparse.coo_array(
+                (sharp_weight * np.ones(9 * NS),
+                 (np.arange(9 * NS), ((9 * sharp_vid)[..., None] +
+                                      np.arange(9)[None, ...]).reshape(-1))),
+                shape=(9 * NS, 9 * NV)).tocsc(),
+        ])
+        S_r = scipy.sparse.csr_matrix((NS * 9, NB * 2))
+
+        A = scipy.sparse.vstack([A, scipy.sparse.hstack([S_l, S_r])])
+        b = np.concatenate([b, sharp_weight * sh4_sharp.reshape(-1)])
 
     print("Solve alignment (Linear)")
 
@@ -131,6 +362,10 @@ if __name__ == '__main__':
         # Use theta parameterization for boundary
         sh4 = sh4.at[boundary_vid].set(sh4_n)
 
+        if args.sharp:
+            # Preserve sharp
+            sh4 = sh4.at[sharp_vid].set(sh4_sharp)
+
         # Integrated quantity
         loss_smooth = jnp.trace(sh4.T @ L_jax @ sh4)
         return loss_smooth
@@ -154,8 +389,11 @@ if __name__ == '__main__':
     if args.save:
         print("Save for parameterization")
 
+        # Save SH parametrization
+        sh4 = vmap(R3_to_sh4_zonal)(Rs)
+
         param_path = os.path.join(args.out_path, f"{model_name}_prac.npz")
-        np.savez(param_path, V=V, T=T, F=Rs)
+        np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4)
 
     V_vis_cube, F_vis_cube = vis_oct_field(Rs, V,
                                            0.1 * igl.avg_edge_length(V, T))

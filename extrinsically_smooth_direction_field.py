@@ -448,6 +448,8 @@ if __name__ == '__main__':
 
     print("Build traversal graph")
 
+    # My desperate attempt to abuse vmap for graph like data structure
+    # Might well just use for loop in the future...
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
     NV = len(V)
     FN, _ = per_face_basis(V[F])
