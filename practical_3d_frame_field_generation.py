@@ -171,11 +171,13 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
         n2 = np.cross(n0, fns[yy[0]])
         return np.stack([n0, np.cross(n0, n2), n2], -1)
 
-    # First fix joint (> 2 adjacent sharp edges)
-    Rs_joint = np.stack([compatible_oct_joint(v) for v in Vid_joint])
-
-    Vid_sharp = Vid_joint
-    Rs_sharp = Rs_joint
+    if len(Vid_joint) > 0:
+        # First fix joint (> 2 adjacent sharp edges)
+        Rs_sharp = np.stack([compatible_oct_joint(v) for v in Vid_joint])
+        Vid_sharp = Vid_joint
+    else:
+        Vid_sharp = np.zeros((0,), dtype=np.int64)
+        Rs_sharp = np.zeros((0, 3, 3), dtype=np.float64)
 
     # Directed, just pick left triangle and edge dir (I don't think there is much else I can do)
     def compatible_oct_edge(e):
