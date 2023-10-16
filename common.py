@@ -51,6 +51,19 @@ def vis_oct_field(R3s, V, size):
     return V_vis, F_vis
 
 
+def ps_register_curve_network(name, V, E):
+    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(E,
+                                                         return_index=True,
+                                                         return_inverse=True)
+    V_id_new = np.arange(len(V_unique))
+    V_map = V_id_new[np.argsort(V_unique_idx)]
+    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
+    V_map_inv[V_map] = V_id_new
+
+    ps.register_curve_network(name, V[V_unique][V_map],
+                              V_map_inv[V_unique_idx_inv].reshape(E.shape))
+
+
 # Replace entries in sparse matrix by coefficient weighted identity blocks
 def unroll_identity_block(A, dim):
     H, W = A.shape

@@ -9,7 +9,7 @@ from jaxopt import LBFGS
 import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import cholesky
-from common import unroll_identity_block, normalize_aabb, vis_oct_field
+from common import unroll_identity_block, normalize_aabb, vis_oct_field, ps_register_curve_network
 from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3,
                                rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
@@ -22,20 +22,6 @@ import flow_lines
 
 import polyscope as ps
 from icecream import ic
-
-
-# DEBUG
-def register_curve_network(name, V, E):
-    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(E,
-                                                         return_index=True,
-                                                         return_inverse=True)
-    V_id_new = np.arange(len(V_unique))
-    V_map = V_id_new[np.argsort(V_unique_idx)]
-    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
-    V_map_inv[V_map] = V_id_new
-
-    ps.register_curve_network(name, V[V_unique][V_map],
-                              V_map_inv[V_unique_idx_inv].reshape(E.shape))
 
 
 def handle_sharp_vertices(V, F, sharp_angle=45):
@@ -121,7 +107,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     # for i in range(len(path_list)):
     #     path = np.array(path_list[i])
     #     edges = np.stack([path[:-1], path[1:]], -1)
-    #     register_curve_network(f'{i}', V, edges)
+    #     ps_register_curve_network(f'{i}', V, edges)
     # ps.show()
     # return
 
