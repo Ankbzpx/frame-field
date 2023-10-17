@@ -3,6 +3,7 @@ import igl
 from jax import jit, numpy as jnp, vmap
 import scipy.sparse
 import os
+import time
 
 import polyscope as ps
 from icecream import ic
@@ -51,7 +52,7 @@ def vis_oct_field(R3s, V, size):
     return V_vis, F_vis
 
 
-def ps_register_curve_network(name, V, E):
+def ps_register_curve_network(name, V, E, **wargs):
     V_unique, V_unique_idx, V_unique_idx_inv = np.unique(E,
                                                          return_index=True,
                                                          return_inverse=True)
@@ -61,7 +62,8 @@ def ps_register_curve_network(name, V, E):
     V_map_inv[V_map] = V_id_new
 
     ps.register_curve_network(name, V[V_unique][V_map],
-                              V_map_inv[V_unique_idx_inv].reshape(E.shape))
+                              V_map_inv[V_unique_idx_inv].reshape(E.shape),
+                              **wargs)
 
 
 # Replace entries in sparse matrix by coefficient weighted identity blocks
@@ -135,3 +137,17 @@ def filter_components(V, F, VN):
         V, F = rm_unref_vertices(V, F)
 
     return V, F
+
+
+class Timer:
+
+    def __init__(self):
+        self.reset()
+
+    def log(self, msg):
+        cur_time = time.time()
+        print(f"{msg}: {cur_time - self.start_time}")
+        self.start_time = cur_time
+
+    def reset(self):
+        self.start_time = time.time()

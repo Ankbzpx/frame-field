@@ -6,3 +6,4 @@ data/mesh/*/*.ply
 data/toy_sdf
 checkpoints
 output
+tmp

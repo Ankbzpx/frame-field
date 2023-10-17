@@ -2,7 +2,7 @@ import igl
 import numpy as np
 from jax import vmap, jit, numpy as jnp
 from jaxopt import LBFGS
-from common import unroll_identity_block, normalize_aabb, normalize, unpack_stiffness
+from common import unroll_identity_block, normalize_aabb, normalize, unpack_stiffness, Timer
 from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3, project_n
 
 import scipy.sparse
@@ -40,14 +40,14 @@ if __name__ == '__main__':
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_{norm}_oct.obj")
 
-    print("Load and preprocess mesh")
+    timer = Timer()
 
     V, F = igl.read_triangle_mesh(model_path)
     V = normalize_aabb(V)
     NV = len(V)
     VN = igl.per_vertex_normals(V, F)
 
-    print("Build stiffness and RHS")
+    timer.log('Load and preprocess mesh')
 
     L = igl.cotmatrix(V, F)
 
@@ -60,6 +60,8 @@ if __name__ == '__main__':
     # => W @ R9_zn @ sh4 = sh4_4
     As = np.einsum('bj,nji->nbi', W, R9_zn)
     b = np.array([0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])
+
+    timer.log('Build stiffness and RHS')
 
     if norm != "2":
         p = 1
@@ -92,19 +94,17 @@ if __name__ == '__main__':
                                          axis=1).mean()
             return loss_smooth + boundary_weight * loss_align
 
-        print("Solve (L-BFGS)")
+        timer.log('Solve (L-BFGS')
 
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
 
-        print("Build sparse system")
-
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)
 
-        print("Solve (Linear)")
+        timer.log('Build sparse system')
 
         # Linear system
         Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
@@ -112,17 +112,19 @@ if __name__ == '__main__':
         factor = cholesky((Q.T @ Q).tocsc())
         x = factor(Q.T @ c).reshape(NV, 9)
 
-    print("Project SO(3)")
+        timer.log('Solve (Linear)')
 
     # IMPORTANT sh4 after optimization may longer be valid ones induced from SO(3)
     # Since we only have boundary vertices, we can simply project (as opposed to interior using SDP)
     x = vmap(project_n)(x, R9_zn)
     Rs = proj_sh4_to_R3(x)
+
+    timer.log('Project SO(3)')
+
     Q = vmap(R3_to_repvec)(Rs, VN)
-
-    print("Trace flowlines")
-
     V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
+
+    timer.log('Trace flowlines')
 
     ps.init()
     mesh = ps.register_surface_mesh("mesh", V, F)

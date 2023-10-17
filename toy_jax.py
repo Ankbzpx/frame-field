@@ -10,15 +10,13 @@ import model_jax
 from config import Config
 from config_utils import config_model, config_latent, config_toy_training_data
 from train_jax import train
-from common import vis_oct_field
+from common import vis_oct_field, Timer
 from eval_jax import extract_surface
 from sh_representation import (proj_sh4_to_R3, rot6d_to_R3, euler_to_R3,
                                rotvec_to_R3, proj_sh4_to_rotvec)
 
 import polyscope as ps
 from icecream import ic
-
-import time
 
 
 def eval(cfg: Config,
@@ -34,10 +32,11 @@ def eval(cfg: Config,
         z = latent[None, ...].repeat(len(x), 0)
         return model(x, z)[:, 0]
 
-    start_time = time.time()
+    timer = Timer()
+
     V, F, _ = extract_surface(infer)
-    print("Extract surface", time.time() - start_time)
-    start_time = time.time()
+
+    timer.log('Extract surface')
 
     @jit
     def infer_aux(x):

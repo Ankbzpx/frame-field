@@ -9,7 +9,7 @@ from jaxopt import LBFGS
 import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import cholesky
-from common import unroll_identity_block, normalize_aabb, vis_oct_field, ps_register_curve_network
+from common import unroll_identity_block, normalize_aabb, vis_oct_field, ps_register_curve_network, Timer
 from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3,
                                rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
@@ -36,7 +36,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
         zip(uV, np.split(SDE[:, 1][E_sort_idx],
                          np.cumsum(uV_count)[:-1])))
 
-    # For directed edges, force them to consistent along the path
+    # For directed edges, force them to be consistent along the path
     Vid_start = uV[np.where(uV_count != 2)[0]]
     V_mask = np.zeros(len(V), dtype=bool)
     V2V_ordered = {}
@@ -46,7 +46,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
         for vi in V2V[v]:
             if not V_mask[vi]:
 
-                # For whatever reason, it could be double?!
+                # It could be double?!
                 v = np.int64(v)
                 vi = np.int64(vi)
 
@@ -238,7 +238,7 @@ if __name__ == '__main__':
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
 
-    print("Load and preprocess tetrahedral mesh")
+    timer = Timer()
 
     V, T, _ = igl.read_off(model_path)
     V = normalize_aabb(V)
@@ -251,6 +251,8 @@ if __name__ == '__main__':
 
     VN = igl.per_vertex_normals(V, F)
 
+    timer.log('Load and preprocess tetrahedral mesh')
+
     if args.sharp:
         # Handle non-smooth vertices (paper precomputes and fixes those SH coefficients)
         sharp_vid, Rs_sharp = handle_sharp_vertices(V, F)
@@ -259,9 +261,9 @@ if __name__ == '__main__':
         boundary_vid = boundary_vid[np.logical_not(
             np.in1d(boundary_vid, sharp_vid))]
 
-    NB = len(boundary_vid)
+        timer.log('Handle sharp features')
 
-    print("Build stiffness and RHS")
+    NB = len(boundary_vid)
 
     # Cotangent weights
     L = igl.cotmatrix(V, T)
@@ -278,7 +280,7 @@ if __name__ == '__main__':
     sh4_4_n = jnp.einsum('bji,j->bi', R9_zn, sh4_4)
     sh4_8_n = jnp.einsum('bji,j->bi', R9_zn, sh4_8)
 
-    print("Build sparse system")
+    timer.log('Build stiffness and RHS')
 
     # Build system
     # NV x 9 + NB x 2, have to unroll...
@@ -314,7 +316,7 @@ if __name__ == '__main__':
         A = scipy.sparse.vstack([A, scipy.sparse.hstack([S_l, S_r])])
         b = np.concatenate([b, sharp_weight * sh4_sharp.reshape(-1)])
 
-    print("Solve alignment (Linear)")
+    timer.log('Build sparse system')
 
     # A @ x = b
     # => (A.T @ A) @ x = A.T @ b
@@ -322,10 +324,12 @@ if __name__ == '__main__':
     x = factor(A.T @ b)
     sh4_opt = x[:NV * 9].reshape(NV, 9)
 
-    print("Project SO(3)")
+    timer.log('Solve alignment (Linear)')
 
     # Project to acquire initialize
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
+
+    timer.log('Project SE(3)')
 
     # Optimize field via non-linear objective function
     R9_zn_pad = jnp.repeat(jnp.eye(9)[None, ...], NV, axis=0)
@@ -358,10 +362,10 @@ if __name__ == '__main__':
         loss_smooth = jnp.trace(sh4.T @ L_jax @ sh4)
         return loss_smooth
 
-    print("Solve smoothness (L-BFGS)")
-
     lbfgs = LBFGS(loss_func)
     params = lbfgs.run(params).params
+
+    timer.log('Solve smoothness (L-BFGS)')
 
     rotvecs_opt = params['rotvec']
     Rs = vmap(rotvec_to_R3)(rotvecs_opt)
@@ -386,11 +390,10 @@ if __name__ == '__main__':
     V_vis_cube, F_vis_cube = vis_oct_field(Rs, V,
                                            0.1 * igl.avg_edge_length(V, T))
 
-    print("Trace flowlines")
-
     Q = vmap(R3_to_repvec)(Rs, VN)
-
     V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
+
+    timer.log('Trace flowlines')
 
     ps.init()
     tet = ps.register_volume_mesh("tet", V, T)

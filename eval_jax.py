@@ -11,7 +11,7 @@ import os
 import model_jax
 from config import Config
 from config_utils import config_latent, config_model
-from common import normalize, vis_oct_field, filter_components
+from common import normalize, vis_oct_field, filter_components, Timer
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -22,8 +22,6 @@ import pymeshlab
 
 import polyscope as ps
 from icecream import ic
-
-import time
 
 
 # infer: R^3 -> R
@@ -136,13 +134,15 @@ def eval(cfg: Config,
         ps.show()
         exit()
 
-    start_time = time.time()
-    V, F, VN = extract_surface(infer)
-    print("Extract surface", time.time() - start_time)
+    timer = Timer()
 
-    start_time = time.time()
+    V, F, VN = extract_surface(infer)
+
+    timer.log('Extract surface')
+
     V, F = filter_components(V, F, VN)
-    print("Filter VN", time.time() - start_time)
+
+    timer.log('Filter components')
 
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
@@ -194,19 +194,19 @@ def eval(cfg: Config,
         ps.show()
         exit()
 
-    start_time = time.time()
-    V, F = meshlab_remesh(cfg, V, F)
-    print("Meshlab Remesh", time.time() - start_time)
+    timer.reset()
 
-    start_time = time.time()
+    V, F = meshlab_remesh(cfg, V, F)
+
+    timer.log('Meshlab Remesh')
+
     # Project on isosurface
     (sdf, _), VN = infer_grad(V)
     VN = vmap(normalize)(VN)
     V = V - sdf[:, None] * VN
     V = np.array(V)
 
-    print("Project SDF", time.time() - start_time)
-    start_time = time.time()
+    timer.log('Project SDF')
 
     (_, aux), VN = infer_grad(V)
 
@@ -219,7 +219,7 @@ def eval(cfg: Config,
         # Rs = vmap(rotvec_to_R3)(rotvec)
         Rs = proj_sh4_to_R3(sh4)
 
-    print("Project SO(3)", time.time() - start_time)
+    timer.log('Project SO(3)')
 
     print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
 
@@ -228,11 +228,12 @@ def eval(cfg: Config,
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")
 
-    start_time = time.time()
+    timer.reset()
 
     Q = vmap(R3_to_repvec)(Rs, VN)
     V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
-    print("Trace flowlines", time.time() - start_time)
+
+    timer.log('Trace flowlines')
 
     if vis_flowline:
         ps.init()

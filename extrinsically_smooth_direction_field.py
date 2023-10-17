@@ -7,7 +7,7 @@ from typing import Callable
 import scipy
 import scipy.sparse.linalg
 
-from common import normalize_aabb, normalize, rm_unref_vertices
+from common import normalize_aabb, normalize, rm_unref_vertices, Timer
 
 import open3d as o3d
 import argparse
@@ -441,16 +441,19 @@ if __name__ == '__main__':
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_ext.obj")
 
-    print("Load and preprocess mesh")
+    timer = Timer()
 
     V, F = igl.read_triangle_mesh(model_path)
     V = normalize_aabb(V)
 
-    print("Build traversal graph")
+    timer.log('Load and preprocess mesh')
 
-    # My desperate attempt to abuse vmap for graph like data structure
+    # My attempt to abuse vmap for graph like data structure
     # Might well just use for loop in the future...
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
+
+    timer.log('Build traversal graph')
+
     NV = len(V)
     FN, _ = per_face_basis(V[F])
     VN = per_vertex_normal(V, E, V2E, FN)
@@ -461,15 +464,13 @@ if __name__ == '__main__':
     Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
         'bi,bj->bij', VN, VN)
 
-    print("Build local coordinate frame")
-
     # Local coordinate with random tangent vector as basis
     key = jax.random.PRNGKey(0)
     alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
 
-    print("Build stiffness and mass entries")
+    timer.log('Build local coordinate frame')
 
     idx_i, idx_j, weights, mass = smooth(Ws, V2E, E, E2E, FA, alpha, beta, NV)
 
@@ -485,7 +486,7 @@ if __name__ == '__main__':
     weights = np.float64(weights[valid_mask])
     mass = np.float64(mass[valid_mask])
 
-    print("Build sparse system")
+    timer.log('Build stiffness and mass entries')
 
     A = scipy.sparse.coo_array((weights, (idx_i, idx_j)),
                                shape=(2 * NV, 2 * NV)).tocsc()
@@ -493,13 +494,13 @@ if __name__ == '__main__':
     M = scipy.sparse.coo_array((mass, (idx_i, idx_j)),
                                shape=(2 * NV, 2 * NV)).tocsc()
 
+    timer.log('Build sparse system')
+
     # Generalized eigenproblem
     # Reference: Algorithm 2 in Globally Optimal Direction Fields by Knöppel et al.
     np.random.seed(0)
     X = np.random.randn(2 * NV, 1)
     solve = scipy.sparse.linalg.factorized(A)
-
-    print("Solve (Generalized eigenproblem)")
 
     for _ in range(30):
         X = solve(M @ X)
@@ -508,12 +509,13 @@ if __name__ == '__main__':
     a = X[:NV, 0]
     b = X[NV:, 0]
 
-    print("Trace flowlines")
+    timer.log('Solve (Generalized eigenproblem)')
 
     # representation vector
     Q = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
-
     V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
+
+    timer.log('Trace flowlines')
 
     ps.init()
     mesh = ps.register_surface_mesh("mesh", V, F)
