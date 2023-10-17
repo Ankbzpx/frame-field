@@ -206,32 +206,37 @@ if __name__ == '__main__':
 
     timer.log('Interpolate value')
 
-    save_tmp({
-        'V': V,
-        'T': T,
-        'Rs': Rs,
-        'sh4': sh4,
-        'uE': uE,
-        'uE_boundary_mask': uE_boundary_mask,
-        'uE2T': uE2T,
-        'V_bary': V_bary,
-        'Rs_bary': Rs_bary,
-        'sh4_bary': sh4_bary
-    })
+    # save_tmp({
+    #     'V': V,
+    #     'T': T,
+    #     'Rs': Rs,
+    #     'sh4': sh4,
+    #     'uE': uE,
+    #     'uE_boundary_mask': uE_boundary_mask,
+    #     'uE2T': uE2T,
+    #     'V_bary': V_bary,
+    #     'Rs_bary': Rs_bary,
+    #     'sh4_bary': sh4_bary
+    # })
 
-    exit()
+    # exit()
 
-    load_tmp()
+    # load_tmp()
 
+    uE_interior_mask = np.logical_not(uE_boundary_mask)
     uE_singularity_mask = np.zeros(len(uE), dtype=bool)
-    uE_singularity_mask[np.logical_not(uE_boundary_mask)] = np.array([
+    uE_singularity_mask[uE_interior_mask] = np.array([
         is_singular(uE2T[ue_id], Rs_bary)
-        for ue_id in np.arange(len(uE))[np.logical_not(uE_boundary_mask)]
+        for ue_id in np.arange(len(uE))[uE_interior_mask]
     ])
 
     timer.log('Compute singularity')
 
+    F = igl.boundary_facets(T)
+    F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
+
     ps.init()
+    ps.register_surface_mesh('tet', V, F)
     ps_register_curve_network('boundary', V, uE[uE_boundary_mask], radius=1e-4)
     ps_register_curve_network('singularity', V, uE[uE_singularity_mask])
     ps.show()
