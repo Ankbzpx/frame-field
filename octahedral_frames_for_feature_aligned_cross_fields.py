@@ -97,6 +97,8 @@ if __name__ == '__main__':
         timer.log('Solve (L-BFGS')
 
         lbfgs = LBFGS(loss_func)
+
+        # FIXME: Should call x = vmap(project_n)(x, R9_zn) after each iteration.
         x = lbfgs.run(x).params
     else:
 
@@ -110,13 +112,12 @@ if __name__ == '__main__':
         Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
         c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
         factor = cholesky((Q.T @ Q).tocsc())
+
+        # FIXME: Should use conjugate gradient and call x = vmap(project_n)(x, R9_zn) after each iteration.
         x = factor(Q.T @ c).reshape(NV, 9)
 
         timer.log('Solve (Linear)')
 
-    # IMPORTANT sh4 after optimization may longer be valid ones induced from SO(3)
-    # Since we only have boundary vertices, we can simply project (as opposed to interior using SDP)
-    x = vmap(project_n)(x, R9_zn)
     Rs = proj_sh4_to_R3(x)
 
     timer.log('Project SO(3)')
