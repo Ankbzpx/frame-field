@@ -19,7 +19,7 @@ def normalize(x):
     return x / (jnp.linalg.norm(x) + 1e-8)
 
 
-def normalize_aabb(V):
+def normalize_aabb(V, scale=0.95):
     V = np.copy(V)
     # [0, 1]
     V -= np.mean(V, axis=0, keepdims=True)
@@ -27,9 +27,9 @@ def normalize_aabb(V):
     V_min = np.amin(V)
     V = (V - V_min) / (V_max - V_min)
 
-    # [-0.95, 0.95]
+    # [-scale, scale]
     V -= 0.5
-    V *= 1.9
+    V *= 2 * scale
     return V
 
 

@@ -109,7 +109,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         if loss_cfg.align > 0:
             if loss_cfg.rot6d:
-                basis = vmap(rot6d_to_R3)(aux)
+                basis = vmap(rot6d_to_R3)(aux_align)
                 if loss_cfg.use_basis:
                     dps = jnp.einsum('bij,bi->bj', basis,
                                      jax.lax.stop_gradient(normal_align))
@@ -123,7 +123,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss += loss_align
                 loss_dict['loss_align'] = loss_align
 
-                dp = jnp.einsum('bi,bi->b', aux[:, :3], aux[:, 3:])
+                dp = jnp.einsum('bi,bi->b', aux_align[:, :3], aux_align[:, 3:])
                 loss_orth = 1e2 * jnp.abs(dp).mean()
                 loss += loss_orth
                 loss_dict['loss_orth'] = loss_orth
@@ -142,6 +142,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_dict['loss_align'] = loss_align
 
                 # project_n does not penalize the norm
+                # Make sense here because we have desired sh4 induced from SO(3) as supervision
                 loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
                     sh4_align).mean()
                 loss += loss_unit_norm

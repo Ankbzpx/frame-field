@@ -13,7 +13,7 @@ import open3d as o3d
 import argparse
 import os
 
-import flow_lines
+import frame_field_utils
 
 import polyscope as ps
 from icecream import ic
@@ -513,7 +513,7 @@ if __name__ == '__main__':
 
     # representation vector
     Q = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
-    V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
+    V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
     timer.log('Trace flowlines')
 

@@ -96,8 +96,6 @@ def config_training_data(cfg: Config, data_key, latents):
     def sample_sdf_data(sdf_path, latent):
         sdf_data = dict(np.load(sdf_path))
 
-        on_sur_sample_size = len(sdf_data['samples_on_sur'])
-
         def random_batch(x):
             total_sample_size = len(x)
             idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
@@ -111,8 +109,19 @@ def config_training_data(cfg: Config, data_key, latents):
         scale[cfg.training.n_steps // 3:] = 2e-2
         scale[int(2 * cfg.training.n_steps / 3):] = 1e-2
 
-        data['samples_off_sur'] = scale[:, None, None] * jax.random.normal(
-            data_key, data['samples_on_sur'].shape) + data['samples_on_sur']
+        close_sample_size = sample_size // 4
+        free_sample_size = sample_size - close_sample_size
+
+        close_samples = scale[:, None, None] * jax.random.normal(
+            data_key, (cfg.training.n_steps, close_sample_size,
+                       3)) + data['samples_on_sur'][:, :close_sample_size]
+        free_samples = jax.random.uniform(
+            data_key, (cfg.training.n_steps, free_sample_size, 3),
+            minval=-1.0,
+            maxval=1.0)
+
+        data['samples_off_sur'] = jnp.concatenate([close_samples, free_samples],
+                                                  axis=1)
         data['sdf_off_sur'] = jnp.zeros((cfg.training.n_steps, sample_size))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,

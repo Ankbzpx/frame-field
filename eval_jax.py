@@ -16,7 +16,7 @@ from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
                                rot6d_to_sh4_zonal)
-import flow_lines
+import frame_field_utils
 import open3d as o3d
 import pymeshlab
 
@@ -218,12 +218,10 @@ def eval(cfg: Config,
         # rotvec = proj_sh4_to_rotvec(sh4)
         # Rs = vmap(rotvec_to_R3)(rotvec)
         Rs = proj_sh4_to_R3(sh4)
+        sh4 = vmap(R3_to_sh4_zonal)(Rs)
 
     timer.log('Project SO(3)')
 
-    print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
-
-    sh4 = vmap(normalize)(sh4)
     L = igl.cotmatrix(V, F)
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")
@@ -231,7 +229,7 @@ def eval(cfg: Config,
     timer.reset()
 
     Q = vmap(R3_to_repvec)(Rs, VN)
-    V_vis, F_vis, VC_vis = flow_lines.trace(V, F, VN, Q, 4000)
+    V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
     timer.log('Trace flowlines')
 
