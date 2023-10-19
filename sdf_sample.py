@@ -125,7 +125,10 @@ if __name__ == '__main__':
 
     sample_size = args.sample_size
 
-    sdf_base_path = os.path.join('data/sdf', subfolder, str(sample_size))
+    if args.model_path is not None:
+        sdf_base_path = os.path.join('data/sdf', subfolder)
+    else:
+        sdf_base_path = os.path.join('data/sdf', subfolder, str(sample_size))
 
     if not os.path.exists(sdf_base_path):
         os.makedirs(sdf_base_path)
@@ -136,10 +139,6 @@ if __name__ == '__main__':
 
         sampler = SDFSampler(model_path)
         samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
-
-        # ps.init()
-        # ps.register_point_cloud('samples_on_sur', samples_on_sur)
-        # ps.show()
 
         np.savez(model_out_path,
                  samples_on_sur=samples_on_sur,

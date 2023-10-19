@@ -136,6 +136,23 @@ def eval(cfg: Config,
 
     timer = Timer()
 
+    V, T, _ = igl.read_off('data/tet/cube_more_dense.off')
+    V_bary = V[T].mean(axis=1)
+    (_, aux), _ = infer_grad(V_bary)
+
+    if cfg.loss_cfg.rot6d:
+        Rs = vmap(rot6d_to_R3)(aux[:, :6])
+        sh4 = vmap(R3_to_sh4_zonal)(Rs)
+    else:
+        # Save raw sh4 to verify smoothness
+        sh4 = aux[:, :9]
+        Rs = proj_sh4_to_R3(sh4)
+
+    param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
+    np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4)
+
+    timer.log('Extract parameterization')
+
     V, F, VN = extract_surface(infer)
 
     timer.log('Extract surface')

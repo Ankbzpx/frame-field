@@ -33,6 +33,11 @@ class MLP(eqx.Module):
     def call_grad(self, x, z):
         return vmap(self.single_call_grad)(x, z)
 
+    def call_grad_param(self, x, z, param_func):
+        (sdf, aux), normal = vmap(self.single_call_grad)(x, z)
+        aux_param = vmap(param_func)(aux)
+        return (sdf, aux_param), normal
+
     def call_jac(self, x, z):
         return vmap(self.single_call_jac)(x, z)
 

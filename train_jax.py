@@ -33,12 +33,21 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     optim, opt_state = config_optim(cfg, model)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    smooth_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.smooth,
-                                                1e1 * cfg.loss_cfg.smooth, 0.5,
-                                                total_steps, total_steps // 2)
-    regularize_schedule = optax.polynomial_schedule(
-        1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
-        total_steps, 100)
+
+    if cfg.loss_cfg.smooth > 0:
+        smooth_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.smooth,
+                                                    1e1 * cfg.loss_cfg.smooth,
+                                                    0.5, total_steps,
+                                                    total_steps // 2)
+    else:
+        smooth_schedule = optax.constant_schedule(0)
+
+    if cfg.loss_cfg.regularize > 0:
+        regularize_schedule = optax.polynomial_schedule(
+            1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
+            total_steps, 100)
+    else:
+        regularize_schedule = optax.constant_schedule(0)
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -107,6 +116,20 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             'loss_eikonal': loss_eikonal
         }
 
+        if loss_cfg.unit_norm > 0:
+            aux_unit_norm = jnp.vstack([aux, aux_off])
+            if loss_cfg.rotvec:
+                sh4_unit_norm = vmap(rotvec_to_sh4)(aux_unit_norm)
+            else:
+                sh4_unit_norm = aux_unit_norm
+
+            # project_n does not penalize the norm
+            # Make sense here because we have desired sh4 induced from SO(3) as supervision
+            loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
+                sh4_unit_norm).mean()
+            loss += loss_unit_norm
+            loss_dict['loss_unit_norm'] = loss_unit_norm
+
         if loss_cfg.align > 0:
             if loss_cfg.rot6d:
                 basis = vmap(rot6d_to_R3)(aux_align)
@@ -140,13 +163,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                                                (sh4_align, sh4_n)).mean()
                 loss += loss_align
                 loss_dict['loss_align'] = loss_align
-
-                # project_n does not penalize the norm
-                # Make sense here because we have desired sh4 induced from SO(3) as supervision
-                loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                    sh4_align).mean()
-                loss += loss_unit_norm
-                loss_dict['loss_unit_norm'] = loss_unit_norm
 
         if loss_cfg.regularize > 0:
             if loss_cfg.rot6d:
@@ -250,7 +266,10 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
-        pbar.set_postfix({"loss": loss_dict['loss_total']})
+        pbar.set_postfix({
+            "loss": loss_dict['loss_total'],
+            "unit norm": loss_dict['loss_unit_norm']
+        })
 
         # TODO: Better plot such as using tensorboardX
         # Loss plot

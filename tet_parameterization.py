@@ -7,6 +7,8 @@ import pickle
 from common import ps_register_curve_network, vis_oct_field, normalize_aabb, Timer
 from sh_representation import proj_sh4_to_R3, R3_to_sh4_zonal
 
+import frame_field_utils
+
 import polyscope as ps
 from icecream import ic
 
@@ -159,6 +161,17 @@ def is_singular(T_adj, Rs):
     return jnp.linalg.norm(m - jnp.eye(3)) > 1e-7
 
 
+def edge_singularity(uE, uE_boundary_mask, uE2T):
+    uE_interior_mask = np.logical_not(uE_boundary_mask)
+    uE_singularity_mask = np.zeros(len(uE), dtype=bool)
+    uE_singularity_mask[uE_interior_mask] = np.array([
+        is_singular(uE2T[ue_id], Rs_bary)
+        for ue_id in np.arange(len(uE))[uE_interior_mask]
+    ])
+
+    return uE_singularity_mask
+
+
 # https://stackoverflow.com/questions/2933470/how-do-i-call-setattr-on-the-current-module
 def set_var_by_name(name, val):
     globals()[name] = val
@@ -178,10 +191,21 @@ def load_tmp(name='tmp', folder='tmp'):
 
 
 if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, help='Path to config file.')
+    args = parser.parse_args()
+
     timer = Timer()
 
-    # data = np.load('results/prism_prac.npz')
-    data = np.load('results/cylinder_prac.npz')
+    if args.config is not None:
+        name = args.config.split('/')[-1].split('.')[0]
+        data = np.load(f'output/{name}.npz')
+        V_mc, F_mc = igl.read_triangle_mesh(f'output/{name}_mc.obj')
+    else:
+        data = np.load('results/prism_prac.npz')
+        # data = np.load('results/join_prac.npz')
 
     V = np.float64(data['V'])
     V = normalize_aabb(V)
@@ -189,22 +213,25 @@ if __name__ == '__main__':
     Rs: np.array = data['Rs']
     sh4: np.array = data['sh4']
 
-    timer.log('Load data')
-
-    uE, uE_boundary_mask, uE2T = edge_one_ring(T)
-
-    timer.log('Build edge one ring')
-
     # Use tet based representation, so the singularities are defined on edges, allowing us to cut directly along faces
     # Follow "Boundary Aligned Smooth 3D Cross-Frame Field" by Jin Huang et al., we transform from vertex based to tet via simple averaging
     V_bary = V[T].mean(axis=1)
 
-    # Do NOT normalize it directly!
-    sh4_bary = sh4[T].mean(axis=1)
-    Rs_bary = proj_sh4_to_R3(sh4_bary)
-    sh4_bary = vmap(R3_to_sh4_zonal)(Rs_bary)
+    if len(Rs) == len(T):
+        Rs_bary = Rs
+        sh4_bary = sh4
+    else:
+        # Do NOT normalize it directly!
+        sh4_bary = sh4[T].mean(axis=1)
+        Rs_bary = proj_sh4_to_R3(sh4_bary)
+        sh4_bary = vmap(R3_to_sh4_zonal)(Rs_bary)
 
-    timer.log('Interpolate value')
+    timer.log('Load and interpolate data')
+
+    uE, uE_boundary_mask, uE2T, uE2T_cumsum = frame_field_utils.tet_edge_one_ring(
+        T)
+
+    timer.log('Build edge one ring')
 
     # save_tmp({
     #     'V': V,
@@ -223,12 +250,8 @@ if __name__ == '__main__':
 
     # load_tmp()
 
-    uE_interior_mask = np.logical_not(uE_boundary_mask)
-    uE_singularity_mask = np.zeros(len(uE), dtype=bool)
-    uE_singularity_mask[uE_interior_mask] = np.array([
-        is_singular(uE2T[ue_id], Rs_bary)
-        for ue_id in np.arange(len(uE))[uE_interior_mask]
-    ])
+    uE_singularity_mask = frame_field_utils.tet_edge_singularity(
+        uE, uE_boundary_mask, uE2T, uE2T_cumsum, Rs_bary)
 
     timer.log('Compute singularity')
 
@@ -236,7 +259,8 @@ if __name__ == '__main__':
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
 
     ps.init()
-    ps.register_surface_mesh('tet', V, F)
-    ps_register_curve_network('boundary', V, uE[uE_boundary_mask], radius=1e-4)
+    ps.register_surface_mesh('tet', V, F, enabled=False)
+    if V_mc is not None:
+        ps.register_surface_mesh('mc', V_mc, F_mc)
     ps_register_curve_network('singularity', V, uE[uE_singularity_mask])
     ps.show()
