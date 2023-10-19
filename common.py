@@ -232,8 +232,8 @@ def gen_idx_0(xx, yy, zz):
          zz[1::2, 1:-1:2, 2:-1:2]).reshape(-1)
     ])
     return np.vstack([
-        np.stack([idx_4, idx_0, idx_5, idx_7], -1),
-        np.stack([idx_1, idx_0, idx_2, idx_5], -1),
+        np.stack([idx_4, idx_0, idx_7, idx_5], -1),
+        np.stack([idx_1, idx_0, idx_5, idx_2], -1),
         np.stack([idx_6, idx_2, idx_5, idx_7], -1),
         np.stack([idx_3, idx_0, idx_2, idx_7], -1),
         np.stack([idx_0, idx_2, idx_5, idx_7], -1)
@@ -318,10 +318,10 @@ def gen_idx_1(xx, yy, zz):
          zz[2::2, 1:-1:2, 2:-1:2]).reshape(-1)
     ])
     return np.vstack([
-        np.stack([idx_5, idx_1, idx_6, idx_4], -1),
-        np.stack([idx_7, idx_3, idx_4, idx_6], -1),
+        np.stack([idx_5, idx_1, idx_4, idx_6], -1),
+        np.stack([idx_7, idx_3, idx_6, idx_4], -1),
         np.stack([idx_0, idx_1, idx_3, idx_4], -1),
-        np.stack([idx_2, idx_1, idx_3, idx_6], -1),
+        np.stack([idx_2, idx_1, idx_6, idx_3], -1),
         np.stack([idx_4, idx_6, idx_1, idx_3], -1)
     ])
 
