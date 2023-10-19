@@ -63,7 +63,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         regularize_weight = regularize_schedule(step_count)
 
         # I'm not allowed to compare jit traced value with a scalar
-        if loss_cfg.smooth > 0:
+        if not loss_cfg.grid and loss_cfg.smooth > 0:
             if loss_cfg.rot6d:
                 param_func = rot6d_to_sh4_zonal
             elif loss_cfg.rotvec:
@@ -220,14 +220,17 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             loss_dict['loss_lip'] = loss_lip
 
         if loss_cfg.smooth > 0:
-            if loss_cfg.match_all_level_set:
-                sh4_jac = jnp.vstack([jac, jac_off])
+            if loss_cfg.grid:
+                loss_smooth = smooth_weight * model.get_aux_loss()
             else:
-                sh4_jac = jac
+                if loss_cfg.match_all_level_set:
+                    sh4_jac = jnp.vstack([jac, jac_off])
+                else:
+                    sh4_jac = jac
 
-            sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
-                                                                    'f')
-            loss_smooth = smooth_weight * sh4_jac_norm.mean()
+                sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
+                                                                        'f')
+                loss_smooth = smooth_weight * sh4_jac_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
@@ -268,7 +271,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         pbar.set_postfix({
             "loss": loss_dict['loss_total'],
-            "unit norm": loss_dict['loss_unit_norm']
+            "loss_smooth": loss_dict['loss_smooth']
         })
 
         # TODO: Better plot such as using tensorboardX

@@ -115,6 +115,8 @@ def config_training_data(cfg: Config, data_key, latents):
         close_samples = scale[:, None, None] * jax.random.normal(
             data_key, (cfg.training.n_steps, close_sample_size,
                        3)) + data['samples_on_sur'][:, :close_sample_size]
+        close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
+
         free_samples = jax.random.uniform(
             data_key, (cfg.training.n_steps, free_sample_size, 3),
             minval=-1.0,

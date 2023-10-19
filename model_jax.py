@@ -1,3 +1,7 @@
+import igl
+from common import tet_from_grid, normalize
+from jax.experimental import sparse
+
 import jax
 from jax import vmap, numpy as jnp, jacfwd, jit
 import equinox as eqx
@@ -355,3 +359,36 @@ class MLPComposerCurl(MLPComposer):
             return aux_param, ((sdf, aux), normal)
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
+
+
+class RegularGrid(MLP):
+    input_scale: float
+    res: float
+    grid_val: Array
+    L: Array
+
+    def __init__(self,
+                 out_features: int,
+                 key: jax.random.PRNGKey,
+                 res=100,
+                 input_scale: float = 1,
+                 **kwargs):
+        self.input_scale = input_scale
+        self.res = res
+        self.grid_val = jax.random.normal(key, (res, res, res, out_features))
+
+        V, T = tet_from_grid(res)
+        L = igl.cotmatrix(V, T)
+        self.L = sparse.BCOO.from_scipy_sparse(-L)
+
+    def single_call(self, x, z):
+        axis = jnp.linspace(-1.0, 1.0, self.res)
+        interp = jax.scipy.interpolate.RegularGridInterpolator(
+            (axis, axis, axis), self.grid_val)
+        return interp(self.input_scale * jnp.array([x[1], x[0], x[2]]))[0]
+
+    def get_aux_loss(self):
+        L = jax.lax.stop_gradient(self.L)
+        vertex_attri = self.grid_val.reshape(len(L), -1)
+        loss_smooth = jnp.trace(vertex_attri.T @ L @ vertex_attri)
+        return loss_smooth

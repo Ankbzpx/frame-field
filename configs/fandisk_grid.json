@@ -1,0 +1,20 @@
+{
+    "sdf_paths": ["data/sdf/fandisk.npz"],
+    "mlp_types": [
+        "Siren",
+        "RegularGrid"
+    ],
+    "mlps": [
+        {
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "out_features": 9
+        }
+    ],
+    "loss_cfg": {
+        "smooth": 1e-1,
+        "grid": true
+    }
+}

@@ -47,6 +47,7 @@ class LossConfig:
     match_all_level_set: bool = False
     allow_gradient: bool = False
     tangent: bool = False
+    grid: bool = False
 
 
 @dataclass
