@@ -1,8 +1,8 @@
 {
     "sdf_paths": ["data/sdf/cylinder.npz"],
     "mlp_types": [
-        "StandardMLP",
-        "StandardMLP"
+        "Siren",
+        "Siren"
     ],
     "mlps": [
         {
@@ -10,16 +10,13 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 2,
-            "out_features": 6
+            "hidden_layers": 4,
+            "out_features": 9
         }
     ],
     "loss_cfg": {
         "smooth": 1e-1,
-        "rot6d": true,
-        "use_basis": false
-    },
-    "training": {
-        "n_steps": 5000
+        "align": 3e3,
+        "unit_norm": 1e2
     }
 }

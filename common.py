@@ -349,9 +349,11 @@ def tet_from_grid_scale(res, grid_scale):
     V, T = rm_unref_vertices(V, T[T_mask])
     V = V * grid_scale.max()
 
-    # Risky...
-    unit_size = 1.0 / (res_scale // 2)
-    grid_res = (2 * np.round(grid_scale_safe / unit_size)).astype(int)
-    assert len(V) == np.prod(grid_res)
+    return V, T
 
-    return V, T, grid_res
+    # # Risky...
+    # unit_size = 1.0 / (res_scale // 2)
+    # grid_res = (2 * np.round(grid_scale_safe / unit_size)).astype(int)
+    # assert len(V) == np.prod(grid_res)
+
+    # return V, T, grid_res

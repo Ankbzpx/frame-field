@@ -35,10 +35,9 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
 
     if cfg.loss_cfg.smooth > 0:
-        smooth_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.smooth,
+        smooth_schedule = optax.polynomial_schedule(1e-1 * cfg.loss_cfg.smooth,
                                                     1e1 * cfg.loss_cfg.smooth,
-                                                    0.5, total_steps,
-                                                    total_steps // 2)
+                                                    0.5, total_steps, 100)
     else:
         smooth_schedule = optax.constant_schedule(0)
 
@@ -123,8 +122,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             else:
                 sh4_unit_norm = aux_unit_norm
 
-            # project_n does not penalize the norm
-            # Make sense here because we have desired sh4 induced from SO(3) as supervision
             loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
                 sh4_unit_norm).mean()
             loss += loss_unit_norm
@@ -223,11 +220,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             if loss_cfg.grid:
                 loss_smooth = smooth_weight * model.get_aux_loss()
             else:
-                if loss_cfg.match_all_level_set:
-                    sh4_jac = jnp.vstack([jac, jac_off])
-                else:
-                    sh4_jac = jac
-
+                sh4_jac = jnp.vstack([jac, jac_off])
                 sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
                                                                         'f')
                 loss_smooth = smooth_weight * sh4_jac_norm.mean()

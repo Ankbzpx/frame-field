@@ -136,16 +136,17 @@ def eval(cfg: Config,
     timer = Timer()
 
     grid_scale = 1.25 * eval_data_scale(cfg)
-    V, T, _ = tet_from_grid_scale(32, grid_scale)
+    V, T = tet_from_grid_scale(64, grid_scale)
+
     aux = infer(V)[:, 1:]
 
     if cfg.loss_cfg.rot6d:
         Rs = vmap(rot6d_to_R3)(aux[:, :6])
         sh4 = vmap(R3_to_sh4_zonal)(Rs)
     else:
-        # Save raw sh4 to verify smoothness
         sh4 = aux[:, :9]
         Rs = proj_sh4_to_R3(sh4)
+        sh4 = vmap(R3_to_sh4_zonal)(Rs)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
     np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4)

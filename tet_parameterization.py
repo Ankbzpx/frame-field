@@ -208,7 +208,6 @@ if __name__ == '__main__':
         # data = np.load('results/join_prac.npz')
 
     V = np.float64(data['V'])
-    V = normalize_aabb(V)
     T = np.int64(data['T'])
     Rs: np.array = data['Rs']
     sh4: np.array = data['sh4']
