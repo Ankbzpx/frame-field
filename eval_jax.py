@@ -11,7 +11,7 @@ import os
 import model_jax
 from config import Config
 from config_utils import config_latent, config_model, eval_data_scale
-from common import normalize, vis_oct_field, filter_components, Timer, tet_from_grid
+from common import normalize, vis_oct_field, filter_components, Timer, tet_from_grid_scale
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -70,7 +70,6 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
                                      0.,
                                      spacing=(spacing, spacing, spacing))
     V = 2 * (V - 0.5)
-
     return V, F, -VN_inv
 
 
@@ -103,7 +102,7 @@ def eval(cfg: Config,
     @jit
     def infer(x):
         z = latent[None, ...].repeat(len(x), 0)
-        return model(x, z)[:, 0]
+        return model(x, z)
 
     @jit
     def infer_grad(x):
@@ -136,11 +135,9 @@ def eval(cfg: Config,
 
     timer = Timer()
 
-    grid_scale = eval_data_scale(cfg)
-
-    V, T = tet_from_grid(64)
-    V = V * grid_scale[None, :]
-    aux = infer_aux(V)
+    grid_scale = 1.25 * eval_data_scale(cfg)
+    V, T, _ = tet_from_grid_scale(32, grid_scale)
+    aux = infer(V)[:, 1:]
 
     if cfg.loss_cfg.rot6d:
         Rs = vmap(rot6d_to_R3)(aux[:, :6])
@@ -155,7 +152,8 @@ def eval(cfg: Config,
 
     timer.log('Extract parameterization')
 
-    V, F, VN = extract_surface(infer)
+    infer_sdf = lambda x: infer(x)[:, 0]
+    V, F, VN = extract_surface(infer_sdf)
 
     timer.log('Extract surface')
 

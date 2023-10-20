@@ -21,15 +21,14 @@ def normalize(x):
 
 def normalize_aabb(V, scale=0.95):
     V = np.copy(V)
-    # [0, 1]
-    V -= np.mean(V, axis=0, keepdims=True)
-    V_max = np.amax(V)
-    V_min = np.amin(V)
-    V = (V - V_min) / (V_max - V_min)
 
-    # [-scale, scale]
-    V -= 0.5
-    V *= 2 * scale
+    V_aabb_max = V.max(0, keepdims=True)
+    V_aabb_min = V.min(0, keepdims=True)
+    V_center = 0.5 * (V_aabb_max + V_aabb_min)
+    V -= V_center
+    scale = (V_aabb_max - V_center).max() / scale
+    V /= scale
+
     return V
 
 
@@ -53,17 +52,8 @@ def vis_oct_field(R3s, V, size):
 
 
 def ps_register_curve_network(name, V, E, **wargs):
-    V_unique, V_unique_idx, V_unique_idx_inv = np.unique(E,
-                                                         return_index=True,
-                                                         return_inverse=True)
-    V_id_new = np.arange(len(V_unique))
-    V_map = V_id_new[np.argsort(V_unique_idx)]
-    V_map_inv = np.zeros((np.max(V_map) + 1,), dtype=np.int64)
-    V_map_inv[V_map] = V_id_new
-
-    ps.register_curve_network(name, V[V_unique][V_map],
-                              V_map_inv[V_unique_idx_inv].reshape(E.shape),
-                              **wargs)
+    V, E = rm_unref_vertices(V, E)
+    ps.register_curve_network(name, V, E, **wargs)
 
 
 # Replace entries in sparse matrix by coefficient weighted identity blocks
@@ -339,3 +329,29 @@ def tet_from_grid(res, grid_min=-1.0, grid_max=1.0):
     T1 = gen_idx_1(xx, yy, zz)
     T = np.vstack([T0, T1])
     return V, T
+
+
+# TODO: Nasty workaround, should find a better way to do it
+def tet_from_grid_scale(res, grid_scale):
+    max_scale = (grid_scale / grid_scale.min(keepdims=True)).max()
+    res_scale = np.round(max_scale * res).astype(int)
+    if res_scale % 2 == 1:
+        res_scale += 1
+
+    V, T = tet_from_grid(res_scale)
+    V_mask = np.ones(len(V)).astype(bool)
+
+    grid_scale_safe = grid_scale / grid_scale.max(keepdims=True)
+    V_mask[np.abs(V[:, 0]) > grid_scale_safe[0]] = False
+    V_mask[np.abs(V[:, 1]) > grid_scale_safe[1]] = False
+    V_mask[np.abs(V[:, 2]) > grid_scale_safe[2]] = False
+    T_mask = V_mask[T].sum(axis=1) == 4
+    V, T = rm_unref_vertices(V, T[T_mask])
+    V = V * grid_scale.max()
+
+    # Risky...
+    unit_size = 1.0 / (res_scale // 2)
+    grid_res = (2 * np.round(grid_scale_safe / unit_size)).astype(int)
+    assert len(V) == np.prod(grid_res)
+
+    return V, T, grid_res
