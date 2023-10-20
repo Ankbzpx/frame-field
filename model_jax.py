@@ -375,6 +375,8 @@ class RegularGrid(MLP):
                  **kwargs):
         self.input_scale = input_scale
         self.res = res
+
+        # TODO: Support anisotropic grid scale
         self.grid_val = jax.random.normal(key, (res, res, res, out_features))
 
         V, T = tet_from_grid(res)

@@ -10,8 +10,8 @@ import os
 
 import model_jax
 from config import Config
-from config_utils import config_latent, config_model
-from common import normalize, vis_oct_field, filter_components, Timer
+from config_utils import config_latent, config_model, eval_data_scale
+from common import normalize, vis_oct_field, filter_components, Timer, tet_from_grid
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -136,9 +136,11 @@ def eval(cfg: Config,
 
     timer = Timer()
 
-    V, T, _ = igl.read_off('data/tet/cube_more_dense.off')
-    V_bary = V[T].mean(axis=1)
-    (_, aux), _ = infer_grad(V_bary)
+    grid_scale = eval_data_scale(cfg)
+
+    V, T = tet_from_grid(64)
+    V = V * grid_scale[None, :]
+    aux = infer_aux(V)
 
     if cfg.loss_cfg.rot6d:
         Rs = vmap(rot6d_to_R3)(aux[:, :6])

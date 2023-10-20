@@ -87,11 +87,26 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     return optim, opt_state
 
 
+def eval_data_scale(cfg: Config):
+
+    def cal_scale(sdf_path):
+        sdf_data = dict(np.load(sdf_path))
+
+        # Assume centered
+        return jnp.max(sdf_data['samples_on_sur'], axis=0)
+
+    scale = jnp.stack([cal_scale(sdf_path) for sdf_path in cfg.sdf_paths
+                      ]).max(axis=0)
+    return 1.05 * scale
+
+
 # preload data in memory to speedup training
 def config_training_data(cfg: Config, data_key, latents):
     n_models = len(cfg.sdf_paths)
     assert n_models > 0
     sample_size = cfg.training.n_samples // n_models
+
+    aabb_scale = eval_data_scale(cfg)
 
     def sample_sdf_data(sdf_path, latent):
         sdf_data = dict(np.load(sdf_path))
@@ -120,7 +135,7 @@ def config_training_data(cfg: Config, data_key, latents):
         free_samples = jax.random.uniform(
             data_key, (cfg.training.n_steps, free_sample_size, 3),
             minval=-1.0,
-            maxval=1.0)
+            maxval=1.0) * aabb_scale[None, None, :]
 
         data['samples_off_sur'] = jnp.concatenate([close_samples, free_samples],
                                                   axis=1)

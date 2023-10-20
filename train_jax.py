@@ -269,10 +269,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][epoch] = loss_dict[key]
 
-        pbar.set_postfix({
-            "loss": loss_dict['loss_total'],
-            "loss_smooth": loss_dict['loss_smooth']
-        })
+        pbar.set_postfix({"loss": loss_dict['loss_total']})
 
         # TODO: Better plot such as using tensorboardX
         # Loss plot
