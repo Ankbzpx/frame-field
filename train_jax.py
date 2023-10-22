@@ -37,14 +37,15 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     if cfg.loss_cfg.smooth > 0:
         smooth_schedule = optax.polynomial_schedule(1e-1 * cfg.loss_cfg.smooth,
                                                     1e1 * cfg.loss_cfg.smooth,
-                                                    0.5, total_steps, 100)
+                                                    0.5, total_steps,
+                                                    cfg.training.warmup_steps)
     else:
         smooth_schedule = optax.constant_schedule(0)
 
     if cfg.loss_cfg.regularize > 0:
         regularize_schedule = optax.polynomial_schedule(
             1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
-            total_steps, 100)
+            total_steps, cfg.training.warmup_steps)
     else:
         regularize_schedule = optax.constant_schedule(0)
 
@@ -61,15 +62,26 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         smooth_weight = smooth_schedule(step_count)
         regularize_weight = regularize_schedule(step_count)
 
+        # Map network output to sh4 parameterization
+        if loss_cfg.rot6d:
+            param_func = rot6d_to_sh4_zonal
+        elif loss_cfg.rotvec:
+            # Needs second order differentiable
+            param_func = rotvec_to_sh4_expm
+        else:
+            param_func = lambda x: x
+
+        # Map network output to cartesian basis
+        if loss_cfg.rot6d:
+            proj_func = vmap(rot6d_to_R3)
+        elif loss_cfg.rotvec:
+            # Needs second order differentiable
+            proj_func = vmap(rotvec_to_R3)
+        else:
+            proj_func = proj_sh4_to_R3
+
         # I'm not allowed to compare jit traced value with a scalar
         if not loss_cfg.grid and loss_cfg.smooth > 0:
-            if loss_cfg.rot6d:
-                param_func = rot6d_to_sh4_zonal
-            elif loss_cfg.rotvec:
-                # Needs second order differentiable
-                param_func = rotvec_to_sh4_expm
-            else:
-                param_func = lambda x: x
 
             jac, out_on = model.call_jac_param(samples_on_sur, latent,
                                                param_func)
@@ -81,21 +93,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         ((pred_on_sur_sdf, aux), pred_normals_on_sur) = out_on
         ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
-
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
-
-        if loss_cfg.match_all_level_set:
-            normal_align = jnp.where(loss_cfg.allow_gradient, normal_pred,
-                                     jax.lax.stop_gradient(normal_pred))
-            aux_align = jnp.vstack([aux, aux_off])
-        elif loss_cfg.match_zero_level_set:
-            normal_align = jnp.where(loss_cfg.allow_gradient,
-                                     pred_normals_on_sur,
-                                     jax.lax.stop_gradient(pred_normals_on_sur))
-            aux_align = aux
-        else:
-            normal_align = normals_on_sur
-            aux_align = aux
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -115,98 +113,60 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             'loss_eikonal': loss_eikonal
         }
 
+        if loss_cfg.align > 0:
+            # For alignment, we match oct frame to normal, thus we stop back propagation w.r.t. normal
+            if loss_cfg.match_all_level_set:
+                normal_align = jax.lax.stop_gradient(normal_pred)
+                aux_align = jnp.vstack([aux, aux_off])
+            elif loss_cfg.match_zero_level_set:
+                normal_align = jax.lax.stop_gradient(pred_normals_on_sur)
+                aux_align = aux
+            else:
+                normal_align = normals_on_sur
+                aux_align = aux
+
+            if loss_cfg.use_basis:
+                basis_align = proj_func(aux_align)
+                # Normalization matters here because we want the dot product to be either 0 or 1
+                dps = jnp.einsum('bij,bi->bj', basis_align,
+                                 vmap(normalize)(normal_align))
+                loss_align = loss_cfg.align * double_well_potential(
+                    jnp.abs(dps)).sum(-1).mean()
+            else:
+                sh4_align = param_func(aux_align)
+                R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
+                sh4_n = vmap(project_n)(sh4_align, R9_zn)
+                loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
+                                               (sh4_align, sh4_n)).mean()
+
+            loss += loss_align
+            loss_dict['loss_align'] = loss_align
+
         if loss_cfg.unit_norm > 0:
             aux_unit_norm = jnp.vstack([aux, aux_off])
-            if loss_cfg.rotvec:
-                sh4_unit_norm = vmap(rotvec_to_sh4)(aux_unit_norm)
-            else:
-                sh4_unit_norm = aux_unit_norm
+            sh4_unit_norm = param_func(aux_unit_norm)
 
             loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
                 sh4_unit_norm).mean()
             loss += loss_unit_norm
             loss_dict['loss_unit_norm'] = loss_unit_norm
 
-        if loss_cfg.align > 0:
-            if loss_cfg.rot6d:
-                basis = vmap(rot6d_to_R3)(aux_align)
-                if loss_cfg.use_basis:
-                    dps = jnp.einsum('bij,bi->bj', basis,
-                                     jax.lax.stop_gradient(normal_align))
-                    loss_align = loss_cfg.align * double_well_potential(
-                        jnp.abs(dps)).sum(-1).mean()
-                else:
-                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
-                        jax.lax.stop_gradient(normal_align), basis)
-                    loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
-
-                loss += loss_align
-                loss_dict['loss_align'] = loss_align
-
-                dp = jnp.einsum('bi,bi->b', aux_align[:, :3], aux_align[:, 3:])
-                loss_orth = 1e2 * jnp.abs(dp).mean()
-                loss += loss_orth
-                loss_dict['loss_orth'] = loss_orth
-            else:
-                if loss_cfg.rotvec:
-                    sh4_align = vmap(rotvec_to_sh4)(aux_align)
-                else:
-                    sh4_align = aux_align
-
-                # Alignment
-                R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-                sh4_n = vmap(project_n)(sh4_align, R9_zn)
-                loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                               (sh4_align, sh4_n)).mean()
-                loss += loss_align
-                loss_dict['loss_align'] = loss_align
-
         if loss_cfg.regularize > 0:
-            if loss_cfg.rot6d:
-                basis = vmap(rot6d_to_R3)(jax.lax.stop_gradient(aux_off))
-                if loss_cfg.use_basis:
-                    dps = jnp.einsum('bij,bi->bj', basis,
-                                     vmap(normalize)(pred_normals_off_sur))
-                    loss_regularize = regularize_weight * double_well_potential(
-                        jnp.abs(dps)).sum(-1).mean()
-                else:
-                    dps = vmap(oct_polynomial_zonal_unit_norm)(
-                        pred_normals_off_sur, basis)
+            # For regularization, we match normal with oct frame, thus we stop back propagation w.r.t. oct frame
+            aux_reg = jax.lax.stop_gradient(aux_off)
+            normal_reg = pred_normals_off_sur
 
-                    loss_regularize = regularize_weight * jnp.abs(1 -
-                                                                  dps).mean()
-
+            if loss_cfg.use_basis:
+                basis_reg = proj_func(aux_reg)
+                # Normalization matters here because we want the dot product to be either 0 or 1
+                dps = jnp.einsum('bij,bi->bj', basis_reg,
+                                 vmap(normalize)(normal_reg))
+                loss_regularize = regularize_weight * double_well_potential(
+                    jnp.abs(dps)).sum(-1).mean()
             else:
-                if loss_cfg.use_basis:
-                    if loss_cfg.rotvec:
-                        basis = rotvec_to_R3(jax.lax.stop_gradient(aux_off))
-                    else:
-                        # This is unavoidably expensive, especially when projecting to rotvec
-
-                        # rotvec = proj_sh4_to_rotvec(
-                        #     jax.lax.stop_gradient(aux_off))
-                        # basis = vmap(rotvec_to_R3)(rotvec)
-
-                        basis = proj_sh4_to_R3(jax.lax.stop_gradient(aux_off),
-                                               max_iter=50)
-
-                    dps = jnp.einsum('bij,bi->bj', basis,
-                                     vmap(normalize)(pred_normals_off_sur))
-                    loss_regularize = regularize_weight * double_well_potential(
-                        jnp.abs(dps)).sum(-1).mean()
-                else:
-
-                    if loss_cfg.rotvec:
-                        sh4_off = vmap(rotvec_to_sh4)(
-                            jax.lax.stop_gradient(aux_off))
-                    else:
-                        # This is inaccurate, because there is no guarantee that output sh4 can be induced from SO(3)
-                        sh4_off = jax.lax.stop_gradient(aux_off)
-
-                    dps = vmap(oct_polynomial_sh4_unit_norm)(
-                        pred_normals_off_sur, sh4_off)
-
-                    loss_regularize = regularize_weight * (1 - dps).mean()
+                sh4_reg = param_func(jax.lax.stop_gradient(aux_reg))
+                dps = vmap(oct_polynomial_sh4_unit_norm)(normal_reg, sh4_reg)
+                loss_regularize = regularize_weight * (1 - dps).mean()
 
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize

@@ -1,5 +1,5 @@
 import igl
-from common import tet_from_grid, normalize
+from common import tet_from_grid
 from jax.experimental import sparse
 
 import jax
@@ -22,6 +22,10 @@ class MLP(eqx.Module):
         x = self.single_call(x, z)
         return x[0], x[1:]
 
+    def single_call_aux(self, x, z):
+        x = self.single_call(x, z)
+        return x[1:]
+
     def single_call_grad(self, x, z):
         return eqx.filter_value_and_grad(self.single_call_split,
                                          has_aux=True)(x, z)
@@ -33,6 +37,9 @@ class MLP(eqx.Module):
             return val, val
 
         return jacfwd(__single_call, has_aux=True)(x, z)
+
+    def call_aux(self, x, z):
+        return vmap(self.single_call_aux)(x, z)
 
     def call_grad(self, x, z):
         return vmap(self.single_call_grad)(x, z)
@@ -319,6 +326,9 @@ class MLPComposer(MLP):
     def single_call(self, x, z):
         return jnp.concatenate([mlp.single_call(x, z) for mlp in self.mlps])
 
+    def single_call_aux(self, x, z):
+        return jnp.concatenate([mlp.single_call(x, z) for mlp in self.mlps[1:]])
+
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
@@ -379,6 +389,7 @@ class RegularGrid(MLP):
         # TODO: Support anisotropic grid scale
         self.grid_val = jax.random.normal(key, (res, res, res, out_features))
 
+        # FIXME: Avoid putting heavy computation in constructor because it will be called multiple times in equinox
         V, T = tet_from_grid(res)
         L = igl.cotmatrix(V, T)
         self.L = sparse.BCOO.from_scipy_sparse(-L)
