@@ -15,7 +15,7 @@ from common import normalize, vis_oct_field, filter_components, Timer, tet_from_
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
-                               rot6d_to_sh4_zonal)
+                               rotvec_to_sh4, rot6d_to_sh4_zonal)
 import frame_field_utils
 import open3d as o3d
 import pymeshlab
@@ -91,13 +91,24 @@ def meshlab_remesh(cfg, V, F):
 
 def eval(cfg: Config,
          out_dir,
-         model,
+         model: model_jax.MLP,
          latent,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False,
          geo_only=False,
          interp_tag=''):
+
+    # Map network output to sh4 parameterization
+    if cfg.loss_cfg.rot6d:
+        param_func = rot6d_to_sh4_zonal
+        proj_func = vmap(rot6d_to_R3)
+    elif cfg.loss_cfg.rotvec:
+        param_func = rotvec_to_sh4
+        proj_func = vmap(rotvec_to_R3)
+    else:
+        param_func = lambda x: x
+        proj_func = proj_sh4_to_R3
 
     @jit
     def infer(x):
@@ -107,7 +118,7 @@ def eval(cfg: Config,
     @jit
     def infer_grad(x):
         z = latent[None, ...].repeat(len(x), 0)
-        return model.call_grad(x, z)
+        return model.call_grad_param(x, z, param_func)
 
     if cfg.loss_cfg.rot6d:
         param_func = rot6d_to_sh4_zonal
@@ -138,18 +149,24 @@ def eval(cfg: Config,
     grid_scale = 1.25 * eval_data_scale(cfg)
     V, T = tet_from_grid_scale(64, grid_scale)
 
-    aux = infer(V)[:, 1:]
+    group_size = 256**2
+    n_iters = len(V) // group_size
 
-    if cfg.loss_cfg.rot6d:
-        Rs = vmap(rot6d_to_R3)(aux[:, :6])
-        sh4 = vmap(R3_to_sh4_zonal)(Rs)
-    else:
-        sh4 = aux[:, :9]
-        Rs = proj_sh4_to_R3(sh4)
-        sh4 = vmap(R3_to_sh4_zonal)(Rs)
+    sdf = jnp.zeros((0,))
+    sh4 = jnp.zeros((0, 9))
+    VN = jnp.zeros((0, 3))
+
+    V_splits = jnp.array_split(V, n_iters)
+    for V_split in V_splits:
+        (sdf_, sh4_), VN_ = infer_grad(V_split)
+        sdf = jnp.concatenate([sdf, sdf_])
+        sh4 = jnp.vstack([sh4, sh4_])
+        VN = jnp.vstack([VN, VN_])
+
+    Rs = proj_func(sh4)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
-    np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4)
+    np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4, sdf=sdf, VN=VN)
 
     timer.log('Extract parameterization')
 
@@ -175,15 +192,9 @@ def eval(cfg: Config,
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
         sur_sample = sdf_data['samples_on_sur']
         sur_normal = sdf_data['normals_on_sur']
-        (_, aux), _ = infer_grad(sur_sample)
-
-        if cfg.loss_cfg.rot6d:
-            Rs = vmap(rot6d_to_R3)(aux[:, :6])
-        else:
-            sh4 = aux[:, :9]
-            # rotvec = proj_sh4_to_rotvec(sh4)
-            # Rs = vmap(rotvec_to_R3)(rotvec)
-            Rs = proj_sh4_to_R3(sh4)
+        aux = infer(sur_sample)[:, 1:]
+        sh4 = param_func(aux)
+        Rs = proj_func(sh4)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
@@ -226,17 +237,8 @@ def eval(cfg: Config,
 
     timer.log('Project SDF')
 
-    (_, aux), VN = infer_grad(V)
-
-    if cfg.loss_cfg.rot6d:
-        Rs = vmap(rot6d_to_R3)(aux[:, :6])
-        sh4 = vmap(R3_to_sh4_zonal)(Rs)
-    else:
-        sh4 = aux[:, :9]
-        # rotvec = proj_sh4_to_rotvec(sh4)
-        # Rs = vmap(rotvec_to_R3)(rotvec)
-        Rs = proj_sh4_to_R3(sh4)
-        sh4 = vmap(R3_to_sh4_zonal)(Rs)
+    (_, sh4), VN = infer_grad(V)
+    Rs = proj_func(sh4)
 
     timer.log('Project SO(3)')
 

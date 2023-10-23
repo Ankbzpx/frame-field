@@ -65,19 +65,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
             param_func = rot6d_to_sh4_zonal
-        elif loss_cfg.rotvec:
-            # Needs second order differentiable
-            param_func = rotvec_to_sh4_expm
-        else:
-            param_func = lambda x: x
-
-        # Map network output to cartesian basis
-        if loss_cfg.rot6d:
             proj_func = vmap(rot6d_to_R3)
         elif loss_cfg.rotvec:
             # Needs second order differentiable
+            param_func = rotvec_to_sh4_expm
             proj_func = vmap(rotvec_to_R3)
         else:
+            param_func = lambda x: x
             proj_func = proj_sh4_to_R3
 
         # I'm not allowed to compare jit traced value with a scalar
