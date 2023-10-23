@@ -152,17 +152,23 @@ def eval(cfg: Config,
     group_size = 256**2
     n_iters = len(V) // group_size
 
-    sdf = jnp.zeros((0,))
-    sh4 = jnp.zeros((0, 9))
-    VN = jnp.zeros((0, 3))
+    if n_iters == 0:
+        (sdf, sh4), VN = infer_grad(V)
+    else:
+        sdf = jnp.zeros((0,))
+        sh4 = jnp.zeros((0, 9))
+        VN = jnp.zeros((0, 3))
 
-    V_splits = jnp.array_split(V, n_iters)
-    for V_split in V_splits:
-        (sdf_, sh4_), VN_ = infer_grad(V_split)
-        sdf = jnp.concatenate([sdf, sdf_])
-        sh4 = jnp.vstack([sh4, sh4_])
-        VN = jnp.vstack([VN, VN_])
+        V_splits = jnp.array_split(V, n_iters)
+        for V_split in V_splits:
+            (sdf_, sh4_), VN_ = infer_grad(V_split)
+            sdf = jnp.concatenate([sdf, sdf_])
+            sh4 = jnp.vstack([sh4, sh4_])
+            VN = jnp.vstack([VN, VN_])
 
+    V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
+    sh4 = sh4[V_id]
+    VN = VN[V_id]
     Rs = proj_func(sh4)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
