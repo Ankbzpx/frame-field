@@ -118,12 +118,7 @@ def eval(cfg: Config,
     @jit
     def infer_grad(x):
         z = latent[None, ...].repeat(len(x), 0)
-        return model.call_grad_param(x, z, param_func)
-
-    if cfg.loss_cfg.rot6d:
-        param_func = rot6d_to_sh4_zonal
-    else:
-        param_func = lambda x: x
+        return model.call_grad(x, z)
 
     @jit
     def infer_smoothness(x):
@@ -153,23 +148,26 @@ def eval(cfg: Config,
     n_iters = len(V) // group_size
 
     if n_iters == 0:
-        (sdf, sh4), VN = infer_grad(V)
+        (sdf, aux), VN = infer_grad(V)
     else:
-        sdf = jnp.zeros((0,))
-        sh4 = jnp.zeros((0, 9))
-        VN = jnp.zeros((0, 3))
+        sdf = None
+        aux = None
+        VN = None
 
         V_splits = jnp.array_split(V, n_iters)
         for V_split in V_splits:
-            (sdf_, sh4_), VN_ = infer_grad(V_split)
-            sdf = jnp.concatenate([sdf, sdf_])
-            sh4 = jnp.vstack([sh4, sh4_])
-            VN = jnp.vstack([VN, VN_])
+            (sdf_, aux_), VN_ = infer_grad(V_split)
+
+            sdf = sdf_ if sdf is None else jnp.concatenate([sdf, sdf_])
+            aux = aux_ if aux is None else jnp.concatenate([aux, aux_])
+            VN = VN_ if VN is None else jnp.concatenate([VN, VN_])
 
     V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
-    sh4 = sh4[V_id]
+    aux = aux[V_id]
+    ic(aux.shape)
+    sh4 = vmap(param_func)(aux)
     VN = VN[V_id]
-    Rs = proj_func(sh4)
+    Rs = proj_func(aux)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
     np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4, sdf=sdf, VN=VN)
@@ -199,8 +197,7 @@ def eval(cfg: Config,
         sur_sample = sdf_data['samples_on_sur']
         sur_normal = sdf_data['normals_on_sur']
         aux = infer(sur_sample)[:, 1:]
-        sh4 = param_func(aux)
-        Rs = proj_func(sh4)
+        Rs = proj_func(aux)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
@@ -243,8 +240,9 @@ def eval(cfg: Config,
 
     timer.log('Project SDF')
 
-    (_, sh4), VN = infer_grad(V)
-    Rs = proj_func(sh4)
+    (_, aux), VN = infer_grad(V)
+    sh4 = vmap(param_func)(aux)
+    Rs = proj_func(aux)
 
     timer.log('Project SO(3)')
 

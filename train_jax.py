@@ -127,7 +127,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_align = loss_cfg.align * double_well_potential(
                     jnp.abs(dps)).sum(-1).mean()
             else:
-                sh4_align = param_func(aux_align)
+                sh4_align = vmap(param_func)(aux_align)
                 R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
                 sh4_n = vmap(project_n)(sh4_align, R9_zn)
                 loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
@@ -138,7 +138,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         if loss_cfg.unit_norm > 0:
             aux_unit_norm = jnp.vstack([aux, aux_off])
-            sh4_unit_norm = param_func(aux_unit_norm)
+            sh4_unit_norm = vmap(param_func)(aux_unit_norm)
 
             loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
                 sh4_unit_norm).mean()
@@ -158,7 +158,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_regularize = regularize_weight * double_well_potential(
                     jnp.abs(dps)).sum(-1).mean()
             else:
-                sh4_reg = param_func(jax.lax.stop_gradient(aux_reg))
+                sh4_reg = vmap(param_func)(jax.lax.stop_gradient(aux_reg))
                 dps = vmap(oct_polynomial_sh4_unit_norm)(normal_reg, sh4_reg)
                 loss_regularize = regularize_weight * (1 - dps).mean()
 
