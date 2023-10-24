@@ -13,7 +13,170 @@ import polyscope as ps
 from icecream import ic
 
 
-def edge_one_ring(T):
+# FIXME: Make it more efficient
+def build_traversal_graph(T):
+    NT = len(T)
+
+    # Build traversal graph
+    # NT x 4 x 3
+    E = np.stack([
+        np.stack([T[:, 0], T[:, 1]], -1),
+        np.stack([T[:, 1], T[:, 2]], -1),
+        np.stack([T[:, 2], T[:, 0]], -1),
+        np.stack([T[:, 1], T[:, 3]], -1),
+        np.stack([T[:, 3], T[:, 2]], -1),
+        np.stack([T[:, 2], T[:, 1]], -1),
+        np.stack([T[:, 0], T[:, 2]], -1),
+        np.stack([T[:, 2], T[:, 3]], -1),
+        np.stack([T[:, 3], T[:, 0]], -1),
+        np.stack([T[:, 0], T[:, 3]], -1),
+        np.stack([T[:, 3], T[:, 1]], -1),
+        np.stack([T[:, 1], T[:, 0]], -1)
+    ], 1).reshape(-1, 2)
+
+    # F_id // 4 gives T_id
+    F_id = np.arange(T.size)
+
+    # Directed face
+    # F (0, 1, 2) (1, 3, 2) (0, 2, 3) (0, 3, 1)
+    F = np.stack([
+        np.stack([T[:, 0], T[:, 1], T[:, 2]], -1),
+        np.stack([T[:, 1], T[:, 3], T[:, 2]], -1),
+        np.stack([T[:, 0], T[:, 2], T[:, 3]], -1),
+        np.stack([T[:, 0], T[:, 3], T[:, 1]], -1)
+    ], 1).reshape(-1, 3)
+
+    # Undirected edge, because I don't think traverse tet clockwise / counter-clockwise matters?
+    ue, ue_idx, ue_idx_inv = np.unique(np.sort(E, axis=1),
+                                       axis=0,
+                                       return_index=True,
+                                       return_inverse=True)
+
+    E_id = np.arange(len(ue))
+    E_map = E_id[np.argsort(ue_idx)]
+    E_map_inv = np.zeros((np.max(E_map) + 1,), dtype=np.int64)
+    E_map_inv[E_map] = E_id
+
+    # We sort edge by its first occurrence in tet face
+    E = ue[E_map]
+    F2E = E_map_inv[ue_idx_inv].reshape(NT * 4, 3)
+
+    TF2E = F2E.reshape(NT, 4, 3)
+
+    face_table = np.array([[3, 1, 2], [3, 2, 0], [0, 1, 3], [2, 1, 0]])
+
+    # next face id sharing the same edge in tet
+    def next_face_id(e_id, f_id):
+        t_id = f_id // 4
+        t_f_id_t = f_id % 4
+
+        F2E = TF2E[t_id]
+        t_f_e_id = np.argwhere(F2E[t_f_id_t] == e_id)[0][0]
+        return t_id * 4 + face_table[t_f_id_t][t_f_e_id]
+
+    # Build F2F
+    # Again, not sure if there is a better way than for loop / list comprehension
+    # Maybe using F2E?
+    F2Fid = dict([(f"{f[0]}_{f[1]}_{f[2]}", f_id) for f, f_id in zip(F, F_id)])
+
+    def opposite_face_id(f_id):
+        v0, v1, v2 = F[f_id]
+
+        key_0 = f"{v0}_{v2}_{v1}"
+        key_1 = f"{v2}_{v1}_{v0}"
+        key_2 = f"{v1}_{v0}_{v2}"
+
+        oppo_f_id = -1
+
+        for key in {key_0, key_1, key_2}:
+            if key in F2Fid:
+                oppo_f_id = F2Fid[key]
+
+        return oppo_f_id
+
+    F2F = -np.ones(T.size, dtype=np.int64)
+    F2F[F_id] = np.array([opposite_face_id(f_id) for f_id in F_id])
+
+    _, uf_inv, uf_count = np.unique(np.sort(F, axis=1),
+                                    axis=0,
+                                    return_counts=True,
+                                    return_inverse=True)
+
+    # TODO: Filter non-manifold
+    T_boundary_id = np.unique(F_id[(uf_count == 1)[uf_inv]] // 4)
+    E_boundary = np.unique(F2E[(uf_count == 1)[uf_inv]])
+
+    E2F_list = np.vstack([
+        np.stack([F2E[:, 0], F_id], -1),
+        np.stack([F2E[:, 1], F_id], -1),
+        np.stack([F2E[:, 2], F_id], -1)
+    ])
+    E2F_sort_idx = np.lexsort(E2F_list.T[::-1])
+    E2F_list_sorted = E2F_list[E2F_sort_idx]
+
+    _, f_count = np.unique(E2F_list_sorted[:, 0], return_counts=True)
+
+    split_indices = np.cumsum(f_count)[:-1]
+    E2F_list = np.split(E2F_list_sorted[:, 1], split_indices)
+
+    # To compute singularity, we need to sort based on one-ring traversal
+    def build_one_ring(e_id, f_ids):
+        f_id = f_ids[0]
+        f_ids_sort = [f_id]
+
+        if e_id in E_boundary:
+            reach_boundary = False
+            while not reach_boundary:
+                prev_f_id = F2F[f_id]
+                if prev_f_id == -1:
+                    reach_boundary = True
+                else:
+                    f_id = next_face_id(e_id, prev_f_id)
+                    f_ids_sort.append(f_id)
+
+            f_ids_sort = f_ids_sort[::-1]
+            f_id = f_ids_sort[-1]
+
+            reach_boundary = False
+            while not reach_boundary:
+                next_f_id = F2F[next_face_id(e_id, f_id)]
+                if next_f_id == -1:
+                    reach_boundary = True
+                else:
+                    f_id = next_f_id
+                    f_ids_sort.append(next_f_id)
+
+            if len(f_ids_sort) == 1:
+                return np.zeros((0, 2))
+            else:
+                return np.array([[f_ids_sort[i], f_ids_sort[i + 1]]
+                                 for i in range(len(f_ids_sort) - 1)])
+
+        else:
+            anchor_id = f_id
+            reach_boundary = False
+            while not reach_boundary:
+                next_f_id = F2F[next_face_id(e_id, f_id)]
+                if next_f_id == anchor_id:
+                    reach_boundary = True
+                else:
+                    f_id = next_f_id
+                    f_ids_sort.append(next_f_id)
+
+            return np.array(
+                [[f_ids_sort[i], f_ids_sort[i + 1]] if i != len(f_ids_sort) - 1
+                 else [f_ids_sort[i], f_ids_sort[0]]
+                 for i in range(len(f_ids_sort))])
+
+    E2DE = [
+        build_one_ring(e_id, el)
+        for (e_id, el) in zip(np.arange(len(E2F_list)), E2F_list)
+    ]
+
+    return E, E2DE, E_boundary
+
+
+def edge_one_ring(V, T):
     # Faces 0:012 1:013 2:123 3:203
     TT, TTi = igl.tet_tet_adjacency(T)
 
@@ -108,20 +271,29 @@ def edge_one_ring(T):
                 t_id_last = -1
                 T_adj_sorted = []
 
+                non_manifold = False
                 finished = False
                 while not finished:
                     e_id = np.argwhere(E2uE[t_id] == ue_id)[0][0]
                     t_id_last, t_id = next_t_id(t_id, e_id, t_id_last)
                     # assert t_id in T_adj
 
+                    # Non-manifold one-ring
+                    if t_id == -1:
+                        non_manifold = True
+                        break
+
                     finished = (t_id == t_id_end)
                     T_adj_sorted.append(t_id)
 
-                if uE_boundary_mask[ue_id]:
-                    T_adj_sorted.insert(0, t_id_boundary[0])
+                if non_manifold:
+                    uE2T[ue_id] = T_adj
+                else:
+                    if uE_boundary_mask[ue_id]:
+                        T_adj_sorted.insert(0, t_id_boundary[0])
 
-                # assert len(T_adj_sorted) == len(T_adj)
-                uE2T[ue_id] = np.array(T_adj_sorted, dtype=np.int64)
+                    # assert len(T_adj_sorted) == len(T_adj)
+                    uE2T[ue_id] = np.array(T_adj_sorted, dtype=np.int64)
 
     return uE, uE_boundary_mask, uE2T
 
