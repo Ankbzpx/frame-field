@@ -1,9 +1,13 @@
 import numpy as np
+import cvxpy as cp
 import optax
 
 from common import normalize
 import jax
 from jax import numpy as jnp, vmap, grad, jit, value_and_grad
+from joblib import delayed, Parallel
+import multiprocessing
+import scipy.io
 
 import polyscope as ps
 from icecream import ic
@@ -714,6 +718,49 @@ def A3_to_non_orth_zonal(A3):
 def vec9_to_non_orth_zonal(vec9):
     A3 = vec9_to_A3(vec9)
     return A3_to_non_orth_zonal(A3)
+
+
+OctaMat = scipy.io.loadmat('data/octa/OctaMat.mat')
+
+# Put sh0 coefficient into constraints, so output no longer need to be normalized
+S_sdp = np.diag(np.stack([oct_00] + [1] * 9))
+
+A_sdp = [np.diag(np.stack([1] + [0] * 9))]
+for m in OctaMat.values():
+    A_sdp.append(np.float64(S_sdp @ m @ S_sdp))
+b_sdp = np.stack([1] + [0] * 15).astype(np.float64)
+
+
+# Reference: Section 4.2 of "Algebraic Representations for Volumetric Frame Fields" by PALMER et al.
+def proj_sh4_sdp(sh4s_target, n_jobs=None):
+
+    def sdp_proj(q):
+        Y = np.eye(10, dtype=np.float64)
+        Y[0, 0] = np.linalg.norm(q)**2
+        Y[0, 1:] = -q
+        Y[1:, 0] = -q
+
+        Q = cp.Variable((10, 10), symmetric=True)
+        constraints = [Q >> 0]
+        constraints += [cp.trace(A_sdp[i] @ Q) == b_sdp[i] for i in range(16)]
+        prob = cp.Problem(cp.Minimize(cp.trace(Y @ Q)), constraints)
+        prob.solve()
+
+        if Q is None:
+            print("SDP Failed. Return input instead")
+            return q
+        else:
+            return Q.value[0, 1:]
+
+    if len(sh4s_target.shape) < 2:
+        return sdp_proj(sh4s_target)
+    else:
+        if n_jobs is None:
+            n_jobs = multiprocessing.cpu_count() - 1
+
+        res = Parallel(n_jobs=n_jobs)(
+            delayed(sdp_proj)(sh4) for sh4 in sh4s_target)
+        return np.array(res)
 
 
 if __name__ == '__main__':

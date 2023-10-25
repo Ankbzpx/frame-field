@@ -2,7 +2,7 @@ import numpy as np
 import jax
 from jax import vmap, numpy as jnp, jit, grad
 from common import vis_oct_field, normalize
-from sh_representation import rotvec_to_R3, rotvec_to_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec
+from sh_representation import rotvec_to_R3, rotvec_to_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec, proj_sh4_sdp
 
 import polyscope as ps
 from icecream import ic
@@ -38,6 +38,8 @@ if __name__ == '__main__':
          np.linspace(-1, 1, n_step),
          np.zeros(n_step)], -1)
 
+    # From "Algebraic Representations for Volumetric Frame Fields" by PALMER et al.
+    #   "Taking steps smaller enough from the variety, the projection will be generically exact"
     V_1_vis, F_1_vis = vis_oct_field(proj_sh4_to_R3(sh4_interp), V_1, 0.1)
 
     V_2 = np.stack(
@@ -45,7 +47,6 @@ if __name__ == '__main__':
          np.linspace(-1, 1, n_step),
          np.zeros(n_step)], -1)
 
-    # It gives valid sh4 induced from SO(3)
     sh4_interp_valid = vmap(rotvec_to_sh4)(proj_sh4_to_rotvec(sh4_interp))
     V_2_vis, F_2_vis = vis_oct_field(proj_sh4_to_R3(sh4_interp_valid), V_2, 0.1)
 
@@ -54,13 +55,12 @@ if __name__ == '__main__':
          np.linspace(-1, 1, n_step),
          np.zeros(n_step)], -1)
 
-    sh4_interp_normalized = vmap(normalize)(sh4_interp)
-    V_3_vis, F_3_vis = vis_oct_field(proj_sh4_to_R3(sh4_interp_normalized), V_3,
-                                     0.1)
+    sh4_interp_octa = proj_sh4_sdp(sh4_interp)
+    V_3_vis, F_3_vis = vis_oct_field(proj_sh4_to_R3(sh4_interp_octa), V_3, 0.1)
 
     ps.init()
     ps.register_surface_mesh('rotvec interp', V_0_vis, F_0_vis)
-    ps.register_surface_mesh('sh4 interp', V_1_vis, F_1_vis)
-    ps.register_surface_mesh('sh4 interp (valid)', V_2_vis, F_2_vis)
-    ps.register_surface_mesh('sh4 interp (normalize)', V_3_vis, F_3_vis)
+    ps.register_surface_mesh('sh4 interp (power iteration)', V_1_vis, F_1_vis)
+    ps.register_surface_mesh('sh4 interp (gradient descent)', V_2_vis, F_2_vis)
+    ps.register_surface_mesh('sh4 interp (SDP)', V_3_vis, F_3_vis)
     ps.show()
