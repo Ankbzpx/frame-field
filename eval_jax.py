@@ -162,11 +162,10 @@ def eval(cfg: Config,
             aux = aux_ if aux is None else jnp.concatenate([aux, aux_])
             VN = VN_ if VN is None else jnp.concatenate([VN, VN_])
 
-    V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
-    aux = aux[V_id]
-    ic(aux.shape)
+    # V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
+    # aux = aux[V_id]
+    # VN = VN[V_id]
     sh4 = vmap(param_func)(aux)
-    VN = VN[V_id]
     Rs = proj_func(aux)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
@@ -242,6 +241,9 @@ def eval(cfg: Config,
 
     (_, aux), VN = infer_grad(V)
     sh4 = vmap(param_func)(aux)
+
+    print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+
     Rs = proj_func(aux)
 
     timer.log('Project SO(3)')

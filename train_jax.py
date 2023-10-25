@@ -133,17 +133,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                (sh4_align, sh4_n)).mean()
 
+                loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
+                    sh4_align).mean()
+                loss += loss_unit_norm
+                loss_dict['loss_unit_norm'] = loss_unit_norm
+
             loss += loss_align
             loss_dict['loss_align'] = loss_align
-
-        if loss_cfg.unit_norm > 0:
-            aux_unit_norm = jnp.vstack([aux, aux_off])
-            sh4_unit_norm = vmap(param_func)(aux_unit_norm)
-
-            loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                sh4_unit_norm).mean()
-            loss += loss_unit_norm
-            loss_dict['loss_unit_norm'] = loss_unit_norm
 
         if loss_cfg.regularize > 0:
             # For regularization, we match normal with oct frame, thus we stop back propagation w.r.t. oct frame
