@@ -34,7 +34,7 @@ class LossConfig:
     eikonal: float = 5e1
 
     align: float = 1e2    # sh4
-    unit_norm: float = 0    # sh4 norm
+    unit_norm: float = 1    # sh4 norm
     lip: float = 0
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface

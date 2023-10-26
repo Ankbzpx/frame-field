@@ -1,8 +1,8 @@
 {
-    "sdf_paths": ["data/sdf/join.npz"],
+    "sdf_paths": ["data/sdf/rocker_arm.npz"],
     "mlp_types": [
         "Siren",
-        "StandardMLP"
+        "LipMLP"
     ],
     "mlps": [
         {
@@ -15,6 +15,7 @@
         }
     ],
     "loss_cfg": {
-        "smooth": 1
+        "lip": 1e-6,
+        "unit_norm": 1e2
     }
 }

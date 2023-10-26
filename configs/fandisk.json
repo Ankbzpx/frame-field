@@ -2,7 +2,7 @@
     "sdf_paths": ["data/sdf/fandisk.npz"],
     "mlp_types": [
         "Siren",
-        "Siren"
+        "StandardMLP"
     ],
     "mlps": [
         {
@@ -10,13 +10,11 @@
             "out_features": 1
         },
         {
-            "hidden_layers": 4,
+            "hidden_layers": 2,
             "out_features": 9
         }
     ],
     "loss_cfg": {
-        "smooth": 1e-2,
-        "align": 3e3,
-        "unit_norm": 1e2
+        "smooth": 1
     }
 }
