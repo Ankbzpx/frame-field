@@ -5,7 +5,7 @@ from jax import vmap, numpy as jnp, jit
 import pickle
 
 from common import ps_register_curve_network, vis_oct_field, normalize_aabb, Timer
-from sh_representation import proj_sh4_to_R3, R3_to_sh4_zonal
+from sh_representation import proj_sh4_to_R3, R3_to_sh4_zonal, proj_sh4_sdp
 
 import frame_field_utils
 
@@ -381,48 +381,57 @@ if __name__ == '__main__':
 
     V = np.float64(data['V'])
     T = np.int64(data['T'])
-    Rs: np.array = data['Rs']
     sh4: np.array = data['sh4']
 
-    # Use tet based representation, so the singularities are defined on edges, allowing us to cut directly along faces
-    # Follow "Boundary Aligned Smooth 3D Cross-Frame Field" by Jin Huang et al., we transform from vertex based to tet via simple averaging
-    V_bary = V[T].mean(axis=1)
+    # L = igl.cotmatrix(V, T)
+    # M = igl.massmatrix(V, T)
+    # M_inv = scipy.sparse.diags(1 / M.diagonal())
 
-    if len(Rs) == len(T):
-        Rs_bary = Rs
-        sh4_bary = sh4
-    else:
-        # Do NOT normalize it directly!
-        sh4_bary = sh4[T].mean(axis=1)
-        Rs_bary = proj_sh4_to_R3(sh4_bary)
-        sh4_bary = vmap(R3_to_sh4_zonal)(Rs_bary)
+    # # point-wise energy
+    # V_energy = vmap(jnp.linalg.norm)(M_inv @ (-L) @ sh4)
 
-    timer.log('Load and interpolate data')
+    # ps.init()
+    # pc = ps.register_volume_mesh('pc', V, T)
+    # if V_mc is not None:
+    #     ps.register_surface_mesh('mc', V_mc, F_mc)
+    # pc.add_scalar_quantity('Energy', V_energy, enabled=True)
+    # ps.show()
 
-    uE, uE_boundary_mask, uE2T, uE2T_cumsum = frame_field_utils.tet_edge_one_ring(
-        T)
+    timer.log('Load data')
 
-    timer.log('Build edge one ring')
+    sh4_octa = proj_sh4_sdp(sh4)
 
     # save_tmp({
     #     'V': V,
     #     'T': T,
-    #     'Rs': Rs,
     #     'sh4': sh4,
-    #     'uE': uE,
-    #     'uE_boundary_mask': uE_boundary_mask,
-    #     'uE2T': uE2T,
-    #     'V_bary': V_bary,
-    #     'Rs_bary': Rs_bary,
-    #     'sh4_bary': sh4_bary
+    #     'sh4_octa': sh4_octa
     # })
 
     # exit()
 
     # load_tmp()
 
+    # Use tet based representation, so the singularities are defined on edges, allowing us to cut directly along faces
+    # Follow "Boundary Aligned Smooth 3D Cross-Frame Field" by Jin Huang et al., we transform from vertex based to tet via simple averaging
+    V_bary = V[T].mean(axis=1)
+    sh4_bary = sh4[T].mean(axis=1)
+    Rs_bary = proj_sh4_to_R3(sh4_bary)
+
+    sh4_bary_octa = sh4_octa[T].mean(axis=1)
+    Rs_bary_octa = proj_sh4_to_R3(sh4_bary_octa)
+
+    timer.log('Project and interpolate SH4')
+
+    uE, uE_boundary_mask, uE2T, uE2T_cumsum = frame_field_utils.tet_edge_one_ring(
+        T)
+
+    timer.log('Build edge one ring')
+
     uE_singularity_mask = frame_field_utils.tet_edge_singularity(
         uE, uE_boundary_mask, uE2T, uE2T_cumsum, Rs_bary)
+    uE_singularity_mask_octa = frame_field_utils.tet_edge_singularity(
+        uE, uE_boundary_mask, uE2T, uE2T_cumsum, Rs_bary_octa)
 
     timer.log('Compute singularity')
 
@@ -434,4 +443,6 @@ if __name__ == '__main__':
     if V_mc is not None:
         ps.register_surface_mesh('mc', V_mc, F_mc)
     ps_register_curve_network('singularity', V, uE[uE_singularity_mask])
+    ps_register_curve_network('singularity SDP', V,
+                              uE[uE_singularity_mask_octa])
     ps.show()

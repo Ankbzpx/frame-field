@@ -5,10 +5,7 @@ import optax
 from common import normalize, Timer
 import jax
 from jax import numpy as jnp, vmap, grad, jit, value_and_grad
-from joblib import delayed, Parallel
-import multiprocessing
-import scipy.io
-import scs
+import frame_field_utils
 
 import polyscope as ps
 from icecream import ic
@@ -721,106 +718,14 @@ def vec9_to_non_orth_zonal(vec9):
     return A3_to_non_orth_zonal(A3)
 
 
-class SDPHelper:
-
-    def __init__(self):
-        OctaMat = scipy.io.loadmat('data/octa/OctaMat.mat')
-
-        # Put sh0 coefficient into constraints, so output no longer need to be normalized
-        S_sdp = np.diag(np.stack([oct_00] + [1] * 9))
-
-        A_sdp = [np.diag(np.stack([1] + [0] * 9))]
-        for m in OctaMat.values():
-            A_sdp.append(np.float64(S_sdp @ m @ S_sdp))
-        b_sdp = np.stack([1] + [0] * 15).astype(np.float64)
-
-        # Used to construct the problem, so value doesn't matter here
-        np.random.seed(0)
-        q = np.random.randn(9)
-        Y = np.eye(10, dtype=np.float64)
-        Y[0, 0] = np.linalg.norm(q)**2
-        Y[0, 1:] = -q
-        Y[1:, 0] = -q
-
-        Q = cp.Variable((10, 10), symmetric=True)
-        constraints = [Q >> 0]
-        constraints += [cp.trace(A_sdp[i] @ Q) == b_sdp[i] for i in range(16)]
-        prob = cp.Problem(cp.Minimize(cp.trace(Y @ Q)), constraints)
-        data, _, _ = prob.get_problem_data(cp.SCS)
-
-        self.A = data['A']
-        self.b = data['b']
-
-        cone_dims = data['dims']
-        self.cones = {
-            "z": cone_dims.zero,
-            "l": cone_dims.nonneg,
-            "q": cone_dims.soc,
-            "ep": cone_dims.exp,
-            "s": cone_dims.psd,
-        }
-
-    def cal_c(self, q):
-        c = np.eye(10)[np.triu_indices(10)]
-        c[0] = np.linalg.norm(q)**2
-        c[1:10] = -q * 2
-        return c
-
-    def proj_sh4_sdp(self,
-                     sh4s_target,
-                     batch_size=2048,
-                     n_jobs=None,
-                     verbose=False):
-
-        if len(sh4s_target.shape) < 2:
-            sh4s_target = sh4s_target[None, ...]
-
-        def sdp_proj_batch(cs):
-            data = {
-                'A': self.A,
-                'b': self.b,
-                'c': cs[0],
-            }
-            solver = scs.SCS(data, self.cones, verbose=False)
-            sol = solver.solve()
-            res = [sol["x"][1:10]]
-
-            for c in cs[1:]:
-                solver.update(c=c)
-                sol = solver.solve()
-                x = sol["x"][1:10]
-                res.append(x)
-
-            return np.stack(res)
-
-        cs = [self.cal_c(q) for q in sh4s_target]
-        num_samples = len(cs)
-
-        if num_samples < batch_size:
-            return sdp_proj_batch(cs)
-        else:
-            split_size = num_samples // batch_size
-            cs = np.array_split(cs, split_size)
-
-            if n_jobs is None:
-                n_jobs = multiprocessing.cpu_count() - 1
-            n_jobs = min(n_jobs, split_size)
-
-            if verbose:
-                print(f"Scheduling {split_size} tasks")
-
-            res = Parallel(n_jobs=n_jobs, verbose=10 if verbose else 0)(
-                delayed(sdp_proj_batch)(cs_batch) for cs_batch in cs)
-
-            return np.concatenate(res)
-
-
-_sdp_helper = SDPHelper()
+_sdp_helper = frame_field_utils.SH4SDPProjectHelper()
 
 
 # Reference: Section 4.2 of "Algebraic Representations for Volumetric Frame Fields" by PALMER et al.
-def proj_sh4_sdp(sh4s_target, **kwargs):
-    return _sdp_helper.proj_sh4_sdp(sh4s_target, **kwargs)
+def proj_sh4_sdp(sh4s_target):
+    if len(sh4s_target.shape) < 2:
+        sh4s_target = sh4s_target[None, ...]
+    return _sdp_helper.project(sh4s_target)
 
 
 if __name__ == '__main__':

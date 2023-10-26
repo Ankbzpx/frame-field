@@ -142,7 +142,7 @@ def eval(cfg: Config,
     timer = Timer()
 
     grid_scale = 1.25 * eval_data_scale(cfg)
-    V, T = tet_from_grid_scale(64, grid_scale)
+    V, T = tet_from_grid_scale(48, grid_scale)
 
     group_size = 256**2
     n_iters = len(V) // group_size
@@ -166,10 +166,9 @@ def eval(cfg: Config,
     # aux = aux[V_id]
     # VN = VN[V_id]
     sh4 = vmap(param_func)(aux)
-    Rs = proj_func(aux)
 
     param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
-    np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4, sdf=sdf, VN=VN)
+    np.savez(param_path, V=V, T=T, sh4=sh4)
 
     timer.log('Extract parameterization')
 
