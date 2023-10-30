@@ -7,7 +7,7 @@ from typing import Callable
 import scipy
 import scipy.sparse.linalg
 
-from common import normalize_aabb, normalize, rm_unref_vertices, Timer
+from common import normalize_aabb, normalize, rm_unref_vertices, Timer, surface_vertex_topology
 
 import open3d as o3d
 import argparse
@@ -38,14 +38,9 @@ def per_face_basis(verts):
 # TODO: Add crease normal
 def build_traversal_graph(V, F):
     V, F = rm_unref_vertices(V, F)
+    E, V_boundary, V_nonmanifold = surface_vertex_topology(V, F)
 
     E_id = np.arange(F.size)
-    E = np.stack([
-        np.stack([F[:, 0], F[:, 1]], -1),
-        np.stack([F[:, 1], F[:, 2]], -1),
-        np.stack([F[:, 2], F[:, 0]], -1)
-    ], 1).reshape(-1, 2)
-
     # Not sure if there is a more efficient approach
     E2Eid = dict([(f"{e[0]}_{e[1]}", e_id) for e, e_id in zip(E, E_id)])
 
@@ -56,19 +51,6 @@ def build_traversal_graph(V, F):
 
     E2E = -np.ones(F.size, dtype=np.int64)
     E2E[E_id] = np.array(list(map(opposite_edge_id, E_id)))
-
-    # Use row-wise unique to filter boundary and nonmanifold vertices
-    E_row_sorted = np.sort(E, axis=1)
-    _, ue_inv, ue_count = np.unique(E_row_sorted,
-                                    axis=0,
-                                    return_counts=True,
-                                    return_inverse=True)
-
-    V_boundary = np.full((len(V)), False)
-    V_boundary[list(np.unique(E[(ue_count == 1)[ue_inv]][:, 0]))] = True
-
-    V_nonmanifold = np.full((len(V)), False)
-    V_nonmanifold[list(np.unique(E[(ue_count > 2)[ue_inv]][:, 0]))] = True
 
     # build V2E map
     # https://stackoverflow.com/questions/38277143/sort-2d-numpy-array-lexicographically

@@ -96,6 +96,29 @@ def rm_unref_vertices(V, F):
     return V, F
 
 
+def surface_vertex_topology(V, F):
+    E = np.stack([
+        np.stack([F[:, 0], F[:, 1]], -1),
+        np.stack([F[:, 1], F[:, 2]], -1),
+        np.stack([F[:, 2], F[:, 0]], -1)
+    ], 1).reshape(-1, 2)
+
+    # Use row-wise unique to filter boundary and nonmanifold vertices
+    E_row_sorted = np.sort(E, axis=1)
+    _, ue_inv, ue_count = np.unique(E_row_sorted,
+                                    axis=0,
+                                    return_counts=True,
+                                    return_inverse=True)
+
+    V_boundary = np.full((len(V)), False)
+    V_boundary[list(np.unique(E[(ue_count == 1)[ue_inv]][:, 0]))] = True
+
+    V_nonmanifold = np.full((len(V)), False)
+    V_nonmanifold[list(np.unique(E[(ue_count > 2)[ue_inv]][:, 0]))] = True
+
+    return E, V_boundary, V_nonmanifold
+
+
 # Remove isolated components except for the most promising one
 def filter_components(V, F, VN):
     A = igl.adjacency_matrix(F)
@@ -332,22 +355,14 @@ def tet_from_grid(res, grid_min=-1.0, grid_max=1.0):
 
 
 # TODO: Nasty workaround, should find a better way to do it
-def tet_from_grid_scale(res, grid_scale):
+def voxel_tet_from_grid_scale(res, grid_scale):
     max_scale = (grid_scale / grid_scale.min(keepdims=True)).max()
     res_scale = np.round(max_scale * res).astype(int)
     if res_scale % 2 == 1:
         res_scale += 1
 
     V, T = tet_from_grid(res_scale)
-    V_mask = np.ones(len(V)).astype(bool)
-
-    grid_scale_safe = grid_scale / grid_scale.max(keepdims=True)
-    V_mask[np.abs(V[:, 0]) > grid_scale_safe[0]] = False
-    V_mask[np.abs(V[:, 1]) > grid_scale_safe[1]] = False
-    V_mask[np.abs(V[:, 2]) > grid_scale_safe[2]] = False
-    T_mask = V_mask[T].sum(axis=1) == 4
-    V, T = rm_unref_vertices(V, T[T_mask])
-    V = V * grid_scale.max()
+    V, T = crop_tets(V, T, grid_scale)
 
     return V, T
 
@@ -357,3 +372,27 @@ def tet_from_grid_scale(res, grid_scale):
     # assert len(V) == np.prod(grid_res)
 
     # return V, T, grid_res
+
+
+def tet_from_grid_scale(target_res, grid_scale):
+    grid_scale_nm = grid_scale / grid_scale.max(keepdims=True)
+
+    res_candidates = np.array([20, 30, 60, 90])
+    res = target_res / grid_scale_nm.min()
+    res_pick = res_candidates[np.argmin(np.abs(res_candidates - res))]
+
+    V, T, _ = igl.read_off(f'data/cube/cube_{res_pick}.off')
+    V, T = crop_tets(V, T, grid_scale)
+    return V, T
+
+
+def crop_tets(V, T, grid_scale):
+    V_mask = np.ones(len(V)).astype(bool)
+    grid_scale_safe = grid_scale / grid_scale.max(keepdims=True)
+    V_mask[np.abs(V[:, 0]) > grid_scale_safe[0]] = False
+    V_mask[np.abs(V[:, 1]) > grid_scale_safe[1]] = False
+    V_mask[np.abs(V[:, 2]) > grid_scale_safe[2]] = False
+    T_mask = V_mask[T].sum(axis=1) == 4
+    V, T = rm_unref_vertices(V, T[T_mask])
+    V = V * grid_scale.max()
+    return V, T

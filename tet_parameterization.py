@@ -4,8 +4,8 @@ import jax
 from jax import vmap, numpy as jnp, jit
 import pickle
 
-from common import ps_register_curve_network, vis_oct_field, normalize_aabb, Timer
-from sh_representation import proj_sh4_to_R3, R3_to_sh4_zonal, proj_sh4_sdp
+from common import ps_register_curve_network, Timer
+from sh_representation import (proj_sh4_to_R3, proj_sh4_sdp)
 
 import frame_field_utils
 
@@ -399,41 +399,46 @@ if __name__ == '__main__':
 
     timer.log('Load data')
 
-    sh4_octa = proj_sh4_sdp(sh4)
-
-    # save_tmp({
-    #     'V': V,
-    #     'T': T,
-    #     'sh4': sh4,
-    #     'sh4_octa': sh4_octa
-    # })
-
-    # exit()
-
-    # load_tmp()
-
     # Use tet based representation, so the singularities are defined on edges, allowing us to cut directly along faces
     # Follow "Boundary Aligned Smooth 3D Cross-Frame Field" by Jin Huang et al., we transform from vertex based to tet via simple averaging
     V_bary = V[T].mean(axis=1)
     sh4_bary = sh4[T].mean(axis=1)
     Rs_bary = proj_sh4_to_R3(sh4_bary)
 
+    sh4_octa = proj_sh4_sdp(sh4)
     sh4_bary_octa = sh4_octa[T].mean(axis=1)
     Rs_bary_octa = proj_sh4_to_R3(sh4_bary_octa)
 
     timer.log('Project and interpolate SH4')
 
-    uE, uE_boundary_mask, uE2T, uE2T_cumsum = frame_field_utils.tet_edge_one_ring(
-        T)
+    TT, TTi = igl.tet_tet_adjacency(T)
+    uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, E2uE, E2T = frame_field_utils.tet_edge_one_ring(
+        T, TT)
 
     timer.log('Build edge one ring')
 
-    uE_singularity_mask = frame_field_utils.tet_edge_singularity(
-        uE, uE_boundary_mask, uE2T, uE2T_cumsum, Rs_bary)
-    uE_singularity_mask_octa = frame_field_utils.tet_edge_singularity(
-        uE, uE_boundary_mask, uE2T, uE2T_cumsum, Rs_bary_octa)
+    uE_singularity_mask = frame_field_utils.tet_frame_singularity(
+        uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, Rs_bary)
+    uE_singularity_mask_octa = frame_field_utils.tet_frame_singularity(
+        uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum,
+        Rs_bary_octa)
 
     timer.log('Compute singularity')
+
+    save_tmp({
+        'V': V,
+        'T': T,
+        'Rs': Rs_bary_octa,
+        'sh4s': sh4_bary_octa,
+        'uE': uE,
+        'uE_boundary_mask': uE_boundary_mask,
+        'uE_non_manifold_mask': uE_non_manifold_mask,
+        'uE_singularity_mask': uE_singularity_mask_octa,
+        'uE2T': uE2T,
+        'uE2T_cumsum': uE2T_cumsum,
+        'E2uE': E2uE,
+        'E2T': E2T
+    })
 
     F = igl.boundary_facets(T)
     F = np.stack([F[:, 2], F[:, 1], F[:, 0]], -1)
@@ -442,7 +447,10 @@ if __name__ == '__main__':
     ps.register_surface_mesh('tet', V, F, enabled=False)
     if V_mc is not None:
         ps.register_surface_mesh('mc', V_mc, F_mc)
-    ps_register_curve_network('singularity', V, uE[uE_singularity_mask])
+    ps_register_curve_network('singularity',
+                              V,
+                              uE[uE_singularity_mask],
+                              enabled=False)
     ps_register_curve_network('singularity SDP', V,
                               uE[uE_singularity_mask_octa])
     ps.show()
