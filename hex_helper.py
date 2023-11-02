@@ -72,6 +72,28 @@ def read_hexex(path) -> HexMesh:
         return HexMesh(vertices, tets, uvws, wall_facets)
 
 
+def write_hex(path, hex_mesh: HexMesh):
+
+    assert len(hex_mesh.tets) == len(hex_mesh.uvws)
+
+    with open(path, 'w', encoding='utf-8') as f:
+
+        NV = len(hex_mesh.vertices)
+        f.write(f'{NV}\n')
+
+        for v in hex_mesh.vertices:
+            f.write(f'{v[0]} {v[1]} {v[2]}\n')
+
+        NT = len(hex_mesh.tets)
+        f.write(f'{NT}\n')
+
+        for (tet, uvw) in zip(hex_mesh.tets, hex_mesh.uvws):
+            uvw = uvw.reshape(-1,)
+            f.write(
+                f'{tet[0]} {tet[1]} {tet[2]} {tet[3]} {uvw[0]} {uvw[1]} {uvw[2]} {uvw[3]} {uvw[4]} {uvw[5]} {uvw[6]} {uvw[7]} {uvw[8]} {uvw[9]} {uvw[10]} {uvw[11]}\n'
+            )
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
