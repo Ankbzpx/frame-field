@@ -56,6 +56,35 @@ def ps_register_curve_network(name, V, E, **wargs):
     ps.register_curve_network(name, V, E, **wargs)
 
 
+def ps_register_basis(name,
+                      Rs,
+                      V,
+                      length=0.02,
+                      radius=0.0015,
+                      enabled=True,
+                      **wargs):
+    pc = ps.register_point_cloud(name, V, radius=1e-4, enabled=enabled, **wargs)
+
+    pc.add_vector_quantity('x',
+                           Rs[..., 0],
+                           radius=radius,
+                           length=length,
+                           enabled=True,
+                           **wargs)
+    pc.add_vector_quantity('y',
+                           Rs[..., 1],
+                           radius=radius,
+                           length=length,
+                           enabled=True,
+                           **wargs)
+    pc.add_vector_quantity('z',
+                           Rs[..., 2],
+                           radius=radius,
+                           length=length,
+                           enabled=True,
+                           **wargs)
+
+
 # Replace entries in sparse matrix by coefficient weighted identity blocks
 def unroll_identity_block(A, dim):
     H, W = A.shape

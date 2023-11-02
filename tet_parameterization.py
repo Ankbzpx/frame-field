@@ -361,6 +361,8 @@ def load_tmp(name='tmp', folder='tmp'):
     for key in data.keys():
         set_var_by_name(key, data[key])
 
+    return data
+
 
 if __name__ == '__main__':
     import argparse
@@ -383,6 +385,12 @@ if __name__ == '__main__':
     T = np.int64(data['T'])
     sh4: np.array = data['sh4']
 
+    timer.log('Load data')
+
+    T = frame_field_utils.tet_fix_index_order(V, T)
+
+    timer.log('Fix index order')
+
     # L = igl.cotmatrix(V, T)
     # M = igl.massmatrix(V, T)
     # M_inv = scipy.sparse.diags(1 / M.diagonal())
@@ -397,15 +405,15 @@ if __name__ == '__main__':
     # pc.add_scalar_quantity('Energy', V_energy, enabled=True)
     # ps.show()
 
-    timer.log('Load data')
-
     # Use tet based representation, so the singularities are defined on edges, allowing us to cut directly along faces
     # Follow "Boundary Aligned Smooth 3D Cross-Frame Field" by Jin Huang et al., we transform from vertex based to tet via simple averaging
     V_bary = V[T].mean(axis=1)
     sh4_bary = sh4[T].mean(axis=1)
     Rs_bary = proj_sh4_to_R3(sh4_bary)
 
+    # Technically, we could directly infer sh4 at each tets barycenter, but given NT >> NV, SDP would be extremely heavy..
     sh4_octa = proj_sh4_sdp(sh4)
+    # Small linear interpolated sh4 won't deviate much from the variety, hence its recovery would be sufficiently accurate
     sh4_bary_octa = sh4_octa[T].mean(axis=1)
     Rs_bary_octa = proj_sh4_to_R3(sh4_bary_octa)
 
@@ -447,10 +455,11 @@ if __name__ == '__main__':
     ps.register_surface_mesh('tet', V, F, enabled=False)
     if V_mc is not None:
         ps.register_surface_mesh('mc', V_mc, F_mc)
-    ps_register_curve_network('singularity',
-                              V,
-                              uE[uE_singularity_mask],
-                              enabled=False)
-    ps_register_curve_network('singularity SDP', V,
-                              uE[uE_singularity_mask_octa])
+    if uE_singularity_mask.sum() > 0:
+        ps_register_curve_network('singularity',
+                                  V,
+                                  uE[uE_singularity_mask],
+                                  enabled=False)
+        ps_register_curve_network('singularity SDP', V,
+                                  uE[uE_singularity_mask_octa])
     ps.show()

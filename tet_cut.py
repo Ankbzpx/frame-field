@@ -4,7 +4,7 @@ import pickle
 import queue
 
 from jax import vmap, jit, numpy as jnp
-from common import vis_oct_field, ps_register_curve_network, rm_unref_vertices, surface_vertex_topology, normalize
+from common import vis_oct_field, ps_register_curve_network, rm_unref_vertices, surface_vertex_topology, normalize, Timer
 from tet_parameterization import transition_matrix
 import frame_field_utils
 
@@ -199,21 +199,25 @@ def is_tet_manifold(T, TT, TTi, uE=None, F2uF=None, **kwargs):
     return NV - NE + NF - NC == 1
 
 
-def extract_seams(Rs_comb, F, T, TT, TTi, F2uF, **kwargs):
+def extract_seams(Rs_comb, F, T, TT, TTi, F2uF, uF2uE, **kwargs):
     TT_mismatch = frame_field_utils.tet_frame_mismatch(T, TT, TTi, Rs_comb)
     uF_seam, uF_seam_idx = np.unique(F2uF[TT_mismatch], return_index=True)
-    F_seams = F[TT_mismatch][uF_seam_idx]
-    return uF_seam, F_seams, TT_mismatch
-
-
-def dissolve_non_manifold(Rs_comb, uF_seam, uE_singularity_mask, uE2T_adj_list,
-                          uE2uF_adj_list, uF2uE, F2uF, **kwargs):
+    F_seam = F[TT_mismatch][uF_seam_idx]
     uE_seam = np.unique(uF2uE[uF_seam])
+    V_seam = np.unique(F_seam)
+    return V_seam, uE_seam, uF_seam, F_seam
+
+
+def dissolve_non_manifold(Rs_comb, uE_seam, uF_seam, uE_singularity_mask, uE2T,
+                          uE2T_cumsum, uE2uF, uE2uF_cumsum, uF2uE, F2uF,
+                          **kwargs):
     uF_seam_mask = np.zeros(F2uF.max() + 1).astype(bool)
     uF_seam_mask[uF_seam] = True
 
-    uE_F_seams_count = np.array(
-        [uF_seam_mask[uE2uF_adj_list[uE_id]].sum() for uE_id in uE_seam])
+    uE_F_seams_count = np.array([
+        uF_seam_mask[uE2uF[uE2uF_cumsum[uE_id]:uE2uF_cumsum[uE_id + 1]]].sum()
+        for uE_id in uE_seam
+    ])
 
     # Filter out irregular edges
     uE_non_manifold_singular = uE_seam[uE_F_seams_count == 3]
@@ -237,7 +241,7 @@ def dissolve_non_manifold(Rs_comb, uF_seam, uE_singularity_mask, uE2T_adj_list,
     )
 
     for uE_id in uE_ids_non_manifold:
-        T_adj = uE2T_adj_list[uE_id]
+        T_adj = uE2T[uE2T_cumsum[uE_id]:uE2T_cumsum[uE_id + 1]]
         Rs_one_ring = Rs_comb[T_adj]
         transitions = vmap(transition_matrix)(Rs_one_ring,
                                               np.roll(Rs_one_ring, -1, axis=0))
@@ -272,10 +276,9 @@ def dissolve_non_manifold(Rs_comb, uF_seam, uE_singularity_mask, uE2T_adj_list,
     return Rs_comb, True
 
 
-def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
+def dissolve_uncuttable(Rs_comb, uE_seam, uF_seam, uE, uE_singularity_mask,
                         uE_ids_singular, V_singular_mask, uF2uE, F2uF, uF2T,
-                        uE2uF_adj_list, **kwargs):
-    uE_seam = np.unique(uF2uE[uF_seam])
+                        uE2uF, uE2uF_cumsum, **kwargs):
     # Update the mask
     uF_seam_mask = np.zeros(F2uF.max() + 1).astype(bool)
     uF_seam_mask[uF_seam] = True
@@ -285,7 +288,7 @@ def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
     uE_mark = np.zeros(len(uE)).astype(bool)
     uF_mark = np.zeros(F2uF.max() + 1).astype(bool)
 
-    uF_cuttable_mask = np.zeros(F2uF.max() + 1).astype(bool)
+    uF_seam_uncuttable = []
 
     # TODO: Use uF based BFS
     for uE_id_start in uE_ids_singular:
@@ -298,7 +301,7 @@ def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
 
         while not Q_bfs.empty():
             uE_id = Q_bfs.get()
-            uF_ids = uE2uF_adj_list[uE_id]
+            uF_ids = uE2uF[uE2uF_cumsum[uE_id]:uE2uF_cumsum[uE_id + 1]]
 
             for uF_id in uF_ids:
 
@@ -321,7 +324,8 @@ def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
                 if np.any(V_singular_mask[T[uF2T[uF_id]]].sum(1) == 4):
                     cuttable = False
 
-                uF_cuttable_mask[uF_id] = cuttable
+                if not cuttable:
+                    uF_seam_uncuttable.append(uF_id)
 
                 for uE_id_next in uE_ids_next:
 
@@ -336,8 +340,6 @@ def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
     # Verify that seams have been fully traversed
     assert uE_mark.sum() == len(uE_seam)
     assert uF_mark.sum() == len(uF_seam)
-
-    uF_seam_uncuttable = uF_seam[np.logical_not(uF_cuttable_mask[uF_seam])]
 
     if len(uF_seam_uncuttable) == 0:
         return Rs_comb, False
@@ -366,10 +368,10 @@ def dissolve_uncuttable(Rs_comb, uF_seam, uE, uE_singularity_mask,
     return Rs_comb, dirty
 
 
-def tet_cut_coloring(uF_seam, F_seams, V, T, TT, uE, V_singular_mask,
-                     uE2uF_adj_list, F2uF, uF2T, uF2uE, **kwargs):
+def tet_cut_coloring(V_seam, uE_seam, uF_seam, F_seam, V, T, TT, uE,
+                     V_singular_mask, F2uF, uF2T, uF2uE, uE2uF, uE2uF_cumsum,
+                     **kwargs):
     # Update the mask
-    uE_seam = np.unique(uF2uE[uF_seam])
     uE_seam_mask = np.zeros(len(uE)).astype(bool)
     uE_seam_mask[uE_seam] = True
 
@@ -378,14 +380,14 @@ def tet_cut_coloring(uF_seam, F_seams, V, T, TT, uE, V_singular_mask,
 
     # Seam vertex mask
     V_seam_mask = np.zeros(len(V)).astype(bool)
-    V_seam_mask[np.unique(F_seams)] = True
+    V_seam_mask[V_seam] = True
 
     # Traverse all seams and fix face orientation
     Q_bfs = queue.Queue()
     uF_mark = np.zeros(F2uF.max() + 1).astype(bool)
 
     uF = np.zeros((F2uF.max() + 1, 3)).astype(np.int64)
-    uF[uF_seam] = F_seams
+    uF[uF_seam] = F_seam
     uFN = np.zeros((F2uF.max() + 1, 3)).astype(np.float64)
     T_coloring_mask = np.zeros(len(T)).astype(bool)
 
@@ -428,7 +430,8 @@ def tet_cut_coloring(uF_seam, F_seams, V, T, TT, uE, V_singular_mask,
                 if not uE_seam_mask[uE_id]:
                     continue
 
-                for uF_id_adj in uE2uF_adj_list[uE_id]:
+                uF_ids = uE2uF[uE2uF_cumsum[uE_id]:uE2uF_cumsum[uE_id + 1]]
+                for uF_id_adj in uF_ids:
 
                     if not uF_seam_mask[uF_id_adj]:
                         continue
@@ -513,16 +516,15 @@ def tet_cut_coloring(uF_seam, F_seams, V, T, TT, uE, V_singular_mask,
         uF_seam], VT_adj_list, V2T_seed, V2T_seed_inv
 
 
-def tet_cut(uF_seam, F_seams, Rs_comb, VT_adj_list, V2T_seed, V2T_seed_inv, V,
-            T, uE, uE_ids_singular, V_singular_mask, F2uF, uF2uE,
-            uE2uF_adj_list, **kwargs):
-    uE_seam = np.unique(uF2uE[uF_seam])
+def tet_cut(uE_seam, uF_seam, F_seam, Rs_comb, VT_adj_list, V2T_seed,
+            V2T_seed_inv, V, T, uE, uE_ids_singular, V_singular_mask, F2uF,
+            uF2uE, uE2uF, uE2uF_cumsum, **kwargs):
     # Update the mask
     uF_seam_mask = np.zeros(F2uF.max() + 1).astype(bool)
     uF_seam_mask[uF_seam] = True
 
     uF = np.zeros((F2uF.max() + 1, 3)).astype(np.int64)
-    uF[uF_seam] = F_seams
+    uF[uF_seam] = F_seam
 
     # BFS all seam faces
     Q_bfs = queue.Queue()
@@ -551,7 +553,7 @@ def tet_cut(uF_seam, F_seams, Rs_comb, VT_adj_list, V2T_seed, V2T_seed_inv, V,
 
         while not Q_bfs.empty():
             uE_id = Q_bfs.get()
-            uF_ids = uE2uF_adj_list[uE_id]
+            uF_ids = uE2uF[uE2uF_cumsum[uE_id]:uE2uF_cumsum[uE_id + 1]]
 
             for uF_id in uF_ids:
 
@@ -641,7 +643,8 @@ if __name__ == '__main__':
     uE2T = tet_data['uE2T']
     uE2T_cumsum = tet_data['uE2T_cumsum']
     E2uE = tet_data['E2uE']
-    E2T = tet_data['E2T']
+
+    timer = Timer()
 
     uE_ids_singular = np.arange(len(uE))[uE_singularity_mask]
     # Singular vertices will not be split during cut
@@ -656,8 +659,11 @@ if __name__ == '__main__':
         uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, E2uE,
         F2uF)
 
-    uE2T_adj_list = np.split(uE2T, uE2T_cumsum[1:-1])
-    uE2uF_adj_list = np.split(uE2uF, uE2uF_cumsum[1:-1])
+    # Splitting is surprising heavy, can take like 6s...
+    # uE2T_adj_list = np.split(uE2T, uE2T_cumsum[1:-1])
+    # uE2uF_adj_list = np.split(uE2uF, uE2uF_cumsum[1:-1])
+
+    timer.log('Build traversal data structure')
 
     tet_data.update({
         'F': F,
@@ -665,11 +671,13 @@ if __name__ == '__main__':
         'TTi': TTi,
         'uE_ids_singular': uE_ids_singular,
         'V_singular_mask': V_singular_mask,
-        'uE2T_adj_list': uE2T_adj_list,
+        'uE2T': uE2T,
+        'uE2T_cumsum': uE2T_cumsum,
+        'uE2uF': uE2uF,
+        'uE2uF_cumsum': uE2uF_cumsum,
         'F2uF': F2uF,
         'uF2T': uF2T,
-        'uF2uE': uF2uE,
-        'uE2uF_adj_list': uE2uF_adj_list
+        'uF2uE': uF2uE
     })
 
     # -------------------------------------------------------------------------
@@ -678,37 +686,63 @@ if __name__ == '__main__':
     assert is_tet_manifold(**tet_data)
 
     Rs_comb = frame_field_utils.tet_comb_frame(T, TT, Rs, sh4s)
-    uF_seam, F_seams, TT_mismatch = extract_seams(Rs_comb=Rs_comb, **tet_data)
+
+    timer.log('Comb frame field')
+
+    V_seam, uE_seam, uF_seam, F_seam = extract_seams(Rs_comb=Rs_comb,
+                                                     **tet_data)
+
+    timer.log('Extract seams')
+
+    # ps.init()
+    # ps.register_surface_mesh('seam', V, F_seam)
+    # ps_register_basis('Comb', Rs_comb, V_bary)
+    # ps_register_curve_network('singularity',
+    #                           V,
+    #                           uE[uE_singularity_mask],
+    #                           radius=1e-3)
+    # ps.show()
+
+    # exit()
 
     # --------------------------------------------------------------------------
 
     flag = True
     while flag:
-        Rs_comb, flag = dissolve_uncuttable(uF_seam=uF_seam,
+        Rs_comb, flag = dissolve_uncuttable(uE_seam=uE_seam,
+                                            uF_seam=uF_seam,
                                             Rs_comb=Rs_comb,
                                             **tet_data)
-        uF_seam, F_seams, TT_mismatch = extract_seams(Rs_comb=Rs_comb,
-                                                      **tet_data)
+        V_seam, uE_seam, uF_seam, F_seam = extract_seams(Rs_comb=Rs_comb,
+                                                         **tet_data)
 
         # Manifold is needed for cut coloring
-        Rs_comb, flag = dissolve_non_manifold(uF_seam=uF_seam,
+        Rs_comb, flag = dissolve_non_manifold(uE_seam=uE_seam,
+                                              uF_seam=uF_seam,
                                               Rs_comb=Rs_comb,
                                               **tet_data)
-        uF_seam, F_seams, TT_mismatch = extract_seams(Rs_comb=Rs_comb,
-                                                      **tet_data)
+        V_seam, uE_seam, uF_seam, F_seam = extract_seams(Rs_comb=Rs_comb,
+                                                         **tet_data)
 
-    # Verify the F_seams is now manifold
+    # Verify the F_seam is now manifold
     # TODO: It is still possible that one vertex is shared by two multiple tets.
     #   Should those be dissolved as well?
-    assert not surface_vertex_topology(*rm_unref_vertices(V, F_seams))[-1].any()
+    assert not surface_vertex_topology(*rm_unref_vertices(V, F_seam))[-1].any()
+
+    timer.log('Refine seams')
 
     # --------------------------------------------------------------------------
 
-    T_coloring_mask, F_seams, uFN, VT_adj_list, V2T_seed, V2T_seed_inv = tet_cut_coloring(
-        uF_seam=uF_seam, F_seams=F_seams, **tet_data)
+    T_coloring_mask, F_seam, uFN, VT_adj_list, V2T_seed, V2T_seed_inv = tet_cut_coloring(
+        V_seam=V_seam,
+        uE_seam=uE_seam,
+        uF_seam=uF_seam,
+        F_seam=F_seam,
+        **tet_data)
 
-    V, T, TT, TTi, V_i, V_j, transitions_ji = tet_cut(uF_seam=uF_seam,
-                                                      F_seams=F_seams,
+    V, T, TT, TTi, V_i, V_j, transitions_ji = tet_cut(uE_seam=uE_seam,
+                                                      uF_seam=uF_seam,
+                                                      F_seam=F_seam,
                                                       Rs_comb=Rs_comb,
                                                       VT_adj_list=VT_adj_list,
                                                       V2T_seed=V2T_seed,
@@ -716,7 +750,7 @@ if __name__ == '__main__':
                                                       **tet_data)
 
     ps.init()
-    ps.register_surface_mesh('seam', V, F_seams)
+    ps.register_surface_mesh('seam', V, F_seam)
     ps.register_volume_mesh('tet 0', V, T[T_coloring_mask])
     ps_register_curve_network('singularity',
                               V,
@@ -734,7 +768,7 @@ if __name__ == '__main__':
         'transitions_ji': transitions_ji,
         'Rs_comb': Rs_comb
     })
-    save_tmp(tet_data)
+    # save_tmp(tet_data)
 
     exit()
 
@@ -744,7 +778,7 @@ if __name__ == '__main__':
     TT_mask = TT_mismatch.sum(1) > 0
 
     ps.init()
-    ps.register_surface_mesh('seam', V, F_seams)
+    ps.register_surface_mesh('seam', V, F_seam)
     # ps_register_basis('Raw', Rs, V_bary, enabled=False)
     ps_register_basis('Comb', Rs_comb[TT_mask], V_bary[TT_mask])
     ps_register_curve_network('singularity', V, uE_singular, radius=1e-3)
