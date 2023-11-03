@@ -9,6 +9,7 @@ from common import (ps_register_curve_network, Timer, normalize,
                     unroll_identity_block, ps_register_basis,
                     surface_vertex_topology, rm_unref_vertices)
 from sh_representation import (proj_sh4_to_R3, proj_sh4_sdp)
+from hex_helper import write_hex, HexMesh
 
 import frame_field_utils
 import scipy.sparse
@@ -941,6 +942,8 @@ def tet_solve_param(Rs_comb, V_i, V_j, transitions_ji, V, T):
     #   E = \int \|\nabla f - X\|^2 dV
     # with its Euler–Lagrange equation yields
     #   \Delta f = div X
+    #
+    # We ignore integer translation and only solve rotation for now
 
     # For boundary condition
     # 1. Fix f for one vertex
@@ -1126,21 +1129,21 @@ if __name__ == '__main__':
     timer.log('Compute singularity')
 
     # Visualize the difference
-    # F_b = igl.boundary_facets(T)
-    # F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
+    F_b = igl.boundary_facets(T)
+    F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
 
-    # ps.init()
-    # ps.register_surface_mesh('tet boundary', V, F_b, enabled=False)
-    # if V_mc is not None:
-    #     ps.register_surface_mesh('mc', V_mc, F_mc)
-    # if uE_singularity_mask.sum() > 0:
-    #     ps_register_curve_network('singularity',
-    #                               V,
-    #                               uE[uE_singularity_mask],
-    #                               enabled=False)
-    #     ps_register_curve_network('singularity SDP', V,
-    #                               uE[uE_singularity_mask_octa])
-    # ps.show()
+    ps.init()
+    ps.register_surface_mesh('tet boundary', V, F_b, enabled=False)
+    if V_mc is not None:
+        ps.register_surface_mesh('mc', V_mc, F_mc)
+    if uE_singularity_mask.sum() > 0:
+        ps_register_curve_network('singularity',
+                                  V,
+                                  uE[uE_singularity_mask],
+                                  enabled=False)
+        ps_register_curve_network('singularity SDP', V,
+                                  uE[uE_singularity_mask_octa])
+    ps.show()
 
     # Use SDP one
     Rs = Rs_bary_octa
@@ -1162,6 +1165,7 @@ if __name__ == '__main__':
     # Share the adjacency map
     TT, TTi = igl.tet_tet_adjacency(T)
 
+    # uF might be a bad idea. Probably should use half face (OpenVolumeMesh)
     F2uF, uF2T = frame_field_utils.tet_uF_map(T, TT, TTi)
     uE2uF, uE2uF_cumsum, uF2uE = frame_field_utils.tet_uE_uF_map(
         uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, E2uE,
@@ -1256,7 +1260,7 @@ if __name__ == '__main__':
             F_seam=F_seam,
             **tet_data)
 
-        V, T, TT, TTi, V_i, V_j, transitions_ji = tet_cut(
+        V_cut, T_cut, TT_cut, TTi_cut, V_i, V_j, transitions_ji = tet_cut(
             uE_seam=uE_seam,
             uF_seam=uF_seam,
             F_seam=F_seam,
@@ -1269,23 +1273,29 @@ if __name__ == '__main__':
         timer.log('Cut tetrahedron')
 
     else:
+        V_cut = V
+        T_cut = T
         V_i = np.zeros((0,))
         V_j = np.zeros((0,))
         transitions_ji = np.zeros((0, 3, 3))
 
-    UVW = tet_solve_param(Rs_comb, V_i, V_j, transitions_ji, V, T)
+    UVW = tet_solve_param(Rs_comb, V_i, V_j, transitions_ji, V_cut, T_cut)
 
     timer.log('Solve parameterization')
 
     # Evaluate the gradient of the potential (should be close to Rs_comb in least square sense)
-    NT = len(T)
-    G = igl.grad(V, T)
+    NT = len(T_cut)
+    G = igl.grad(V_cut, T_cut)
     grad_uvw = G @ UVW
     grad_uvw = np.stack([grad_uvw[:NT], grad_uvw[NT:2 * NT], grad_uvw[2 * NT:]],
                         1)
 
     ps.init()
-    ps.register_volume_mesh('tet_param', UVW, T)
+    ps.register_volume_mesh('tet_param', UVW, T_cut)
     ps.register_volume_mesh('mesh', V, T)
-    ps_register_basis('Comb', grad_uvw, UVW[T].mean(1))
+    ps_register_basis('Comb', grad_uvw, UVW[T_cut].mean(1))
     ps.show()
+
+    tet_param = HexMesh(V, T, UVW[T], np.empty((0, 3), dtype=np.int64))
+    write_hex(f'output/{name}.hexex', tet_param)
+    np.savez(f'output/{name}_param.npz', V_cut=V_cut, UVW=UVW, T_cut=T_cut)

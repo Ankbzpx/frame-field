@@ -106,8 +106,14 @@ if __name__ == '__main__':
 
     hex_mesh = read_hexex(args.hex_path)
 
+    F_param = np.array([[0, 1, 3], [1, 2, 3], [0, 3, 2], [0, 2, 1]])
+    F_param = (4 * np.arange(len(hex_mesh.uvws))[:, None, None] +
+               F_param[None, ...]).reshape(-1, 3)
+    V_param = hex_mesh.uvws.reshape(-1, 3)
+
     ps.init()
     ps.register_volume_mesh('tet', hex_mesh.vertices, hex_mesh.tets)
+    ps.register_surface_mesh('param', V_param, F_param)
     if len(hex_mesh.wall_facets) > 0:
         ps.register_surface_mesh('wall', hex_mesh.vertices,
                                  hex_mesh.wall_facets)

@@ -403,18 +403,6 @@ def voxel_tet_from_grid_scale(res, grid_scale):
     # return V, T, grid_res
 
 
-def tet_from_grid_scale(target_res, grid_scale):
-    grid_scale_nm = grid_scale / grid_scale.max(keepdims=True)
-
-    res_candidates = np.array([20, 30, 60, 90])
-    res = target_res / grid_scale_nm.min()
-    res_pick = res_candidates[np.argmin(np.abs(res_candidates - res))]
-
-    V, T, _ = igl.read_off(f'data/cube/cube_{res_pick}.off')
-    V, T = crop_tets(V, T, grid_scale)
-    return V, T
-
-
 def crop_tets(V, T, grid_scale):
     V_mask = np.ones(len(V)).astype(bool)
     grid_scale_safe = grid_scale / grid_scale.max(keepdims=True)

@@ -11,7 +11,7 @@ import os
 import model_jax
 from config import Config
 from config_utils import config_latent, config_model, eval_data_scale
-from common import normalize, vis_oct_field, filter_components, Timer, tet_from_grid_scale
+from common import normalize, vis_oct_field, filter_components, Timer, voxel_tet_from_grid_scale
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -61,7 +61,7 @@ def voxel_infer(infer,
 def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
 
     sdf, _ = voxel_infer(infer, grid_res, grid_min, grid_max, 4)
-    # This step is surprising slow, memory copy?
+    # This step is surprising slow, gpu to cpu memory copy?
     sdf_np = np.swapaxes(np.array(sdf), 0, 1)
 
     spacing = 1. / (grid_res - 1)
@@ -93,6 +93,7 @@ def eval(cfg: Config,
          out_dir,
          model: model_jax.MLP,
          latent,
+         save_param=False,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False,
@@ -120,13 +121,14 @@ def eval(cfg: Config,
         z = latent[None, ...].repeat(len(x), 0)
         return model.call_grad(x, z)
 
-    @jit
-    def infer_smoothness(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        jac, _ = model.call_jac_param(x, z, param_func)
-        return vmap(jnp.linalg.norm, in_axes=[0, None])(jac, 'f')
-
     if vis_smooth:
+
+        @jit
+        def infer_smoothness(x):
+            z = latent[None, ...].repeat(len(x), 0)
+            jac, _ = model.call_jac_param(x, z, param_func)
+            return vmap(jnp.linalg.norm, in_axes=[0, None])(jac, 'f')
+
         smoothness, grid_samples = voxel_infer(infer_smoothness)
 
         ps.init()
@@ -141,36 +143,39 @@ def eval(cfg: Config,
 
     timer = Timer()
 
-    grid_scale = 1.25 * eval_data_scale(cfg)
-    V, T = tet_from_grid_scale(48, grid_scale)
+    if save_param:
+        grid_scale = 1.25 * eval_data_scale(cfg)
+        V, T = voxel_tet_from_grid_scale(16, grid_scale)
 
-    group_size = 256**2
-    n_iters = len(V) // group_size
+        group_size = 256**2
+        n_iters = len(V) // group_size
 
-    if n_iters == 0:
-        (sdf, aux), VN = infer_grad(V)
-    else:
-        sdf = None
-        aux = None
-        VN = None
+        if n_iters == 0:
+            (sdf, aux), VN = infer_grad(V)
+        else:
+            sdf = None
+            aux = None
+            VN = None
 
-        V_splits = jnp.array_split(V, n_iters)
-        for V_split in V_splits:
-            (sdf_, aux_), VN_ = infer_grad(V_split)
+            V_splits = jnp.array_split(V, n_iters)
+            for V_split in V_splits:
+                (sdf_, aux_), VN_ = infer_grad(V_split)
 
-            sdf = sdf_ if sdf is None else jnp.concatenate([sdf, sdf_])
-            aux = aux_ if aux is None else jnp.concatenate([aux, aux_])
-            VN = VN_ if VN is None else jnp.concatenate([VN, VN_])
+                sdf = sdf_ if sdf is None else jnp.concatenate([sdf, sdf_])
+                aux = aux_ if aux is None else jnp.concatenate([aux, aux_])
+                VN = VN_ if VN is None else jnp.concatenate([VN, VN_])
 
-    # V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
-    # aux = aux[V_id]
-    # VN = VN[V_id]
-    sh4 = vmap(param_func)(aux)
+        # V, T, V_id = frame_field_utils.tet_reduce(V, VN, sdf < 0, T)
+        # aux = aux[V_id]
+        # VN = VN[V_id]
+        sh4 = vmap(param_func)(aux)
 
-    param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
-    np.savez(param_path, V=V, T=T, sh4=sh4)
+        param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
+        np.savez(param_path, V=V, T=T, sh4=sh4)
 
-    timer.log('Extract parameterization')
+        timer.log('Extract parameterization')
+
+        exit()
 
     infer_sdf = lambda x: infer(x)[:, 0]
     V, F, VN = extract_surface(infer_sdf)
@@ -282,6 +287,9 @@ if __name__ == '__main__':
                         type=str,
                         default='0_1_0',
                         help='Interpolation progress')
+    parser.add_argument('--save_param',
+                        action='store_true',
+                        help='Save parameterization for tetrahedron')
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
@@ -313,5 +321,5 @@ if __name__ == '__main__':
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 
-    eval(cfg, args.output, model, latent, args.vis_mc, args.vis_smooth,
-         args.vis_flowline)
+    eval(cfg, args.output, model, latent, args.save_param, args.vis_mc,
+         args.vis_smooth, args.vis_flowline)
