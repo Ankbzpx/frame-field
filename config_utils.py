@@ -156,6 +156,70 @@ def config_training_data(cfg: Config, data_key, latents):
     return data
 
 
+# preload data in memory to speedup training
+def config_training_data_param(cfg: Config, data_key, latents):
+    n_models = len(cfg.sdf_paths)
+    assert n_models > 0
+    sample_size = cfg.training.n_samples // n_models
+
+    # Here we uniform sample region slight larger than and of same aspect ratio of aabb
+    sample_bound = 1.25 * eval_data_scale(cfg)
+
+    def sample_sdf_data(sdf_path, latent):
+        sdf_data = dict(np.load(sdf_path))
+
+        # Don't need normals
+        del sdf_data['normals_on_sur']
+
+        def random_batch(x):
+            total_sample_size = len(x)
+            idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
+                                    (cfg.training.n_steps, sample_size))
+            return x[idx]
+
+        data = jax.tree_map(lambda x: random_batch(x), sdf_data)
+
+        # Progressive sample: 5 -> 2 -> 1
+        scale = 5e-2 * np.ones(cfg.training.n_steps)
+        scale[cfg.training.n_steps // 3:] = 2e-2
+        scale[int(2 * cfg.training.n_steps / 3):] = 1e-2
+
+        close_sample_size = sample_size // 4
+        free_sample_size = sample_size - close_sample_size
+
+        close_samples = scale[:, None, None] * jax.random.normal(
+            data_key, (cfg.training.n_steps, close_sample_size,
+                       3)) + data['samples_on_sur'][:, :close_sample_size]
+        close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
+
+        free_samples = jax.random.uniform(
+            data_key, (cfg.training.n_steps, free_sample_size, 3),
+            minval=-sample_bound,
+            maxval=sample_bound)
+
+        data['samples_off_sur'] = jnp.concatenate([close_samples, free_samples],
+                                                  axis=1)
+        data['close_samples_mask'] = jnp.concatenate([
+            jnp.ones((cfg.training.n_steps, close_sample_size)),
+            jnp.zeros((cfg.training.n_steps, free_sample_size))
+        ],
+                                                     axis=1)
+
+        data['latent'] = latent[None, None,
+                                ...].repeat(cfg.training.n_steps,
+                                            axis=0).repeat(sample_size, axis=1)
+        return data
+
+    data_frags = [
+        sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
+    ]
+    data = {}
+    for key in data_frags[0].keys():
+        data[key] = jnp.hstack([frag[key] for frag in data_frags])
+
+    return data
+
+
 def config_toy_training_data(cfg: Config, data_key, sur_samples,
                              sur_normal_samples, latents):
     sample_size = cfg.training.n_samples
