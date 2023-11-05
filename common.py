@@ -386,17 +386,18 @@ def tet_from_grid(res, grid_min=-1.0, grid_max=1.0):
 # TODO: Nasty workaround, should find a better way to do it
 def voxel_tet_from_grid_scale(res, grid_scale):
     max_scale = (grid_scale / grid_scale.min(keepdims=True)).max()
-    res_scale = np.round(max_scale * res).astype(int)
-    if res_scale % 2 == 1:
-        res_scale += 1
+    grid_res = np.round(max_scale * res).astype(int)
+    if grid_res % 2 == 1:
+        grid_res += 1
 
-    V, T = tet_from_grid(res_scale)
+    V, T = tet_from_grid(grid_res)
     V, T = crop_tets(V, T, grid_scale)
 
     return V, T
 
-    # # Risky...
-    # unit_size = 1.0 / (res_scale // 2)
+    # Don't think I can reliably estimate res after cropping.
+    # Risky...
+    # unit_size = 1.0 / (grid_res // 2)
     # grid_res = (2 * np.round(grid_scale_safe / unit_size)).astype(int)
     # assert len(V) == np.prod(grid_res)
 
