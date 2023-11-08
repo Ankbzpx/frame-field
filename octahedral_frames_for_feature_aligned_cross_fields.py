@@ -3,7 +3,7 @@ import numpy as np
 from jax import vmap, jit, numpy as jnp
 from jaxopt import LBFGS
 from common import unroll_identity_block, normalize_aabb, normalize, unpack_stiffness, Timer
-from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3, project_n
+from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3, proj_sh4_sdp
 
 import scipy.sparse
 import scipy.sparse.linalg
@@ -34,7 +34,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     norm = args.p
-    # May need to adjust for different geometry / norm
+    # May need to adjust for different geometry / norm (i.e. 1e-2 for cylinder)
     boundary_weight = args.w
     model_path = args.input
     model_name = model_path.split('/')[-1].split('.')[0]
@@ -62,13 +62,14 @@ if __name__ == '__main__':
     b = np.array([0, 0, 0, np.sqrt(7 / 12), 0, 0, 0])
 
     timer.log('Build stiffness and RHS')
+    np.random.seed(0)
 
     if norm != "2":
         p = 1
         if norm == 'inf':
             # FIXME: I don't know how to implement inf norm.
             # Pick max will stop gradient flow for other pairs
-            p = 10
+            p = 99
         else:
             try:
                 p = int(norm)
@@ -76,7 +77,6 @@ if __name__ == '__main__':
             except:
                 pass
 
-        np.random.seed(0)
         x = np.random.randn(NV, 9)
         x = vmap(normalize)(x)
         # We are interested in pair (non diagonal) weight, so no need to negate
@@ -96,10 +96,8 @@ if __name__ == '__main__':
 
         timer.log('Solve (L-BFGS')
 
+        # TODO: Add rerun for degenerated case
         lbfgs = LBFGS(loss_func)
-
-        # FIXME: Should call x = vmap(project_n)(x, R9_zn) after each iteration.
-        # But jaxopt.LBFGS has no such interface
         x = lbfgs.run(x).params
     else:
 
@@ -107,16 +105,50 @@ if __name__ == '__main__':
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)
 
-        timer.log('Build sparse system')
-
         # Linear system
         Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
         c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
         factor = cholesky((Q.T @ Q).tocsc())
 
-        # FIXME: Should use conjugate gradient and call x = vmap(project_n)(x, R9_zn) after each iteration.
-        # But scipy.sparse.linalg.cg has no such interface
-        x = factor(Q.T @ c).reshape(NV, 9)
+        timer.log('Build sparse system')
+
+        while True:
+            x = factor(Q.T @ c).reshape(NV, 9)
+            # Project back to octahedral variety
+            x_proj = proj_sh4_sdp(x)
+            d_norm = vmap(jnp.linalg.norm)(x - x_proj)
+
+            # Follow Sec 5.5 Non-Triviality Constraint
+            rerun_mask = d_norm > 0.665
+            rerun_weight = 1.0
+            N_rerun = rerun_mask.sum()
+
+            # Not 100% sure here, but it can leave few frames degenerated,
+            #   then go back-and-forth that refuse to converge
+            # I use 99.8% rate presented in paper for early stop
+            if N_rerun < NV * (1 - 0.998):
+                x = x_proj
+                break
+
+            print(f'Find {N_rerun} degenerated frame. Re-run...')
+
+            rerun_vid = jnp.where(rerun_mask)[0]
+
+            R = scipy.sparse.hstack([
+                scipy.sparse.coo_array(
+                    (np.ones(9 * N_rerun),
+                     (np.arange(9 * N_rerun),
+                      ((9 * rerun_vid)[..., None] +
+                       np.arange(9)[None, ...]).reshape(-1))),
+                    shape=(9 * N_rerun, 9 * NV)).tocsc(),
+            ])
+            r = x_proj[rerun_mask].reshape(9 * N_rerun)
+
+            Q = scipy.sparse.vstack(
+                [L_unroll, boundary_weight * A, rerun_weight * R])
+            c = np.concatenate(
+                [np.zeros(9 * NV), boundary_weight * b, rerun_weight * r])
+            factor = cholesky((Q.T @ Q).tocsc())
 
         timer.log('Solve (Linear)')
 
