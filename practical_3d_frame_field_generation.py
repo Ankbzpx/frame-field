@@ -329,7 +329,7 @@ if __name__ == '__main__':
     # Project to acquire initialize
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
 
-    timer.log('Project SE(3)')
+    timer.log('Project se(3)')
 
     # Optimize field via non-linear objective function
     R9_zn_pad = jnp.repeat(jnp.eye(9)[None, ...], NV, axis=0)
