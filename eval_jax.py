@@ -24,6 +24,8 @@ import pymeshlab
 import polyscope as ps
 from icecream import ic
 
+IM_PATH = '$HOME/instant-meshes/build'
+
 
 # infer: R^3 -> R
 def voxel_infer(infer,
@@ -87,6 +89,13 @@ def meshlab_remesh(cfg, V, F):
     ms.save_current_mesh(f'tmp/{cfg.name}.obj')
     V, F = igl.read_triangle_mesh(f'tmp/{cfg.name}.obj')
     os.system(f'rm tmp/{cfg.name}.obj')
+    return V, F
+
+
+def IM_remesh(load_path, save_path):
+    cmd = f'{IM_PATH}/Instant\ Meshes {load_path} -c 11 -v 20000 -r 6 -p 3 -o {save_path}'
+    os.system(cmd)
+    V, F = igl.read_triangle_mesh(save_path)
     return V, F
 
 
@@ -156,7 +165,8 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}mc.obj", V, F)
+    mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
+    igl.write_triangle_mesh(mc_save_path, V, F)
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
@@ -258,9 +268,10 @@ def eval(cfg: Config,
 
     timer.reset()
 
-    V, F = meshlab_remesh(cfg, V, F)
+    im_save_path = f"{out_dir}/{cfg.name}_{interp_tag}im.obj"
+    V, F = IM_remesh(mc_save_path, im_save_path)
 
-    timer.log('Meshlab Remesh')
+    timer.log('IM Remesh')
 
     # Project on isosurface
     (sdf, _), VN = infer_grad(V)
