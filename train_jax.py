@@ -56,8 +56,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: Array,
                   normals_on_sur: Array, samples_off_sur: Array,
-                  sdf_off_sur: Array, latent: Array, loss_cfg: LossConfig,
-                  step_count: int):
+                  sdf_off_sur: Array, close_samples_mask: Array, latent: Array,
+                  loss_cfg: LossConfig, step_count: int):
 
         smooth_weight = smooth_schedule(step_count)
         regularize_weight = regularize_schedule(step_count)
@@ -152,12 +152,16 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 dps = jnp.einsum('bij,bi->bj', basis_reg,
                                  vmap(normalize)(normal_reg))
                 loss_regularize = regularize_weight * double_well_potential(
-                    jnp.abs(dps)).sum(-1).mean()
+                    jnp.abs(dps)).sum(-1)
             else:
                 sh4_reg = vmap(param_func)(jax.lax.stop_gradient(aux_reg))
                 dps = vmap(oct_polynomial_sh4_unit_norm)(normal_reg, sh4_reg)
-                loss_regularize = regularize_weight * (1 - dps).mean()
+                loss_regularize = regularize_weight * (1 - dps)
 
+            # Only regularize points close to supervision samples
+            # Under smooth settings, those sh4 should not deviate much from octahedral variety
+            loss_regularize = (close_samples_mask * loss_regularize
+                              ).sum() / close_samples_mask.sum()
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize
 

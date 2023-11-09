@@ -92,8 +92,8 @@ def meshlab_remesh(cfg, V, F):
     return V, F
 
 
-def IM_remesh(load_path, save_path):
-    cmd = f'{IM_PATH}/Instant\ Meshes {load_path} -c 11 -v 20000 -r 6 -p 3 -o {save_path}'
+def IM_remesh(load_path, save_path, num_verts=20000):
+    cmd = f'{IM_PATH}/Instant\ Meshes {load_path} -c 11 -v {num_verts} -r 6 -p 3 -b -o {save_path}'
     os.system(cmd)
     V, F = igl.read_triangle_mesh(save_path)
     return V, F

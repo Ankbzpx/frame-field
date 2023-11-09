@@ -16,8 +16,10 @@
         }
     ],
     "loss_cfg": {
-        "smooth": 2e-1,
-        "regularize": 1e3
+        "smooth": 1e1,
+        "regularize": 3e3,
+        "align": 3e3,
+        "unit_norm": 1e2
     },
     "training": {
         "n_samples": 1024,

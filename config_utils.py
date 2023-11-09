@@ -100,6 +100,46 @@ def eval_data_scale(cfg: Config):
     return scale
 
 
+def progressive_sample_off_surf(cfg: Config,
+                                data_key,
+                                samples_on_sur,
+                                sample_bound,
+                                close_scale=1e-2):
+
+    sample_size = cfg.training.n_samples
+    # Progressive sample: 1 -> 2 -> 5
+    scale = close_scale * np.ones(cfg.training.n_steps)
+    scale[cfg.training.n_steps // 3:] = 2 * close_scale
+    scale[int(2 * cfg.training.n_steps / 3):] = 5 * close_scale
+
+    close_sample_size = sample_size // 4
+    free_sample_size = sample_size - close_sample_size
+
+    close_samples = scale[:, None, None] * jax.random.normal(
+        data_key, (cfg.training.n_steps, close_sample_size,
+                   3)) + samples_on_sur[:, :close_sample_size]
+    close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
+
+    free_samples = jax.random.uniform(
+        data_key, (cfg.training.n_steps, free_sample_size, 3),
+        minval=-sample_bound,
+        maxval=sample_bound)
+
+    samples_off_sur = jnp.concatenate([close_samples, free_samples], axis=1)
+
+    close_samples_mask = jnp.concatenate(
+        [jnp.ones(close_sample_size),
+         jnp.zeros(free_sample_size)])
+    close_samples_mask = close_samples_mask[None, :].repeat(
+        cfg.training.n_steps, axis=0)
+
+    return {
+        'samples_off_sur': samples_off_sur,
+        'sdf_off_sur': jnp.zeros((cfg.training.n_steps, sample_size)),
+        'close_samples_mask': close_samples_mask
+    }
+
+
 # preload data in memory to speedup training
 def config_training_data(cfg: Config, data_key, latents):
     n_models = len(cfg.sdf_paths)
@@ -119,28 +159,9 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-
-        # Progressive sample: 5 -> 2 -> 1
-        scale = 5e-2 * np.ones(cfg.training.n_steps)
-        scale[cfg.training.n_steps // 3:] = 2e-2
-        scale[int(2 * cfg.training.n_steps / 3):] = 1e-2
-
-        close_sample_size = sample_size // 4
-        free_sample_size = sample_size - close_sample_size
-
-        close_samples = scale[:, None, None] * jax.random.normal(
-            data_key, (cfg.training.n_steps, close_sample_size,
-                       3)) + data['samples_on_sur'][:, :close_sample_size]
-        close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
-
-        free_samples = jax.random.uniform(
-            data_key, (cfg.training.n_steps, free_sample_size, 3),
-            minval=-sample_bound,
-            maxval=sample_bound)
-
-        data['samples_off_sur'] = jnp.concatenate([close_samples, free_samples],
-                                                  axis=1)
-        data['sdf_off_sur'] = jnp.zeros((cfg.training.n_steps, sample_size))
+        data.update(
+            progressive_sample_off_surf(cfg, data_key, data['samples_on_sur'],
+                                        sample_bound))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -178,33 +199,9 @@ def config_training_data_param(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-
-        # Progressive sample: 5 -> 2 -> 1
-        scale = 5e-2 * np.ones(cfg.training.n_steps)
-        scale[cfg.training.n_steps // 3:] = 2e-2
-        scale[int(2 * cfg.training.n_steps / 3):] = 1e-2
-
-        close_sample_size = sample_size // 4
-        free_sample_size = sample_size - close_sample_size
-
-        close_samples = scale[:, None, None] * jax.random.normal(
-            data_key, (cfg.training.n_steps, close_sample_size,
-                       3)) + data['samples_on_sur'][:, :close_sample_size]
-        close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
-
-        free_samples = jax.random.uniform(
-            data_key, (cfg.training.n_steps, free_sample_size, 3),
-            minval=-sample_bound,
-            maxval=sample_bound)
-
-        data['samples_off_sur'] = jnp.concatenate([close_samples, free_samples],
-                                                  axis=1)
-        data['close_samples_mask'] = jnp.concatenate([
-            jnp.ones((cfg.training.n_steps, close_sample_size)),
-            jnp.zeros((cfg.training.n_steps, free_sample_size))
-        ],
-                                                     axis=1)
-
+        data.update(
+            progressive_sample_off_surf(cfg, data_key, data['samples_on_sur'],
+                                        sample_bound))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -221,21 +218,22 @@ def config_training_data_param(cfg: Config, data_key, latents):
 
 
 def config_toy_training_data(cfg: Config, data_key, sur_samples,
-                             sur_normal_samples, latents):
+                             sur_normal_samples, latents, gap):
     sample_size = cfg.training.n_samples
     idx = jax.random.choice(data_key, jnp.arange(len(sur_samples)),
                             (cfg.training.n_steps, sample_size))
-    samples_off_sur = jax.random.uniform(data_key,
-                                         (cfg.training.n_steps, sample_size, 3),
-                                         minval=-1.0,
-                                         maxval=1.0)
-    data = {
-        'samples_on_sur': sur_samples[idx],
-        'normals_on_sur': sur_normal_samples[idx],
-        'samples_off_sur': samples_off_sur,
-        'sdf_off_sur': jnp.zeros((cfg.training.n_steps, sample_size))
-    }
+    samples_on_sur = sur_samples[idx]
 
+    data = {
+        'samples_on_sur': samples_on_sur,
+        'normals_on_sur': sur_normal_samples[idx]
+    }
+    data.update(
+        progressive_sample_off_surf(cfg,
+                                    data_key,
+                                    samples_on_sur,
+                                    1.0,
+                                    close_scale=gap * 1e-2))
     data['latent'] = latents[None, None, 0].repeat(cfg.training.n_steps,
                                                    axis=0).repeat(sample_size,
                                                                   axis=1)
