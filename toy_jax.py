@@ -11,7 +11,7 @@ from config import Config
 from config_utils import config_model, config_latent, config_toy_training_data
 from train_jax import train
 from common import vis_oct_field, Timer
-from eval_jax import extract_surface, IM_remesh
+from eval_jax import extract_surface, meshlab_edge_collapse
 from sh_representation import (proj_sh4_to_R3, rot6d_to_R3, euler_to_R3,
                                rotvec_to_R3, proj_sh4_to_rotvec)
 
@@ -104,8 +104,7 @@ def eval(cfg: Config,
     # F_cube = np.vstack([F_vis_sup, F_vis_interp + F_vis_sup.max() + 1])
 
     mc_path = f"{out_dir}/{cfg.name}_mc.obj"
-    igl.write_triangle_mesh(mc_path, V, F)
-    IM_remesh(mc_path, mc_path, 10000)
+    meshlab_edge_collapse(mc_path, V, F)
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_sup.obj", V_vis_sup,
                             F_vis_sup)
     igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_interp.obj", V_vis_interp,
