@@ -158,13 +158,8 @@ def filter_components(V, F, VN):
         # Purely heuristic
         idx_top3 = np.argsort(K)[::-1][:3]
 
-        # Not sure if necessary
-        idx_top3_list = list(idx_top3)
-        for i in range(len(idx_top3_list)):
-            idx = idx_top3_list[i]
-            # First delete unreasonable ones
-            if K[idx] / len(V) < 0.05:
-                idx_top3 = np.delete(idx_top3, i)
+        # Remove unreasonable small components
+        idx_top3 = idx_top3[K[idx_top3] / len(V) > 0.05]
 
         def validate_VN(k):
             vid = np.argwhere(C == k).reshape(-1,)
