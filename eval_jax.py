@@ -163,11 +163,8 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
-    # Quadratic edge collapsing reduces vertex count while preserves original appear
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
-    V, F = meshlab_edge_collapse(mc_save_path, V, F)
-
-    timer.log('Meshlab edge collapsing')
+    igl.write_triangle_mesh(mc_save_path, V, F)
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
@@ -229,9 +226,6 @@ def eval(cfg: Config,
 
         exit()
 
-    if geo_only:
-        return
-
     if vis_mc:
         # TODO support latent
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
@@ -241,6 +235,20 @@ def eval(cfg: Config,
         Rs = proj_func(aux)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
+
+        # @jit
+        # def matching(vn, R):
+        #     dp = jnp.abs(jnp.einsum('m,mn->n', vn, R))
+        #     scale = 0.1 * jnp.ones(3)
+        #     scale = scale.at[jnp.argmax(dp)].set(1)
+
+        #     return R * scale[None, :]
+
+        # Rs = vmap(matching)(sur_normal, Rs)
+        # V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.01)
+        # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_sup.obj", V_vis_sup,
+        #                     F_vis_sup)
+        # exit()
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
@@ -268,6 +276,13 @@ def eval(cfg: Config,
         exit()
 
     timer.reset()
+
+    if geo_only:
+        # Quadratic edge collapsing reduces vertex count while preserves original appear
+        V, F = meshlab_edge_collapse(mc_save_path, V, F)
+
+        timer.log('Meshlab edge collapsing')
+        return
 
     # IM is isotropic and more suited for tracing flowlines
     im_save_path = f"{out_dir}/{cfg.name}_{interp_tag}im.obj"
