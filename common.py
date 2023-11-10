@@ -151,11 +151,20 @@ def surface_vertex_topology(V, F):
 # Remove isolated components except for the most promising one
 def filter_components(V, F, VN):
     A = igl.adjacency_matrix(F)
+    # K is the size of each component
     (n_c, C, K) = igl.connected_components(A)
 
     if n_c > 1:
         # Purely heuristic
         idx_top3 = np.argsort(K)[::-1][:3]
+
+        # Not sure if necessary
+        idx_top3_list = list(idx_top3)
+        for i in range(len(idx_top3_list)):
+            idx = idx_top3_list[i]
+            # First delete unreasonable ones
+            if K[idx] / len(V) < 0.05:
+                idx_top3 = np.delete(idx_top3, i)
 
         def validate_VN(k):
             vid = np.argwhere(C == k).reshape(-1,)
@@ -164,21 +173,34 @@ def filter_components(V, F, VN):
             dps = jnp.einsum('bi,bi->b',
                              vmap(normalize)(V[vid] - mass_center[None, :]),
                              VN[vid])
-            valid = np.sum(dps > 0) > K[k] // 2
 
-            return np.linalg.norm(mass_center) if valid else np.inf
+            ratio = np.sum(dps > 0) / (K[k] // 2)
 
-        idx = idx_top3[np.argmin([validate_VN(idx) for idx in idx_top3])]
+            return np.linalg.norm(mass_center), ratio
+
+        min_dist = np.inf
+        confidence = 0
+        idx_min = 0
+
+        for idx in idx_top3:
+            dist, ratio = validate_VN(idx)
+            if dist < min_dist and ratio > 1.0:
+                min_dist = dist
+                confidence = ratio
+                idx_min = idx
+
+        idx = idx_min
 
         VF, NI = igl.vertex_triangle_adjacency(F, F.max() + 1)
         FV = np.split(VF, NI[1:-1])
 
-        V_filter = np.argwhere(C != idx).reshape(-1,)
+        V_filter = np.argwhere(C != idx_min).reshape(-1,)
         F_filter = np.unique(np.concatenate([FV[vid] for vid in V_filter]))
         F = np.delete(F, F_filter, axis=0)
+
         V, F = rm_unref_vertices(V, F)
 
-    return V, F
+    return V, F, confidence > 1.5
 
 
 class Timer:

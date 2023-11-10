@@ -107,10 +107,18 @@ def progressive_sample_off_surf(cfg: Config,
                                 close_scale=1e-2):
 
     sample_size = cfg.training.n_samples
-    # Progressive sample: 1 -> 2 -> 5
-    scale = close_scale * np.ones(cfg.training.n_steps)
-    scale[cfg.training.n_steps // 3:] = 2 * close_scale
-    scale[int(2 * cfg.training.n_steps / 3):] = 5 * close_scale
+
+    # TODO: In computing metrics, use the same scale and compute F1-score to filter out outliers
+    if cfg.loss_cfg.regularize > 0:
+        # Progressive sample: 1 -> 2 -> 5
+        scale = close_scale * np.ones(cfg.training.n_steps)
+        scale[cfg.training.n_steps // 3:] = 2 * close_scale
+        scale[int(2 * cfg.training.n_steps / 3):] = 5 * close_scale
+    else:
+        # Progressive sample: 5 -> 2 -> 1
+        scale = 5 * close_scale * np.ones(cfg.training.n_steps)
+        scale[cfg.training.n_steps // 3:] = 2 * close_scale
+        scale[int(2 * cfg.training.n_steps / 3):] = close_scale
 
     close_sample_size = sample_size // 4
     free_sample_size = sample_size - close_sample_size

@@ -78,11 +78,11 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
 
 # Reduce face count to speed up visualization
 # TODO: Use edge collapsing like one in Instant meshes
-def meshlab_edge_collapse(save_path, V, F):
+def meshlab_edge_collapse(save_path, V, F, num_faces):
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
-    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=20000)
+    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=num_faces)
 
     # I believe there is no other option to pass meshlab mesh back to python
     ms.save_current_mesh(save_path)
@@ -106,6 +106,7 @@ def eval(cfg: Config,
          vis_smooth=False,
          vis_flowline=False,
          geo_only=False,
+         edge_collapse=True,
          interp_tag=''):
 
     # Map network output to sh4 parameterization
@@ -156,7 +157,8 @@ def eval(cfg: Config,
 
     timer.log('Extract surface')
 
-    V, F = filter_components(V, F, VN)
+    # If it is not is_normal, it have large amount of flipped components (likely from siren)
+    V, F, is_normal = filter_components(V, F, VN)
 
     timer.log('Filter components')
 
@@ -164,6 +166,14 @@ def eval(cfg: Config,
         os.mkdir(out_dir)
 
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
+
+    if edge_collapse:
+        # Quadratic edge collapsing reduces vertex count while preserves original appear
+        V, F = meshlab_edge_collapse(mc_save_path, V, F,
+                                     20000 if is_normal else 60000)
+
+        timer.log('Meshlab edge collapsing')
+
     igl.write_triangle_mesh(mc_save_path, V, F)
 
     if vis_singularity:
@@ -278,10 +288,6 @@ def eval(cfg: Config,
     timer.reset()
 
     if geo_only:
-        # Quadratic edge collapsing reduces vertex count while preserves original appear
-        V, F = meshlab_edge_collapse(mc_save_path, V, F)
-
-        timer.log('Meshlab edge collapsing')
         return
 
     # IM is isotropic and more suited for tracing flowlines
