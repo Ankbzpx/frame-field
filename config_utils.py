@@ -104,12 +104,10 @@ def progressive_sample_off_surf(cfg: Config,
                                 data_key,
                                 samples_on_sur,
                                 sample_bound,
+                                inverse=False,
                                 close_scale=1e-2):
-
     sample_size = cfg.training.n_samples
-
-    # TODO: In computing metrics, use the same scale and compute F1-score to filter out outliers
-    if cfg.loss_cfg.regularize > 0:
+    if inverse:
         # Progressive sample: 1 -> 2 -> 5
         scale = close_scale * np.ones(cfg.training.n_steps)
         scale[cfg.training.n_steps // 3:] = 2 * close_scale
@@ -167,9 +165,13 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
+        # TODO: In computing metrics, use the same scale and compute F1-score to filter out outliers
         data.update(
-            progressive_sample_off_surf(cfg, data_key, data['samples_on_sur'],
-                                        sample_bound))
+            progressive_sample_off_surf(cfg,
+                                        data_key,
+                                        data['samples_on_sur'],
+                                        sample_bound,
+                                        inverse=cfg.loss_cfg.regularize > 0))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -210,6 +212,9 @@ def config_training_data_param(cfg: Config, data_key, latents):
         data.update(
             progressive_sample_off_surf(cfg, data_key, data['samples_on_sur'],
                                         sample_bound))
+
+        del data['sdf_off_sur']
+
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)

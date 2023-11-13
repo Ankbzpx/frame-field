@@ -12,7 +12,8 @@ import model_jax
 from config import Config
 from config_utils import config_latent, config_model, eval_data_scale
 from common import (normalize, vis_oct_field, filter_components, Timer,
-                    voxel_tet_from_grid_scale, ps_register_curve_network)
+                    voxel_tet_from_grid_scale, ps_register_curve_network,
+                    rm_unref_vertices)
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -162,23 +163,9 @@ def eval(cfg: Config,
 
     timer.log('Filter components')
 
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
-
-    mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
-
-    if edge_collapse:
-        # Quadratic edge collapsing reduces vertex count while preserves original appear
-        V, F = meshlab_edge_collapse(mc_save_path, V, F,
-                                     20000 if is_normal else 60000)
-
-        timer.log('Meshlab edge collapsing')
-
-    igl.write_triangle_mesh(mc_save_path, V, F)
-
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
-        V_tet, T = voxel_tet_from_grid_scale(16, grid_scale)
+        V_tet, T = voxel_tet_from_grid_scale(48, grid_scale)
 
         group_size = 256**2
         n_iters = len(V_tet) // group_size
@@ -217,24 +204,52 @@ def eval(cfg: Config,
         uE_singularity_mask = frame_field_utils.tet_frame_singularity(
             uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum,
             Rs_bary)
+        uE_singular = uE[uE_singularity_mask]
 
         timer.log('Compute singularity')
 
-        F_b = igl.boundary_facets(T)
-        F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
+        # F_b = igl.boundary_facets(T)
+        # F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
+
+        # V_b, F_b = rm_unref_vertices(V_tet, F_b)
+        # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_tet_bound.obj",
+        #                         np.float64(V_b), F_b)
+
+        # V_uE, uE_singular = rm_unref_vertices(V, uE_singular)
+        # data = {
+        #     'V': V_uE.reshape(-1,).tolist(),
+        #     'uE': uE_singular.reshape(-1,).tolist()
+        # }
+        # with open(f'{out_dir}/{cfg.name}.json', 'w') as f:
+        #     json.dump(data, f)
+
+        # exit()
 
         ps.init()
         ps.register_surface_mesh('tet boundary', V_tet, F_b, enabled=False)
         ps.register_surface_mesh('mc', V, F)
         if uE_singularity_mask.sum() > 0:
-            ps_register_curve_network('singularity', V_tet,
-                                      uE[uE_singularity_mask])
+            ps_register_curve_network('singularity', V_tet, uE_singular)
         ps.show()
 
         param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
-        np.savez(param_path, V=V_tet, T=T, sh4=sh4, sdf=sdf)
+        # np.savez(param_path, V=V_tet, T=T, sh4=sh4, sdf=sdf)
 
         exit()
+
+    if not os.path.exists(out_dir):
+        os.mkdir(out_dir)
+
+    mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
+
+    if edge_collapse:
+        # Quadratic edge collapsing reduces vertex count while preserves original appear
+        V, F = meshlab_edge_collapse(mc_save_path, V, F,
+                                     20000 if is_normal else 60000)
+
+        timer.log('Meshlab edge collapsing')
+
+    igl.write_triangle_mesh(mc_save_path, V, F)
 
     if vis_mc:
         # TODO support latent

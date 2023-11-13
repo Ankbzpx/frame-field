@@ -97,7 +97,8 @@ def eval(cfg: Config,
                                                      grid_res=grid_res,
                                                      grid_min=grid_min,
                                                      grid_max=grid_max)
-        V_mc_param, F_mc_param = filter_components(V_mc_param, F_mc_param, VN)
+        V_mc_param, F_mc_param, _ = filter_components(V_mc_param, F_mc_param,
+                                                      VN)
         V_mc_param = infer_param(V_mc_param)
 
         @jit
@@ -109,7 +110,7 @@ def eval(cfg: Config,
                                          grid_res=grid_res,
                                          grid_min=grid_min,
                                          grid_max=grid_max)
-        V_mc, F_mc, is_normal = filter_components(V_mc, F_mc, VN)
+        V_mc, F_mc, _ = filter_components(V_mc, F_mc, VN)
 
         ps.init()
         ps.register_surface_mesh('MC param', V_mc_param, F_mc_param)
