@@ -12,6 +12,7 @@ from sh_representation import (rotvec_to_sh4, rot6d_to_sh4_zonal, rot6d_to_R3,
 from common import voxel_tet_from_grid_scale, ps_register_basis, filter_components
 from eval_jax import extract_surface
 from train_jax_param import ParamMLP
+import igl
 
 import json
 import argparse
@@ -75,7 +76,7 @@ def eval(cfg: Config,
     if inverse:
 
         # There is no guarantee of the aabb of inverse parameterization
-        grid_res = 64
+        grid_res = 128
         grid_min = -1.5
         grid_max = 1.5
 
@@ -112,6 +113,11 @@ def eval(cfg: Config,
                                          grid_min=grid_min,
                                          grid_max=grid_max)
         V_mc, F_mc, _ = filter_components(V_mc, F_mc, VN)
+
+        igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_param_mc.obj",
+                                np.float64(V_mc_param), F_mc_param)
+        igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_mc.obj",
+                                np.float64(V_mc), F_mc)
 
         ps.init()
         ps.register_surface_mesh('MC param', V_mc_param, F_mc_param)
