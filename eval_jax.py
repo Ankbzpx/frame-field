@@ -165,7 +165,7 @@ def eval(cfg: Config,
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
-        V_tet, T = voxel_tet_from_grid_scale(48, grid_scale)
+        V_tet, T = voxel_tet_from_grid_scale(16, grid_scale)
 
         group_size = 256**2
         n_iters = len(V_tet) // group_size
@@ -208,8 +208,8 @@ def eval(cfg: Config,
 
         timer.log('Compute singularity')
 
-        # F_b = igl.boundary_facets(T)
-        # F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
+        F_b = igl.boundary_facets(T)
+        F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
 
         # V_b, F_b = rm_unref_vertices(V_tet, F_b)
         # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_tet_bound.obj",
@@ -233,7 +233,7 @@ def eval(cfg: Config,
         ps.show()
 
         param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
-        # np.savez(param_path, V=V_tet, T=T, sh4=sh4, sdf=sdf)
+        np.savez(param_path, V=V_tet, T=T, sh4=sh4, sdf=sdf)
 
         exit()
 
@@ -366,9 +366,6 @@ if __name__ == '__main__':
     parser.add_argument('--vis_singularity',
                         action='store_true',
                         help='Visualize octahedron singularity')
-    parser.add_argument('--save_param',
-                        action='store_true',
-                        help='Save parameterization for tetrahedron')
     parser.add_argument('--vis_mc',
                         action='store_true',
                         help='Visualize MC mesh only')
