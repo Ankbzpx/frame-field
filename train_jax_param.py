@@ -6,8 +6,10 @@ import model_jax
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_training_data_param, config_optim
 from jaxtyping import PyTree, Array
+from common import normalize
 from sh_representation import (rotvec_to_sh4_expm, rot6d_to_sh4_zonal,
                                R3_to_sh4_zonal)
+from loss import cosine_similarity
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -19,6 +21,8 @@ import json
 
 import polyscope as ps
 from icecream import ic
+
+ParamMLP: model_jax.MLP = model_jax.StandardMLP
 
 
 # "Unsupervised Deep Learning for Structured Shape Matching" by Roufosse et al.
@@ -32,6 +36,25 @@ def neg_det_penalty(J):
     return jax.nn.relu(-jnp.linalg.det(J))
 
 
+@jit
+def fit_jac(J):
+    # J is row-wise
+    a0 = J[0]
+    a1 = J[1]
+    a2 = J[2]
+
+    b0 = normalize(a0)
+    b1 = normalize(a1 - jnp.dot(b0, a1) * b0)
+    b2 = jnp.cross(b0, b1)
+
+    J_fit = jnp.array([b0, b1, b2]).T
+
+    loss_fit = (1 - cosine_similarity(a1, jax.lax.stop_gradient(b1))) + (
+        1 - cosine_similarity(a2, jax.lax.stop_gradient(b2))) + orthogonality(J)
+
+    return J_fit, loss_fit
+
+
 def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
           checkpoints_folder, inverse: bool):
     optim, opt_state = config_optim(cfg, model)
@@ -43,9 +66,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
 
     # TODO: Put these to config files
     # Prioritize positive determinant over conformal
-    det_weight = 3e3
-    orth_weight = 1e1
-    align_weight_init = 1e1
+    orth_weight = 5e1
+    align_weight_init = 1e2
     align_schedule = optax.polynomial_schedule(1e-2 * align_weight_init,
                                                align_weight_init, 0.5,
                                                total_steps,
@@ -72,11 +94,6 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         # We no longer care which is on, which is off
         samples = jnp.vstack([samples_on_sur, samples_off_sur])
         latent = jnp.vstack([latent, latent])
-        # However, since on surface points are supervised, we assign larger alignment weights to close to surface points
-        # align_weight = jnp.concatenate([
-        #     align_weight * jnp.ones(len(samples_on_sur)),
-        #     align_weight * close_samples_mask + 1.0
-        # ])
 
         # Forward f: cart -> param
         #   \int_V \| \nabla f(cart) - X(cart) \|^2
@@ -91,9 +108,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
             model.single_call(boundary_pt, latent[0]) - boundary_pt).mean()
 
         J, samples_param = model.call_jac(samples, latent)
-        # J is row-wise
-        J = J if inverse else jnp.transpose(J, (0, 2, 1))
-        loss_det = det_weight * vmap(neg_det_penalty)(J).mean()
+        J, loss_fit = vmap(fit_jac)(J)
+        J = jnp.transpose(J, (0, 2, 1)) if inverse else J
 
         # Octahedral supervision
         samples_cart = samples_param if inverse else samples
@@ -103,14 +119,13 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         sh4_align = vmap(R3_to_sh4_zonal)(J)
         loss_align = align_weight * vmap(
             jnp.linalg.norm)(sh4 - sh4_align).mean()
-        # Alignment only make sense for orthogonal frames
-        loss_orth = orth_weight * vmap(orthogonality)(J).mean()
 
-        loss = loss_boundary + loss_det + loss_orth + loss_align
+        loss_orth = orth_weight * loss_fit.mean()
+
+        loss = loss_boundary + loss_orth + loss_align
 
         loss_dict = {
             'loss_boundary': loss_boundary,
-            'loss_det': loss_det,
             'loss_orth': loss_orth,
             'loss_align': loss_align,
             'loss_total': loss
@@ -196,7 +211,7 @@ if __name__ == '__main__':
     # Debug
     # cfg.training.n_steps = 101
 
-    model = model_jax.StandardMLP(**mlp_cfg, key=model_key)
+    model = ParamMLP(**mlp_cfg, key=model_key)
     data = config_training_data_param(cfg, data_key, latents)
 
     train(cfg, model, model_octa, data, 'checkpoints', args.inverse)

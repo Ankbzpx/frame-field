@@ -104,21 +104,16 @@ def progressive_sample_off_surf(cfg: Config,
                                 data_key,
                                 samples_on_sur,
                                 sample_bound,
-                                inverse=False,
-                                close_scale=1e-2):
+                                close_scale=1e-2,
+                                scaler_factor=[5.0, 2.0, 1.0],
+                                ratio=0.25):
     sample_size = cfg.training.n_samples
-    if inverse:
-        # Progressive sample: 1 -> 2 -> 5
-        scale = close_scale * np.ones(cfg.training.n_steps)
-        scale[cfg.training.n_steps // 3:] = 2 * close_scale
-        scale[int(2 * cfg.training.n_steps / 3):] = 5 * close_scale
-    else:
-        # Progressive sample: 5 -> 2 -> 1
-        scale = 5 * close_scale * np.ones(cfg.training.n_steps)
-        scale[cfg.training.n_steps // 3:] = 2 * close_scale
-        scale[int(2 * cfg.training.n_steps / 3):] = close_scale
+    # Progressive sample
+    scale = scaler_factor[0] * close_scale * np.ones(cfg.training.n_steps)
+    scale[cfg.training.n_steps // 3:] = scaler_factor[1] * close_scale
+    scale[int(2 * cfg.training.n_steps / 3):] = scaler_factor[2] * close_scale
 
-    close_sample_size = sample_size // 4
+    close_sample_size = int(ratio * sample_size)
     free_sample_size = sample_size - close_sample_size
 
     close_samples = scale[:, None, None] * jax.random.normal(
@@ -167,11 +162,13 @@ def config_training_data(cfg: Config, data_key, latents):
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
         # TODO: In computing metrics, use the same scale and compute F1-score to filter out outliers
         data.update(
-            progressive_sample_off_surf(cfg,
-                                        data_key,
-                                        data['samples_on_sur'],
-                                        sample_bound,
-                                        inverse=cfg.loss_cfg.regularize > 0))
+            progressive_sample_off_surf(
+                cfg,
+                data_key,
+                data['samples_on_sur'],
+                sample_bound,
+                scaler_factor=[1.0, 2.0, 5.0]
+                if cfg.loss_cfg.regularize > 0 else [5.0, 2.0, 1.0]))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -210,8 +207,11 @@ def config_training_data_param(cfg: Config, data_key, latents):
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
         data.update(
-            progressive_sample_off_surf(cfg, data_key, data['samples_on_sur'],
-                                        sample_bound))
+            progressive_sample_off_surf(cfg,
+                                        data_key,
+                                        data['samples_on_sur'],
+                                        sample_bound,
+                                        ratio=0.0))
 
         del data['sdf_off_sur']
 

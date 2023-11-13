@@ -11,6 +11,7 @@ from sh_representation import (rotvec_to_sh4, rot6d_to_sh4_zonal, rot6d_to_R3,
                                rotvec_to_R3, proj_sh4_to_R3, proj_sh4_sdp)
 from common import voxel_tet_from_grid_scale, ps_register_basis, filter_components
 from eval_jax import extract_surface
+from train_jax_param import ParamMLP
 
 import json
 import argparse
@@ -37,7 +38,7 @@ def eval(cfg: Config,
         param_func = lambda x: x
         proj_func = proj_sh4_to_R3
 
-    if vis_octa:
+    if vis_octa or not inverse:
 
         @jit
         def infer_param_jac(x):
@@ -74,7 +75,7 @@ def eval(cfg: Config,
     if inverse:
 
         # There is no guarantee of the aabb of inverse parameterization
-        grid_res = 128
+        grid_res = 64
         grid_min = -1.5
         grid_max = 1.5
 
@@ -143,7 +144,7 @@ if __name__ == '__main__':
     mlp_cfg = cfg.mlp_cfgs[0]
     mlp_cfg['out_features'] = 3
 
-    model = model_jax.StandardMLP(**mlp_cfg, key=model_key)
+    model = ParamMLP(**mlp_cfg, key=model_key)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 
