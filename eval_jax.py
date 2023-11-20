@@ -211,11 +211,11 @@ def eval(cfg: Config,
         F_b = igl.boundary_facets(T)
         F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
 
-        # V_b, F_b = rm_unref_vertices(V_tet, F_b)
+        V_b, F_b = rm_unref_vertices(V_tet, F_b)
         # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_tet_bound.obj",
         #                         np.float64(V_b), F_b)
 
-        # V_uE, uE_singular = rm_unref_vertices(V, uE_singular)
+        # V_uE, uE_singular = rm_unref_vertices(V_tet, uE_singular)
         # data = {
         #     'V': V_uE.reshape(-1,).tolist(),
         #     'uE': uE_singular.reshape(-1,).tolist()
