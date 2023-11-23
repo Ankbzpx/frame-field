@@ -281,7 +281,7 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     # The gradient w.r.t. (a, b, c) is then given by
     #   (sh4s_target.T @ Lx @ sh4, sh4s_target.T @ Ly @ sh4, sh4s_target.T @ Lz @ sh4)
     #
-    # Here we leverage autograd to directly optimize over se3
+    # Here we leverage autograd to directly optimize over so3
 
     optimizer = optax.adam(lr)
     params = {'rotvec': rotvec}
