@@ -127,16 +127,23 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_align = loss_cfg.align * double_well_potential(
                     jnp.abs(dps)).sum(-1).mean()
             else:
-                sh4_align = vmap(param_func)(aux_align)
-                R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
-                sh4_n = vmap(project_n)(sh4_align, R9_zn)
-                loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                               (sh4_align, sh4_n)).mean()
+                if loss_cfg.rot6d:
+                    basis_align = proj_func(aux_align)
+                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                        jax.lax.stop_gradient(normal_align), basis_align)
+                    loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
+                else:
+                    sh4_align = vmap(param_func)(aux_align)
+                    R9_zn = vmap(rotvec_to_R9)(
+                        vmap(rotvec_n_to_z)(normal_align))
+                    sh4_n = vmap(project_n)(sh4_align, R9_zn)
+                    loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
+                                                   (sh4_align, sh4_n)).mean()
 
-                loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                    sh4_align).mean()
-                loss += loss_unit_norm
-                loss_dict['loss_unit_norm'] = loss_unit_norm
+                    loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
+                        sh4_align).mean()
+                    loss += loss_unit_norm
+                    loss_dict['loss_unit_norm'] = loss_unit_norm
 
             loss += loss_align
             loss_dict['loss_align'] = loss_align
@@ -154,9 +161,15 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_regularize = regularize_weight * double_well_potential(
                     jnp.abs(dps)).sum(-1)
             else:
-                sh4_reg = vmap(param_func)(jax.lax.stop_gradient(aux_reg))
-                dps = vmap(oct_polynomial_sh4_unit_norm)(normal_reg, sh4_reg)
-                loss_regularize = regularize_weight * (1 - dps)
+                if loss_cfg.rot6d:
+                    basis_reg = proj_func(aux_reg)
+                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                        pred_normals_off_sur, basis_reg)
+                else:
+                    sh4_reg = vmap(param_func)(aux_reg)
+                    poly_val = vmap(oct_polynomial_sh4_unit_norm)(normal_reg,
+                                                                  sh4_reg)
+                loss_regularize = regularize_weight * (1 - poly_val)
 
             # Only regularize points close to supervision samples
             # Under smooth settings, those sh4 should not deviate much from octahedral variety
