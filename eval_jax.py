@@ -226,7 +226,7 @@ def eval(cfg: Config,
         # exit()
 
         ps.init()
-        ps.register_surface_mesh('tet boundary', V_tet, F_b, enabled=False)
+        ps.register_surface_mesh('tet boundary', V_b, F_b, enabled=False)
         ps.register_surface_mesh('mc', V, F)
         if uE_singularity_mask.sum() > 0:
             ps_register_curve_network('singularity', V_tet, uE_singular)
