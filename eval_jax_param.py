@@ -76,7 +76,7 @@ def eval(cfg: Config,
     if inverse:
 
         # There is no guarantee of the aabb of inverse parameterization
-        grid_res = 128
+        grid_res = 64
         grid_min = -1.5
         grid_max = 1.5
 
@@ -148,9 +148,16 @@ if __name__ == '__main__':
         f"checkpoints/{name}.eqx", model_octa)
 
     mlp_cfg = cfg.mlp_cfgs[0]
-    mlp_cfg['out_features'] = 3
+    mlp_type = cfg.mlp_types[0]
 
+    # Single vector potential
+    mlp_cfg['out_features'] = 3
     model = ParamMLP(**mlp_cfg, key=model_key)
+
+    # 3 scalar fields
+    # model = ParamMLP(mlp_types=[mlp_type] * 3,
+    #                  mlp_cfgs=[mlp_cfg] * 3,
+    #                  key=model_key)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 

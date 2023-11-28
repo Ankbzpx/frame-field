@@ -8,8 +8,9 @@ from config_utils import config_latent, config_model, config_training_data_param
 from jaxtyping import PyTree, Array
 from common import normalize
 from sh_representation import (rotvec_to_sh4_expm, rot6d_to_sh4_zonal,
-                               R3_to_sh4_zonal)
-from loss import cosine_similarity
+                               R3_to_sh4_zonal, rot6d_to_R3, rotvec_to_R3,
+                               proj_sh4_to_R3)
+from loss import cosine_similarity, eikonal
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -37,7 +38,7 @@ def neg_det_penalty(J):
 
 
 @jit
-def fit_jac(J):
+def fit_jac_rot6d(J):
     # J is row-wise
     a0 = J[0]
     a1 = J[1]
@@ -55,6 +56,20 @@ def fit_jac(J):
     return J_fit, loss_fit
 
 
+@jit
+def match_frame(J, basis):
+    # J is row-wise
+    # basis is col-wise
+
+    loss_fit = (1 - cosine_similarity(J[0], basis[:, 0])) + (
+        1 - cosine_similarity(J[1], basis[:, 1])) + (
+            1 - cosine_similarity(J[2], basis[:, 2]))
+
+    loss_unit_norm = eikonal(J[0]) + eikonal(J[1]) + eikonal(J[2])
+
+    return loss_fit, loss_unit_norm
+
+
 def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
           checkpoints_folder, inverse: bool):
     optim, opt_state = config_optim(cfg, model)
@@ -66,12 +81,19 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
 
     # TODO: Put these to config files
     # Prioritize positive determinant over conformal
-    orth_weight = 5e1
     align_weight_init = 1e2
-    align_schedule = optax.polynomial_schedule(1e-2 * align_weight_init,
-                                               align_weight_init, 0.5,
-                                               total_steps,
-                                               cfg.training.warmup_steps)
+    # align_schedule = optax.polynomial_schedule(align_weight_init,
+    #                                            1e1 * align_weight_init, 0.5,
+    #                                            total_steps,
+    #                                            cfg.training.warmup_steps)
+    align_schedule = optax.constant_schedule(align_weight_init)
+
+    orth_weight_init = 5e1
+    # orth_schedule = optax.constant_schedule(1e1 * orth_weight_init,
+    #                                           orth_weight_init, 0.5,
+    #                                           total_steps,
+    #                                           cfg.training.warmup_steps)
+    orth_schedule = optax.constant_schedule(orth_weight_init)
 
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
@@ -81,15 +103,19 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
                   step_count: int):
 
         align_weight = align_schedule(step_count)
+        orth_weight = orth_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
             param_func = rot6d_to_sh4_zonal
+            proj_func = vmap(rot6d_to_R3)
         elif loss_cfg.rotvec:
             # Needs second order differentiable
             param_func = rotvec_to_sh4_expm
+            proj_func = vmap(rotvec_to_R3)
         else:
             param_func = lambda x: x
+            proj_func = proj_sh4_to_R3
 
         # We no longer care which is on, which is off
         samples = jnp.vstack([samples_on_sur, samples_off_sur])
@@ -100,27 +126,40 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         #
         # Inverse f: param -> cart
         #   \int_V \| \nabla f(param) - inv(X(f(param))) \|^2
-        # (orth) => \int_V \| (\nabla f(param)).T - X(f(param)) \|^2
+        # (sh4) => \int_V \| (\nabla f(param)).T - X(f(param)) \|^2
+        # (rot6d) => \int_V \| \nabla f(param) - (X(f(param))).T \|^2
 
         # Fix (0, 0, 0)
         boundary_pt = jnp.zeros(3)
         loss_boundary = jnp.abs(
             model.single_call(boundary_pt, latent[0]) - boundary_pt).mean()
 
-        J, samples_param = model.call_jac(samples, latent)
-        J, loss_fit = vmap(fit_jac)(J)
-        J = jnp.transpose(J, (0, 2, 1)) if inverse else J
-
         # Octahedral supervision
+        J, samples_param = model.call_jac(samples, latent)
         samples_cart = samples_param if inverse else samples
         aux = model_octa.call_aux(samples_cart, latent)
-        sh4 = param_func(aux)
+        aux = jax.lax.stop_gradient(aux)
 
-        sh4_align = vmap(R3_to_sh4_zonal)(J)
-        loss_align = align_weight * vmap(
-            jnp.linalg.norm)(sh4 - sh4_align).mean()
+        if loss_cfg.rot6d:
+            basis = proj_func(aux)
+            basis = jnp.transpose(basis, (0, 2, 1)) if inverse else basis
 
-        loss_orth = orth_weight * loss_fit.mean()
+            # I don't think we need to care about octahedral symmetry for now
+            loss_fit, loss_unit_norm = vmap(match_frame)(J, basis)
+
+            loss_align = align_weight * loss_fit.mean()
+            loss_orth = orth_weight * loss_unit_norm.mean()
+        else:
+            J, loss_fit = vmap(fit_jac_rot6d)(J)
+            J = jnp.transpose(J, (0, 2, 1)) if inverse else J
+
+            sh4 = vmap(param_func)(aux)
+
+            sh4_align = vmap(R3_to_sh4_zonal)(J)
+            loss_align = align_weight * vmap(
+                jnp.linalg.norm)(sh4 - sh4_align).mean()
+
+            loss_orth = orth_weight * loss_fit.mean()
 
         loss = loss_boundary + loss_orth + loss_align
 
@@ -206,12 +245,20 @@ if __name__ == '__main__':
         f"checkpoints/{name}.eqx", model_octa)
 
     mlp_cfg = cfg.mlp_cfgs[0]
+    mlp_type = cfg.mlp_types[0]
+
+    # Single vector potential
     mlp_cfg['out_features'] = 3
+    model = ParamMLP(**mlp_cfg, key=model_key)
+
+    # 3 scalar fields
+    # model = ParamMLP(mlp_types=[mlp_type] * 3,
+    #                  mlp_cfgs=[mlp_cfg] * 3,
+    #                  key=model_key)
 
     # Debug
     # cfg.training.n_steps = 101
 
-    model = ParamMLP(**mlp_cfg, key=model_key)
     data = config_training_data_param(cfg, data_key, latents)
 
     train(cfg, model, model_octa, data, 'checkpoints', args.inverse)
