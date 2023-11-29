@@ -23,7 +23,7 @@ import json
 import polyscope as ps
 from icecream import ic
 
-ParamMLP: model_jax.MLP = model_jax.StandardMLP
+ParamMLP: model_jax.MLP = model_jax.Siren
 
 
 # "Unsupervised Deep Learning for Structured Shape Matching" by Roufosse et al.
@@ -57,16 +57,12 @@ def fit_jac_rot6d(J):
 
 
 @jit
-def match_frame(J, basis):
+def frame_matching_loss(J, basis):
     # J is row-wise
     # basis is col-wise
-
-    loss_fit = (1 - cosine_similarity(J[0], basis[:, 0])) + (
-        1 - cosine_similarity(J[1], basis[:, 1])) + (
-            1 - cosine_similarity(J[2], basis[:, 2]))
-
-    loss_unit_norm = eikonal(J[0]) + eikonal(J[1]) + eikonal(J[2])
-
+    loss_fit = 0.5 * jnp.linalg.norm(J - basis.T) + 0.5 * jnp.abs(
+        jnp.linalg.det(J)) * jnp.linalg.norm(jnp.linalg.inv(J) - basis)
+    loss_unit_norm = orthogonality(J)
     return loss_fit, loss_unit_norm
 
 
@@ -145,7 +141,7 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
             basis = jnp.transpose(basis, (0, 2, 1)) if inverse else basis
 
             # I don't think we need to care about octahedral symmetry for now
-            loss_fit, loss_unit_norm = vmap(match_frame)(J, basis)
+            loss_fit, loss_unit_norm = vmap(frame_matching_loss)(J, basis)
 
             loss_align = align_weight * loss_fit.mean()
             loss_orth = orth_weight * loss_unit_norm.mean()

@@ -158,23 +158,26 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 # Normalization matters here because we want the dot product to be either 0 or 1
                 dps = jnp.einsum('bij,bi->bj', basis_reg,
                                  vmap(normalize)(normal_reg))
-                loss_regularize = regularize_weight * double_well_potential(
-                    jnp.abs(dps)).sum(-1)
+                loss_regularize = (
+                    regularize_weight *
+                    double_well_potential(jnp.abs(dps)).sum(-1)).mean()
             else:
                 if loss_cfg.rot6d:
                     basis_reg = proj_func(aux_reg)
-                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
-                        pred_normals_off_sur, basis_reg)
+                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(normal_reg,
+                                                                    basis_reg)
+                    # For rot6d, it is guaranteed to lies on the octahedral variety
+                    loss_regularize = regularize_weight * (1 - poly_val).mean()
                 else:
                     sh4_reg = vmap(param_func)(aux_reg)
                     poly_val = vmap(oct_polynomial_sh4_unit_norm)(normal_reg,
                                                                   sh4_reg)
-                loss_regularize = regularize_weight * (1 - poly_val)
+                    loss_regularize = regularize_weight * (1 - poly_val).mean()
 
-            # Only regularize points close to supervision samples
-            # Under smooth settings, those sh4 should not deviate much from octahedral variety
-            loss_regularize = (close_samples_mask * loss_regularize
-                              ).sum() / close_samples_mask.sum()
+                    # Only regularize points close to supervision samples
+                    # Under smooth settings, those sh4 should not deviate much from octahedral variety
+                    loss_regularize = (close_samples_mask * loss_regularize
+                                      ).sum() / close_samples_mask.sum()
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize
 

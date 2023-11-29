@@ -160,7 +160,9 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-        # TODO: In computing metrics, use the same scale and compute F1-score to filter out outliers
+
+        # FIXME: I wish to keep the sampling strategy consistent, but when using [1.0, 2.0, 5.0], without regularization gives connected components when sampling density is low
+        # FIXME: Does it make sense for rot6d?
         data.update(
             progressive_sample_off_surf(
                 cfg,
