@@ -33,7 +33,8 @@ def voxel_infer(infer,
                 grid_res=512,
                 grid_min=-1.0,
                 grid_max=1.0,
-                group_size_mul=2):
+                group_size_mul=2,
+                out_dim=1):
     # Smaller batch is somehow faster
     group_size = group_size_mul * grid_res**2
     iter_size = grid_res**3 // group_size
@@ -46,17 +47,18 @@ def voxel_infer(infer,
 
         query_data = {
             "grid": grid.reshape(iter_size, group_size, 3),
-            "val": jnp.zeros((iter_size, group_size))
+            "val": jnp.zeros((iter_size, group_size, out_dim))
         }
 
         @jit
         def body_func(i, query_data):
-            val = infer(query_data["grid"][i])
+            val = infer(query_data["grid"][i]).reshape(-1, out_dim)
             query_data["val"] = query_data["val"].at[i].set(val)
             return query_data
 
         query_data = jax.lax.fori_loop(0, iter_size, body_func, query_data)
-        return query_data["val"].reshape(grid_res, grid_res, grid_res), grid
+        return query_data["val"].reshape(grid_res, grid_res, grid_res,
+                                         out_dim), grid
 
     return infer_scalar()
 
@@ -66,7 +68,7 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
 
     sdf, _ = voxel_infer(infer, grid_res, grid_min, grid_max, 4)
     # This step is surprising slow, gpu to cpu memory copy?
-    sdf_np = np.swapaxes(np.array(sdf), 0, 1)
+    sdf_np = np.swapaxes(np.array(sdf[..., 0]), 0, 1)
 
     spacing = 1. / (grid_res - 1)
     # It outputs inverse VN, even with gradient_direction set to ascent
