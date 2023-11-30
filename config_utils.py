@@ -213,8 +213,7 @@ def config_training_data_param(cfg: Config, data_key, latents):
                                         data_key,
                                         data['samples_on_sur'],
                                         sample_bound,
-                                        ratio=0.5,
-                                        scaler_factor=[2.0, 2.0, 2.0]))
+                                        ratio=0.0))
 
         del data['sdf_off_sur']
 

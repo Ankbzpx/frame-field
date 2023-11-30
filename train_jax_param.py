@@ -56,16 +56,6 @@ def fit_jac_rot6d(J):
     return J_fit, loss_fit
 
 
-@jit
-def frame_matching_loss(J, basis):
-    # J is row-wise
-    # basis is col-wise
-    loss_fit = 0.5 * jnp.linalg.norm(J - basis.T) + 0.5 * jnp.abs(
-        jnp.linalg.det(J)) * jnp.linalg.norm(jnp.linalg.inv(J) - basis)
-    loss_unit_norm = orthogonality(J)
-    return loss_fit, loss_unit_norm
-
-
 def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
           checkpoints_folder, inverse: bool):
     optim, opt_state = config_optim(cfg, model)
@@ -85,7 +75,7 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     align_schedule = optax.constant_schedule(align_weight_init)
 
     orth_weight_init = 5e1
-    # orth_schedule = optax.constant_schedule(1e1 * orth_weight_init,
+    # orth_schedule = optax.polynomial_schedule(1e1 * orth_weight_init,
     #                                           orth_weight_init, 0.5,
     #                                           total_steps,
     #                                           cfg.training.warmup_steps)
@@ -138,13 +128,12 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
 
         if loss_cfg.rot6d:
             basis = proj_func(aux)
-            basis = jnp.transpose(basis, (0, 2, 1)) if inverse else basis
+            # J is rowwise
+            basis = basis if inverse else jnp.transpose(basis, (0, 2, 1))
 
-            # I don't think we need to care about octahedral symmetry for now
-            loss_fit, loss_unit_norm = vmap(frame_matching_loss)(J, basis)
-
-            loss_align = align_weight * loss_fit.mean()
-            loss_orth = orth_weight * loss_unit_norm.mean()
+            # I don't think we need to care about octahedral matching for now
+            loss_align = align_weight * vmap(jnp.linalg.norm)(J - basis).mean()
+            loss_orth = orth_weight * vmap(orthogonality)(J).mean()
         else:
             J, loss_fit = vmap(fit_jac_rot6d)(J)
             J = jnp.transpose(J, (0, 2, 1)) if inverse else J

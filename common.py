@@ -400,7 +400,6 @@ def tet_from_grid(res, grid_min=-1.0, grid_max=1.0):
     return V, T
 
 
-# TODO: Nasty workaround, should find a better way to do it
 def voxel_tet_from_grid_scale(res, grid_scale):
     max_scale = (grid_scale / grid_scale.min(keepdims=True)).max()
     grid_res = np.round(max_scale * res).astype(int)
@@ -408,7 +407,9 @@ def voxel_tet_from_grid_scale(res, grid_scale):
         grid_res += 1
 
     V, T = tet_from_grid(grid_res)
-    V, T = crop_tets(V, T, grid_scale)
+
+    # FIXME: Nasty workaround, should find a better way to do it
+    # V, T = crop_tets(V, T, grid_scale)
 
     return V, T
 
@@ -428,6 +429,7 @@ def crop_tets(V, T, grid_scale):
     V_mask[np.abs(V[:, 1]) > grid_scale_safe[1]] = False
     V_mask[np.abs(V[:, 2]) > grid_scale_safe[2]] = False
     T_mask = V_mask[T].sum(axis=1) == 4
+    # FIXME: this breaks index order of np.meshgrid
     V, T = rm_unref_vertices(V, T[T_mask])
     V = V * grid_scale.max()
     return V, T
