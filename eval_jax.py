@@ -75,7 +75,8 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
     V, F, VN_inv, _ = marching_cubes(sdf_np,
                                      0.,
                                      spacing=(spacing, spacing, spacing))
-    V = 2 * (V - 0.5)
+    dim = grid_max - grid_min
+    V = dim * (V - np.abs(grid_min) / dim)
     return V, F, -VN_inv
 
 
