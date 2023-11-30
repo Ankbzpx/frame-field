@@ -77,8 +77,8 @@ def eval(cfg: Config,
 
         # There is no guarantee of the aabb of inverse parameterization
         grid_res = 64
-        grid_min = -1.5
-        grid_max = 1.5
+        grid_max = 1
+        grid_min = -grid_max
 
         @jit
         def infer_param(x):
