@@ -84,7 +84,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     normal_weight_init = 1e2
     normal_schedule = optax.polynomial_schedule(1e-2 * normal_weight_init,
                                                 normal_weight_init, 0.5,
-                                                total_steps, total_steps // 2)
+                                                total_steps,
+                                                cfg.training.warmup_steps)
     # normal_schedule = optax.constant_schedule(normal_weight_init)
 
     @eqx.filter_jit

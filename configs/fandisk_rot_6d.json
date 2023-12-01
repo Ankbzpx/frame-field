@@ -1,0 +1,22 @@
+{
+    "sdf_paths": ["data/sdf/fandisk_rot.npz"],
+    "mlp_types": [
+        "Siren",
+        "StandardMLP"
+    ],
+    "mlps": [
+        {
+            "hidden_layers": 4,
+            "out_features": 1
+        },
+        {
+            "hidden_layers": 4,
+            "out_features": 6
+        }
+    ],
+    "loss_cfg": {
+        "smooth": 1,
+        "use_basis": false,
+        "rot6d": true
+    }
+}

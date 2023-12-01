@@ -154,6 +154,8 @@ def filter_components(V, F, VN):
     # K is the size of each component
     (n_c, C, K) = igl.connected_components(A)
 
+    confidence = 2
+
     if n_c > 1:
         # Purely heuristic
         idx_top3 = np.argsort(K)[::-1][:3]
