@@ -10,7 +10,7 @@ from common import normalize
 from sh_representation import (rotvec_to_sh4_expm, rot6d_to_sh4_zonal,
                                R3_to_sh4_zonal, rot6d_to_R3, rotvec_to_R3,
                                proj_sh4_to_R3)
-from loss import cosine_similarity, eikonal
+from loss import cosine_similarity, double_well_potential
 
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -81,6 +81,12 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     #                                           cfg.training.warmup_steps)
     orth_schedule = optax.constant_schedule(orth_weight_init)
 
+    normal_weight_init = 1e2
+    normal_schedule = optax.polynomial_schedule(1e-2 * normal_weight_init,
+                                                normal_weight_init, 0.5,
+                                                total_steps, total_steps // 2)
+    # normal_schedule = optax.constant_schedule(normal_weight_init)
+
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, model_octa: model_jax.MLP,
@@ -90,6 +96,7 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
 
         align_weight = align_schedule(step_count)
         orth_weight = orth_schedule(step_count)
+        normal_weight = normal_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -120,10 +127,17 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         loss_boundary = jnp.abs(
             model.single_call(boundary_pt, latent[0]) - boundary_pt).mean()
 
-        # Octahedral supervision
-        J, samples_param = model.call_jac(samples, latent)
-        samples_cart = samples_param if inverse else samples
-        aux = model_octa.call_aux(samples_cart, latent)
+        @jit
+        def param_infer(sample, latent):
+            # Octahedral supervision
+            J, samples_param = model.single_call_jac(sample, latent)
+            sample_cart = samples_param if inverse else sample
+            sdf, aux = model_octa.single_call_split(sample_cart, latent)
+            return sdf, (aux, J)
+
+        (_, (aux, J)), normal_param = vmap(
+            eqx.filter_value_and_grad(param_infer, has_aux=True))(samples,
+                                                                  latent)
         aux = jax.lax.stop_gradient(aux)
 
         if loss_cfg.rot6d:
@@ -151,9 +165,20 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         loss_dict = {
             'loss_boundary': loss_boundary,
             'loss_orth': loss_orth,
-            'loss_align': loss_align,
-            'loss_total': loss
+            'loss_align': loss_align
         }
+
+        if inverse:
+            # Normal in parameterization space should match canonical basis
+            dps = jnp.einsum('ij,bi->bj', jnp.eye(3),
+                             vmap(normalize)(normal_param))
+            loss_normal = normal_weight * double_well_potential(
+                jnp.abs(dps)).sum(-1).mean()
+
+            loss += loss_normal
+            loss_dict['loss_normal'] = loss_normal
+
+        loss_dict['loss_total'] = loss
 
         return loss, loss_dict
 
