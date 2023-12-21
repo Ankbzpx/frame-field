@@ -2,8 +2,7 @@ import numpy as np
 from jax import vmap, jit, numpy as jnp
 
 from sh_representation import (R3_to_sh4_zonal, zonal_sh4_coeffs, rotvec_to_R3,
-                               proj_sh4_sdp, proj_sh4_to_R3, oct_poly_scale,
-                               zonal_z_poly_scale)
+                               proj_sh4_sdp, zonal_to_octa_scale)
 
 import polyscope as ps
 from icecream import ic
@@ -14,7 +13,6 @@ if __name__ == '__main__':
     theta = np.random.randn()
     R = rotvec_to_R3(theta * jnp.array([0, 0, 1]))
 
-    zonal_to_octa_scale = oct_poly_scale / zonal_z_poly_scale
     sh4_4_z = zonal_to_octa_scale * zonal_sh4_coeffs(np.array([0, 0, 1]))[4]
     sh4_4_xy = zonal_to_octa_scale * (zonal_sh4_coeffs(np.array([1, 0, 0])) +
                                       zonal_sh4_coeffs(np.array([0, 1, 0])))[4]

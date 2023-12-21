@@ -9,8 +9,8 @@ def cosine_similarity(x, y):
 
 
 @jit
-def eikonal(x):
-    return jnp.abs(jnp.linalg.norm(x) - 1)
+def eikonal(x, norm=1):
+    return jnp.abs(jnp.linalg.norm(x) - norm)
 
 
 @jit

@@ -18,7 +18,7 @@ from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
 from sh_representation import (
     rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3, rotvec_n_to_z,
-    rotvec_to_R9, project_n, rot6d_to_R3, rot6d_to_sh4_zonal,
+    rotvec_to_R9, project_n, sh4_z_4, rot6d_to_R3, rot6d_to_sh4_zonal,
     oct_polynomial_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec,
     oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm)
 from loss import cosine_similarity, eikonal, double_well_potential
@@ -136,14 +136,20 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     sh4_align = vmap(param_func)(aux_align)
                     R9_zn = vmap(rotvec_to_R9)(
                         vmap(rotvec_n_to_z)(normal_align))
-                    sh4_n = vmap(project_n)(sh4_align, R9_zn)
+                    # Should be put outside the loop, but I assume jit can handle it?
+                    norm_scale = jnp.sqrt(
+                        sh4_z_4(loss_cfg.z_scale)[4]**2 + 5 / 12)
+                    sh4_n = vmap(project_n,
+                                 in_axes=(0, 0, None))(sh4_align, R9_zn,
+                                                       loss_cfg.z_scale)
+                    # Its projection on n should match itself
                     loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                    (sh4_align, sh4_n)).mean()
-
-                    loss_unit_norm = loss_cfg.unit_norm * vmap(eikonal)(
-                        sh4_align).mean()
-                    loss += loss_unit_norm
-                    loss_dict['loss_unit_norm'] = loss_unit_norm
+                    loss_sh4_norm = loss_cfg.unit_norm * vmap(
+                        eikonal, in_axes=(0, None))(sh4_align,
+                                                    norm_scale).mean()
+                    loss += loss_sh4_norm
+                    loss_dict['loss_sh4_norm'] = loss_sh4_norm
 
             loss += loss_align
             loss_dict['loss_align'] = loss_align
@@ -263,6 +269,10 @@ if __name__ == '__main__':
 
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
+
+    # Debug
+    # cfg.training.n_steps = 101
+
     data = config_training_data(cfg, data_key, latents)
 
     train(cfg, model, data, 'checkpoints')

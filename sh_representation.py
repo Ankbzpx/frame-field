@@ -322,20 +322,31 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     return state["params"]["rotvec"]
 
 
-# Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
-sh4_4 = np.array([0, 0, 0, 0, np.sqrt(7 / 12), 0, 0, 0, 0])
+# Adapted from Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
+# For simplicity, we only scale z axis
+@jit
+def sh4_z_4(z_scale):
+    # TODO: Simplify as zonal_to_octa_scale * z_scale**4 + const
+    return jnp.array([
+        0, 0, 0, 0,
+        R3_to_sh4_zonal(jnp.diag(jnp.array([1, 1, z_scale])))[4], 0, 0, 0, 0
+    ])
+
+
 Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
                                  [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
-# exp(t L_z) @ sh4_canonical = sh4_4 + Bz.T [cos(4t), sin(4t)].T
+# exp(t L_z) @ sh4_canonical = sh4_z_4 + Bz.T [cos(4t), sin(4t)].T
 # normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
-def project_z(sh4):
-    return sh4_4 + Bz.T @ normalize(Bz @ sh4)
+@jit
+def project_z(sh4, z_scale):
+    return sh4_z_4(z_scale) + Bz.T @ normalize(Bz @ sh4)
 
 
-def project_n(sh4, R_zn):
-    return R_zn.T @ project_z(R_zn @ sh4)
+@jit
+def project_n(sh4, R9_zn, z_scale):
+    return R9_zn.T @ project_z(R9_zn @ sh4, z_scale)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.
@@ -592,6 +603,8 @@ zonal_z_00 = 21 / 8
 zonal_z_20 = (3 * jnp.sqrt(5) / 2)
 zonal_z_40 = 1
 
+zonal_to_octa_scale = oct_poly_scale / zonal_z_poly_scale
+
 
 @jit
 def zonal_z_polynomial(z):
@@ -642,8 +655,7 @@ def zonal_non_orth_coeffs(u):
 
 @jit
 def R3_to_sh4_zonal(R3):
-    scale = oct_poly_scale / zonal_z_poly_scale
-    return scale * vmap(zonal_sh4_coeffs)(R3.T).sum(0)
+    return zonal_to_octa_scale * vmap(zonal_sh4_coeffs)(R3.T).sum(0)
 
 
 @jit
@@ -707,9 +719,8 @@ def vec9_to_A3(vec9):
 
 @jit
 def A3_to_non_orth_zonal(A3):
-    scale = oct_poly_scale / zonal_z_poly_scale
     # Ignore constant coefficient
-    return scale * vmap(zonal_non_orth_coeffs)(A3.T).sum(0)[1:]
+    return zonal_to_octa_scale * vmap(zonal_non_orth_coeffs)(A3.T).sum(0)[1:]
 
 
 @jit

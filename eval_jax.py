@@ -260,6 +260,10 @@ def eval(cfg: Config,
         sur_sample = sdf_data['samples_on_sur']
         sur_normal = sdf_data['normals_on_sur']
         aux = infer(sur_sample)[:, 1:]
+
+        if cfg.loss_cfg.z_scale != 1:
+            aux = proj_sh4_sdp(aux)
+
         Rs = proj_func(aux)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
@@ -325,15 +329,17 @@ def eval(cfg: Config,
     (_, aux), VN = infer_grad(V)
     sh4 = vmap(param_func)(aux)
 
+    if cfg.loss_cfg.z_scale != 1:
+        sh4 = proj_sh4_sdp(sh4)
+
     print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
-
-    Rs = proj_func(aux)
-
-    timer.log('Project SO(3)')
 
     L = igl.cotmatrix(V, F)
     smoothness = np.trace(sh4.T @ -L @ sh4)
     print(f"Smoothness {smoothness}")
+
+    Rs = proj_func(aux)
+    timer.log('Project SO(3)')
 
     timer.reset()
 
