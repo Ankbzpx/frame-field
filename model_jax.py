@@ -3,7 +3,7 @@ from common import tet_from_grid
 from jax.experimental import sparse
 
 import jax
-from jax import vmap, numpy as jnp, jacfwd, jit
+from jax import vmap, numpy as jnp, jacfwd, jit, hessian
 import equinox as eqx
 from jaxtyping import Array
 
@@ -38,6 +38,13 @@ class MLP(eqx.Module):
 
         return jacfwd(__single_call, has_aux=True)(x, z)
 
+    def single_call_lap(self, x, z):
+
+        def __single_call(x, z):
+            return self.single_call(x, z)[0]
+
+        return jnp.trace(hessian(__single_call)(x, z))
+
     def call_aux(self, x, z):
         return vmap(self.single_call_aux)(x, z)
 
@@ -60,6 +67,9 @@ class MLP(eqx.Module):
             return aux_param, ((sdf, aux), normal)
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
+
+    def call_lap(self, x, z):
+        return vmap(self.single_call_lap)(x, z)
 
     def __call__(self, x, z):
         x = vmap(self.single_call)(x, z)
@@ -331,6 +341,13 @@ class MLPComposer(MLP):
 
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
+
+    def single_call_lap(self, x, z):
+
+        def __single_call(x, z):
+            return self.mlps[0].single_call(x, z)[0]
+
+        return jnp.trace(hessian(__single_call)(x, z))
 
 
 @jit

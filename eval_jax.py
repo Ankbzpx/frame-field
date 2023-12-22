@@ -282,11 +282,19 @@ def eval(cfg: Config,
         #                     F_vis_sup)
         # exit()
 
+        @jit
+        def infer_lap(x):
+            z = latent[None, ...].repeat(len(x), 0)
+            return model.call_lap(x, z)
+
+        lap = jnp.abs(infer_lap(sur_sample))
+
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
         ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
+        pc.add_scalar_quantity('lap', lap, enabled=True)
 
         if cfg.loss_cfg.tangent:
 

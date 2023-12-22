@@ -19,7 +19,7 @@ from config_utils import config_latent, config_model, config_optim, config_train
 from sh_representation import (
     rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3, rotvec_n_to_z,
     rotvec_to_R9, project_n, sh4_z_4, rot6d_to_R3, rot6d_to_sh4_zonal,
-    oct_polynomial_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec,
+    oct_polynomial_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_sh4_zonal,
     oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm)
 from loss import cosine_similarity, eikonal, double_well_potential
 
@@ -136,12 +136,18 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     sh4_align = vmap(param_func)(aux_align)
                     R9_zn = vmap(rotvec_to_R9)(
                         vmap(rotvec_n_to_z)(normal_align))
-                    # Should be put outside the loop, but I assume jit can handle it?
-                    norm_scale = jnp.sqrt(
-                        sh4_z_4(loss_cfg.z_scale)[4]**2 + 5 / 12)
+
+                    x_scale = 1.
+                    y_scale = 1.
+                    z_scale = loss_cfg.z_scale
+
+                    norm_scale = jnp.linalg.norm(
+                        R3_to_sh4_zonal(
+                            jnp.diag(jnp.array([x_scale, y_scale, z_scale]))))
                     sh4_n = vmap(project_n,
-                                 in_axes=(0, 0, None))(sh4_align, R9_zn,
-                                                       loss_cfg.z_scale)
+                                 in_axes=(0, 0, None, None,
+                                          None))(sh4_align, R9_zn, x_scale,
+                                                 y_scale, z_scale)
                     # Its projection on n should match itself
                     loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                    (sh4_align, sh4_n)).mean()

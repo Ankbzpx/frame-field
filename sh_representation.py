@@ -323,30 +323,34 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
 
 
 # Adapted from Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
-# For simplicity, we only scale z axis
 @jit
-def sh4_z_4(z_scale):
-    # TODO: Simplify as zonal_to_octa_scale * z_scale**4 + const
-    return jnp.array([
-        0, 0, 0, 0,
-        R3_to_sh4_zonal(jnp.diag(jnp.array([1, 1, z_scale])))[4], 0, 0, 0, 0
-    ])
+def sh4_z_4(x_scale, y_scale, z_scale):
+    # TODO: Can be simplified as (scale * z_scale**4 + const)
+    sh4_scale = R3_to_sh4_zonal(jnp.diag(jnp.array([x_scale, y_scale,
+                                                    z_scale])))
+    return jnp.array([0, 0, 0, 0, sh4_scale[4], 0, 0, 0, 0])
 
 
-Bz = np.sqrt(5 / 12) * np.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                 [0, 0, 0, 0, 0, 0, 0, 0, 1]])
+@jit
+def Bz(x_scale, y_scale, z_scale):
+    sh4_scale = R3_to_sh4_zonal(jnp.diag(jnp.array([x_scale, y_scale,
+                                                    z_scale])))
+    return jnp.sqrt(sh4_scale[0]**2 + sh4_scale[8]**2) * np.array(
+        [[1, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
 # exp(t L_z) @ sh4_canonical = sh4_z_4 + Bz.T [cos(4t), sin(4t)].T
 # normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
 @jit
-def project_z(sh4, z_scale):
-    return sh4_z_4(z_scale) + Bz.T @ normalize(Bz @ sh4)
+def project_z(sh4, x_scale, y_scale, z_scale):
+    return sh4_z_4(x_scale, y_scale,
+                   z_scale) + Bz(x_scale, y_scale, z_scale).T @ normalize(
+                       Bz(x_scale, y_scale, z_scale) @ sh4)
 
 
 @jit
-def project_n(sh4, R9_zn, z_scale):
-    return R9_zn.T @ project_z(R9_zn @ sh4, z_scale)
+def project_n(sh4, R9_zn, x_scale, y_scale, z_scale):
+    return R9_zn.T @ project_z(R9_zn @ sh4, x_scale, y_scale, z_scale)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.

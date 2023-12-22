@@ -161,16 +161,12 @@ def config_training_data(cfg: Config, data_key, latents):
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
 
-        # FIXME: I wish to keep the sampling strategy consistent, but when using [1.0, 2.0, 5.0], without regularization gives connected components when sampling density is low
-        # FIXME: Does it make sense for rot6d?
         data.update(
-            progressive_sample_off_surf(
-                cfg,
-                data_key,
-                data['samples_on_sur'],
-                sample_bound,
-                scaler_factor=[1.0, 2.0, 5.0]
-                if cfg.loss_cfg.regularize > 0 else [5.0, 2.0, 1.0]))
+            progressive_sample_off_surf(cfg,
+                                        data_key,
+                                        data['samples_on_sur'],
+                                        sample_bound,
+                                        scaler_factor=[5.0, 5.0, 5.0]))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
