@@ -16,11 +16,12 @@ import model_jax
 from common import normalize
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
-from sh_representation import (
-    rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3, rotvec_n_to_z,
-    rotvec_to_R9, project_n, sh4_z_4, rot6d_to_R3, rot6d_to_sh4_zonal,
-    oct_polynomial_sh4, proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_sh4_zonal,
-    oct_polynomial_zonal_unit_norm, oct_polynomial_sh4_unit_norm)
+from sh_representation import (rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3,
+                               rotvec_n_to_z, rotvec_to_R9, project_n, sh4_z_4,
+                               rot6d_to_R3, rot6d_to_sh4_zonal, proj_sh4_to_R3,
+                               proj_sh4_to_rotvec, R3_to_sh4_zonal,
+                               oct_polynomial_zonal_unit_norm,
+                               oct_polynomial_sh4_unit_norm)
 from loss import cosine_similarity, eikonal, double_well_potential
 
 import polyscope as ps
@@ -137,17 +138,10 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     R9_zn = vmap(rotvec_to_R9)(
                         vmap(rotvec_n_to_z)(normal_align))
 
-                    x_scale = 1.
-                    y_scale = 1.
-                    z_scale = loss_cfg.z_scale
-
-                    norm_scale = jnp.linalg.norm(
-                        R3_to_sh4_zonal(
-                            jnp.diag(jnp.array([x_scale, y_scale, z_scale]))))
+                    norm_scale = jnp.sqrt(7 / 12 + loss_cfg.xz_scale * 5 / 12)
                     sh4_n = vmap(project_n,
-                                 in_axes=(0, 0, None, None,
-                                          None))(sh4_align, R9_zn, x_scale,
-                                                 y_scale, z_scale)
+                                 in_axes=(0, 0, None))(sh4_align, R9_zn,
+                                                       loss_cfg.xz_scale)
                     # Its projection on n should match itself
                     loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                    (sh4_align, sh4_n)).mean()

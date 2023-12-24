@@ -38,7 +38,7 @@ class LossConfig:
     lip: float = 0
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface
-    z_scale: float = 1
+    xz_scale: float = 1    # actually sqrt(xz_scale)
 
     rotvec: bool = False
     rot6d: bool = False

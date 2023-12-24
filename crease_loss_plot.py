@@ -1,8 +1,7 @@
 import numpy as np
 import jax
 from jax import vmap, numpy as jnp, jit
-from sh_representation import rotvec_to_R3, R3_to_sh4_zonal
-
+from sh_representation import rotvec_to_R3, R3_to_sh4_zonal, R3_to_rotvec, rotvec_n_to_z, rotvec_to_R9, rotvec_to_sh4
 import matplotlib.pyplot as plt
 
 import polyscope as ps
@@ -10,29 +9,22 @@ from icecream import ic
 
 
 @jit
-def sh4_tangential_twist(theta):
+def sh4_tangential_twist(theta, xz_scale):
     return jnp.array([
-        jnp.sqrt(5 / 12) * jnp.cos(4 * theta), 0, 0, 0,
+        jnp.sqrt(5 / 12 * xz_scale) * jnp.cos(4 * theta), 0, 0, 0,
         jnp.sqrt(7 / 12), 0, 0, 0,
-        jnp.sqrt(5 / 12) * jnp.sin(4 * theta)
+        jnp.sqrt(5 / 12 * xz_scale) * jnp.sin(4 * theta)
     ])
 
 
 @jit
-def sh_param(theta, normal, tan_vec, z_scale, inverse=False):
-
-    x_scale = jnp.where(inverse, 1 / z_scale, 1)
-    y_scale = x_scale
-    z_scale = jnp.where(inverse, 1, z_scale)
-
-    tan = rotvec_to_R3(theta * normal) @ tan_vec
-    cotan = jnp.cross(normal, tan)
-    R = jnp.stack([z_scale * normal, x_scale * tan, y_scale * cotan], -1)
-    return R3_to_sh4_zonal(R)
+def sh_param(theta, normal, xz_scale):
+    R9_zn = rotvec_to_R9(rotvec_n_to_z(normal))
+    return R9_zn.T @ sh4_tangential_twist(theta, xz_scale)
 
 
 @jit
-def eval_loss(angle, z_scale, pi_multi=0.5, dim=10):
+def eval_loss(angle, xz_scale, pi_multi=0.5, dim=10):
     theta = jnp.deg2rad(angle)
     tan_vec = jnp.array([0, 0, 1])
     R = rotvec_to_R3(theta * tan_vec)
@@ -45,8 +37,8 @@ def eval_loss(angle, z_scale, pi_multi=0.5, dim=10):
         phi = angles[0]
         theta = angles[1]
 
-        sh0 = sh_param(phi, n0, tan_vec, z_scale)
-        sh1 = sh_param(theta, n1, tan_vec, z_scale)
+        sh0 = sh_param(phi, n0, xz_scale)
+        sh1 = sh_param(theta, n1, xz_scale)
 
         return jnp.linalg.norm(sh0 - sh1)
 
@@ -61,17 +53,17 @@ if __name__ == '__main__':
     pi_multi = 0.5
     dim = 10
 
-    for z_scale in [0.5, 0.75, 1.0, 1.5, 2.0]:
+    for xz_scale in [0.5, 0.75, 1.0, 1.5, 2.0]:
         for angle in [10, 30, 60, 90, 120, 150, 170]:
 
-            loss = eval_loss(angle, z_scale)
+            loss = eval_loss(angle, xz_scale)
 
             if angle == 90:
                 loss_max = loss.max()
                 loss_min = loss.min()
                 jax.debug.print(
-                    'Z scale: {z_scale}, Loss min: {loss_min}, Loss max: {loss_max}, Loss gap: {loss_gap}',
-                    z_scale=z_scale,
+                    'Z scale: {xz_scale}, Loss min: {loss_min}, Loss max: {loss_max}, Loss gap: {loss_gap}',
+                    xz_scale=xz_scale,
                     loss_min=loss_min,
                     loss_max=loss_max,
                     loss_gap=loss_max - loss_min)
@@ -82,6 +74,6 @@ if __name__ == '__main__':
             fig = plt.figure(figsize=(dim, dim))
             plt.contourf(X, Y, loss.reshape(dim**2, dim**2), levels=21)
             tag = f"{angle}".zfill(3)
-            z_scale_tag = f'{z_scale}'.replace('.', '_')
+            z_scale_tag = f'{xz_scale}'.replace('.', '_')
             plt.savefig(f'plots/loss_l2_{z_scale_tag}_{tag}.png')
             plt.close()

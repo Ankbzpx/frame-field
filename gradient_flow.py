@@ -54,11 +54,11 @@ if __name__ == '__main__':
 
     @jit
     def loss_sh4(VN):
-        return oct_polynomial_sh4(VN)
+        return oct_polynomial_sh4(VN, sh4)
 
     @jit
     def loss_sh4_unit_norm(VN):
-        return oct_polynomial_sh4_unit_norm(VN)
+        return oct_polynomial_sh4_unit_norm(VN, sh4)
 
     @jit
     def loss_poly(VN):
@@ -74,15 +74,10 @@ if __name__ == '__main__':
 
     # Note the gradient of both `loss_basis` and `loss_sh4_unit_norm` lies on the sphere, but with opposite source and sink
     # gradient = -vmap(grad(loss_basis))(VN)
-    # gradient = vmap(grad(loss_sh4))(VN)
+    gradient = vmap(grad(loss_sh4))(VN)
     # gradient = vmap(grad(loss_sh4_unit_norm))(VN)
     # gradient = vmap(grad(loss_poly))(VN)
     # gradient = vmap(grad(loss_zonal))(VN)
     gradient = vmap(grad(loss_zonal_unit_norm))(VN)
-    loss = vmap(loss_zonal_unit_norm)(VN)
-
-    ic(gradient.shape)
-    ic(loss.max())
-    ic(loss.min())
 
     vis_gradient(VN, gradient, local_minimums)

@@ -323,34 +323,23 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
 
 
 # Adapted from Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
-@jit
-def sh4_z_4(x_scale, y_scale, z_scale):
-    # TODO: Can be simplified as (scale * z_scale**4 + const)
-    sh4_scale = R3_to_sh4_zonal(jnp.diag(jnp.array([x_scale, y_scale,
-                                                    z_scale])))
-    return jnp.array([0, 0, 0, 0, sh4_scale[4], 0, 0, 0, 0])
+sh4_z_4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
 
-
-@jit
-def Bz(x_scale, y_scale, z_scale):
-    sh4_scale = R3_to_sh4_zonal(jnp.diag(jnp.array([x_scale, y_scale,
-                                                    z_scale])))
-    return jnp.sqrt(sh4_scale[0]**2 + sh4_scale[8]**2) * np.array(
-        [[1, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 1]])
+Bz = jnp.sqrt(5 / 12) * jnp.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
+                                   [0, 0, 0, 0, 0, 0, 0, 0, 1]])
 
 
 # exp(t L_z) @ sh4_canonical = sh4_z_4 + Bz.T [cos(4t), sin(4t)].T
 # normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
 @jit
-def project_z(sh4, x_scale, y_scale, z_scale):
-    return sh4_z_4(x_scale, y_scale,
-                   z_scale) + Bz(x_scale, y_scale, z_scale).T @ normalize(
-                       Bz(x_scale, y_scale, z_scale) @ sh4)
+def project_z(sh4, xz_scale):
+    # Relaxation according to  "Boundary Element Octahedral Fields in Volumes" by Solomon et al.
+    return sh4_z_4 + Bz.T @ (jnp.sqrt(xz_scale) * normalize(Bz @ sh4))
 
 
 @jit
-def project_n(sh4, R9_zn, x_scale, y_scale, z_scale):
-    return R9_zn.T @ project_z(R9_zn @ sh4, x_scale, y_scale, z_scale)
+def project_n(sh4, R9_zn, xz_scale):
+    return R9_zn.T @ project_z(R9_zn @ sh4, xz_scale)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.
@@ -508,18 +497,21 @@ def eval_non_orth_basis(v):
         jax.tree_map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis))
 
 
+# x^4 + y^4 + z^4
 @jit
 def oct_polynomial_sh4(v, sh4):
-    sh4 = jnp.hstack([oct_00, normalize(sh4)])
-    return jnp.dot(sh4, eval_oct_basis(v) / oct_poly_scale)
+    sh = jnp.hstack([oct_00, sh4])
+    return jnp.dot(sh, eval_oct_basis(v) / oct_poly_scale)
 
 
-# Divide by r^4 won't affect polynomial value (if v is unit vector),
-# but it forces gradient to lies on the tangent plane of unit sphere
+# (x^4 + y^4 + z^4) / r^4
+# Note that divide by r^4 won't affect polynomial value (if v is unit vector),
+#   but it forces gradient to lies on the tangent plane of unit sphere
+# It is equivalent to oct_polynomial_sh4(normalize(v), sh4)
 @jit
 def oct_polynomial_sh4_unit_norm(v, sh4):
-    sh4 = jnp.hstack([oct_00, normalize(sh4)])
-    return jnp.dot(sh4,
+    sh = jnp.hstack([oct_00, sh4])
+    return jnp.dot(sh,
                    eval_oct_basis(v) / oct_poly_scale) / r_4(v[0], v[1], v[2])
 
 
@@ -674,12 +666,15 @@ def rot6d_to_sh4_zonal(rot6d):
     return R3_to_sh4_zonal(R3)
 
 
+# x^4 + y^4 + z^4
 @jit
 def oct_polynomial_zonal(v, R3):
     return vmap(zonal_oct_coeffs)(
         R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale
 
 
+# (x^4 + y^4 + z^4) / r^4
+# It is equivalent to oct_polynomial_zonal(normalize(v), sh4)
 @jit
 def oct_polynomial_zonal_unit_norm(v, R3):
     return vmap(zonal_oct_coeffs)(
