@@ -18,6 +18,6 @@
         "lip": 1e-6,
         "align": 3e3,
         "unit_norm": 1e2,
-        "xz_scale": 4
+        "xy_scale": 2
     }
 }

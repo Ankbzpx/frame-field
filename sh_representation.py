@@ -332,14 +332,14 @@ Bz = jnp.sqrt(5 / 12) * jnp.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
 # exp(t L_z) @ sh4_canonical = sh4_z_4 + Bz.T [cos(4t), sin(4t)].T
 # normalize(Bz @ sh4) = normalize([sh4[0], sh4[8]]) is analogous to [cos(4t), sin(4t)]
 @jit
-def project_z(sh4, xz_scale):
-    # Relaxation according to  "Boundary Element Octahedral Fields in Volumes" by Solomon et al.
-    return sh4_z_4 + Bz.T @ (jnp.sqrt(xz_scale) * normalize(Bz @ sh4))
+def project_z(sh4, xy_scale):
+    # Scaling according to  "Boundary Element Octahedral Fields in Volumes" by Solomon et al.
+    return sh4_z_4 + Bz.T @ (xy_scale * normalize(Bz @ sh4))
 
 
 @jit
-def project_n(sh4, R9_zn, xz_scale):
-    return R9_zn.T @ project_z(R9_zn @ sh4, xz_scale)
+def project_n(sh4, R9_zn, xy_scale):
+    return R9_zn.T @ project_z(R9_zn @ sh4, xy_scale)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.
@@ -353,7 +353,7 @@ def rot6d_to_R3(rot6d):
     return jnp.array([b0, b1, b2]).T
 
 
-# SH basis **pre-multiplied** with r^4
+# SH basis **pre-multiplied** with r^4, as x^4 + y*4 + z^4 = y_00 * r^4 + \sum_i y_4i * r^4
 # Reference https://en.wikipedia.org/wiki/Table_of_spherical_harmonics
 @jit
 def r_2(x, y, z):

@@ -138,10 +138,11 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     R9_zn = vmap(rotvec_to_R9)(
                         vmap(rotvec_n_to_z)(normal_align))
 
-                    norm_scale = jnp.sqrt(7 / 12 + loss_cfg.xz_scale * 5 / 12)
+                    norm_scale = jnp.sqrt(7 / 12 +
+                                          loss_cfg.xy_scale**2 * 5 / 12)
                     sh4_n = vmap(project_n,
                                  in_axes=(0, 0, None))(sh4_align, R9_zn,
-                                                       loss_cfg.xz_scale)
+                                                       loss_cfg.xy_scale)
                     # Its projection on n should match itself
                     loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                    (sh4_align, sh4_n)).mean()
