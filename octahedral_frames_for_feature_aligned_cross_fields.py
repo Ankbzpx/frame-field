@@ -7,7 +7,8 @@ from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh
 
 import scipy.sparse
 import scipy.sparse.linalg
-from sksparse.cholmod import cholesky
+import scipy.optimize
+
 import open3d as o3d
 import argparse
 import os
@@ -67,15 +68,22 @@ if __name__ == '__main__':
     if norm != "2":
         p = 1
         if norm == 'inf':
-            # FIXME: I don't know how to implement inf norm.
-            # Pick max will stop gradient flow for other pairs
-            p = 99
+            # TODO: Implement inf norm.
+            # The objective function is min\|{w_e * \|f_e_i - f_e_j\|_2}, e \in \mathcal{E}\|_\infin
+            #
+            # According to https://math.stackexchange.com/questions/2589887/how-can-the-infinity-norm-minimization-problem-be-rewritten-as-a-linear-program,
+            #   the problem can be re-written as
+            #       min     z
+            #       s.t. z\bm{1} >= w_e * \|f_e_i - f_e_j\|_2, z\bm{1} >= -w_e * \|f_e_i - f_e_j\|_2, for any e \in \mathcal{E}|
+            #   which is a linear program with quadratic constraints
+
+            raise NotImplementedError('L infinity norm not implemented')
         else:
             try:
                 p = int(norm)
                 p = 1 if p == 0 else p
             except:
-                pass
+                raise ValueError('Invalid p norm.')
 
         x = np.random.randn(NV, 9)
         x = vmap(normalize)(x)
@@ -108,12 +116,13 @@ if __name__ == '__main__':
         # Linear system
         Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
         c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
-        factor = cholesky((Q.T @ Q).tocsc())
 
         timer.log('Build sparse system')
 
         while True:
-            x = factor(Q.T @ c).reshape(NV, 9)
+            x, info = scipy.sparse.linalg.cg(Q.T @ Q, Q.T @ c)
+            assert info == 0
+            x = x.reshape(NV, 9)
             # Project back to octahedral variety
             x_proj = proj_sh4_sdp(x)
             d_norm = vmap(jnp.linalg.norm)(x - x_proj)
@@ -123,10 +132,7 @@ if __name__ == '__main__':
             rerun_weight = 1.0
             N_rerun = rerun_mask.sum()
 
-            # Not 100% sure here, but it can leave few frames degenerated,
-            #   then go back-and-forth that refuse to converge
-            # I use 99.8% rate presented in paper for early stop
-            if N_rerun < NV * (1 - 0.998):
+            if N_rerun == 0:
                 x = x_proj
                 break
 
@@ -148,7 +154,6 @@ if __name__ == '__main__':
                 [L_unroll, boundary_weight * A, rerun_weight * R])
             c = np.concatenate(
                 [np.zeros(9 * NV), boundary_weight * b, rerun_weight * r])
-            factor = cholesky((Q.T @ Q).tocsc())
 
         timer.log('Solve (Linear)')
 

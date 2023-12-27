@@ -95,8 +95,8 @@ def unroll_identity_block(A, dim):
                     np.arange(dim)[None, ...]).reshape(-1)
     A_unroll_data = np.repeat(A_coo.data, dim)
 
-    return scipy.sparse.coo_array((A_unroll_data, (A_unroll_row, A_unroll_col)),
-                                  shape=(dim * H, dim * W)).tocsc()
+    return scipy.sparse.csc_array((A_unroll_data, (A_unroll_row, A_unroll_col)),
+                                  shape=(dim * H, dim * W))
 
 
 def unpack_stiffness(L):
