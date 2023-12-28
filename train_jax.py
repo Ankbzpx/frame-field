@@ -184,7 +184,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     bound = jnp.maximum(
                         jax.lax.stop_gradient(
                             (poly_val * close_samples_mask).max()), 1)
-                    jax.debug.print('bound: {bound}', bound=bound)
                     loss_regularize = regularize_weight * (bound -
                                                            poly_val).mean()
 
