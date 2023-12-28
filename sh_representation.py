@@ -508,6 +508,7 @@ def oct_polynomial_sh4(v, sh4):
 # Note that divide by r^4 won't affect polynomial value (if v is unit vector),
 #   but it forces gradient to lies on the tangent plane of unit sphere
 # It is equivalent to oct_polynomial_sh4(normalize(v), sh4)
+# IMPORTANT: sh4 needs to be normalized, otherwise it is not the fourth order tensor
 @jit
 def oct_polynomial_sh4_unit_norm(v, sh4):
     sh = jnp.hstack([oct_00, sh4])
@@ -544,6 +545,9 @@ def oct_polynomial(v, R3):
 def proj_sh4_to_R3(sh4s_target, max_iter=1000):
     if len(sh4s_target.shape) < 2:
         sh4s_target = sh4s_target[None, ...]
+
+    # Needs to be normalized
+    sh4s_target = vmap(normalize)(sh4s_target)
 
     n_elem = len(sh4s_target)
     key1, key2 = jax.random.split(jax.random.PRNGKey(0))

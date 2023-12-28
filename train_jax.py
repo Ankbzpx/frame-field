@@ -177,20 +177,15 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     loss_regularize = regularize_weight * (1 - poly_val).mean()
                 else:
                     sh4_reg = vmap(param_func)(aux_reg)
-                    poly_val = vmap(oct_polynomial_sh4_unit_norm)(normal_reg,
-                                                                  sh4_reg)
-
-                    # Unlike rot6d, poly_val here is not bounded
-                    bound = jnp.maximum(
-                        jax.lax.stop_gradient(
-                            (poly_val * close_samples_mask).max()), 1)
-                    loss_regularize = regularize_weight * (bound -
-                                                           poly_val).mean()
+                    poly_val = vmap(oct_polynomial_sh4_unit_norm)(
+                        normal_reg, vmap(normalize)(sh4_reg))
 
                     # Only regularize points close to supervision samples
-                    # Under smooth settings, those sh4 should not deviate much from octahedral variety
-                    loss_regularize = (close_samples_mask * loss_regularize
-                                      ).sum() / close_samples_mask.sum()
+                    # Under smooth settings, the assumption is that their projection on S^8 should not deviate much from octahedral variety
+                    loss_regularize = regularize_weight * (
+                        (close_samples_mask *
+                         (1 - poly_val)).sum() / close_samples_mask.sum())
+
             loss += loss_regularize
             loss_dict['loss_regularize'] = loss_regularize
 
