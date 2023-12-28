@@ -31,9 +31,9 @@ IM_PATH = '$HOME/instant-meshes/build'
 # infer: R^3 -> R
 def voxel_infer(infer,
                 grid_res=512,
-                grid_min=-1.0,
-                grid_max=1.0,
-                group_size_mul=2,
+                grid_bl=np.array([-1.0, -1.0, -1.0]),
+                grid_tr=np.array([1.0, 1.0, 1.0]),
+                group_size_mul=1,
                 out_dim=1):
     # Smaller batch is somehow faster
     group_size = group_size_mul * grid_res**2
@@ -42,8 +42,11 @@ def voxel_infer(infer,
     # Cannot pass jitted function as argument to another jitted function
     @jit
     def infer_scalar():
-        indices = jnp.linspace(grid_min, grid_max, grid_res)
-        grid = jnp.stack(jnp.meshgrid(indices, indices, indices), -1)
+        # For consistency with partition, we ignore the endpoint
+        idx_x = jnp.linspace(grid_bl[0], grid_tr[0], grid_res, endpoint=False)
+        idx_y = jnp.linspace(grid_bl[1], grid_tr[1], grid_res, endpoint=False)
+        idx_z = jnp.linspace(grid_bl[2], grid_tr[2], grid_res, endpoint=False)
+        grid = jnp.stack(jnp.meshgrid(idx_x, idx_y, idx_z), -1)
 
         query_data = {
             "grid": grid.reshape(iter_size, group_size, 3),
@@ -66,10 +69,41 @@ def voxel_infer(infer,
 # infer: R^3 -> R (sdf)
 def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
 
-    sdf, _ = voxel_infer(infer, grid_res, grid_min, grid_max, 4)
-    # This step is surprising slow, gpu to cpu memory copy?
-    sdf_np = np.swapaxes(np.array(sdf[..., 0]), 0, 1)
+    grid_max_res = 512
 
+    if grid_res > grid_max_res:
+        # Have to partition
+        div = int(np.ceil(grid_res / grid_max_res))
+        interval = (grid_max - grid_min) / div
+
+        part_idx = np.arange(div)
+        part_offsets = np.stack(np.meshgrid(part_idx, part_idx, part_idx),
+                                -1).reshape(-1, 3)
+
+        part_bl = grid_min + part_offsets * interval
+        part_tr = grid_min + (part_offsets + 1) * interval
+
+        block_list = []
+        for i in range(div**3):
+            sdf, _ = voxel_infer(infer,
+                                 grid_max_res,
+                                 grid_bl=part_bl[i],
+                                 grid_tr=part_tr[i])
+            block_list.append(np.array(sdf[..., 0]))
+
+        sdf_np = np.stack(block_list).reshape(div, div, div, grid_max_res,
+                                              grid_max_res, grid_max_res)
+        sdf_np = np.transpose(sdf_np, (0, 3, 1, 4, 2, 5)).reshape(
+            grid_res, grid_res, grid_res)
+    else:
+        sdf, _ = voxel_infer(infer,
+                             grid_res,
+                             grid_bl=np.array([grid_min, grid_min, grid_min]),
+                             grid_tr=np.array([grid_max, grid_max, grid_max]))
+        # This step is surprising slow, gpu to cpu memory copy?
+        sdf_np = np.array(sdf[..., 0])
+
+    sdf_np = np.swapaxes(sdf_np, 0, 1)
     spacing = 1. / (grid_res - 1)
     # It outputs inverse VN, even with gradient_direction set to ascent
     V, F, VN_inv, _ = marching_cubes(sdf_np,
@@ -110,7 +144,8 @@ def eval(cfg: Config,
          vis_smooth=False,
          vis_flowline=False,
          geo_only=False,
-         edge_collapse=True,
+         isolated_object=True,
+         edge_collapse=False,
          interp_tag=''):
 
     # Map network output to sh4 parameterization
@@ -161,10 +196,13 @@ def eval(cfg: Config,
 
     timer.log('Extract surface')
 
-    # If it is not is_normal, it have large amount of flipped components (likely from siren)
-    V, F, is_normal = filter_components(V, F, VN)
+    if isolated_object:
+        # If it is not has_artifacts, it have large amount of flipped components (likely from siren)
+        V, F, has_artifacts = filter_components(V, F, VN)
 
-    timer.log('Filter components')
+        timer.log('Filter components')
+    else:
+        has_artifacts = True
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
@@ -248,7 +286,7 @@ def eval(cfg: Config,
     if edge_collapse:
         # Quadratic edge collapsing reduces vertex count while preserves original appear
         V, F = meshlab_edge_collapse(mc_save_path, V, F,
-                                     20000 if is_normal else 60000)
+                                     20000 if has_artifacts else 60000)
 
         timer.log('Meshlab edge collapsing')
 
