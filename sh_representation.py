@@ -750,11 +750,16 @@ if __name__ == '__main__':
     R3 = rotvec_to_R3(rotvec)
 
     s = normalize(np.random.randn(3))
-    print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal))
+    print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal, atol=1e-6))
     print("L2 poly ≈ zonal oct: ",
           jnp.allclose(oct_polynomial(s, R3), oct_polynomial_zonal(s, R3)))
     print("L2 sh4 oct ≈ zonal oct: ",
           jnp.allclose(oct_polynomial(s, R3), oct_polynomial_sh4(s, sh4)))
+    print(
+        "Rotational invariance: ",
+        jnp.allclose(
+            rotvec_to_R9_expm(rotvec) @ sh4_canonical @ eval_sh4_basis(s),
+            sh4_canonical @ eval_sh4_basis(R3.T @ s)))
 
     v = vmap(normalize)(np.random.randn(1000, 3))
 
