@@ -258,6 +258,7 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     if len(sh4s_target.shape) < 2:
         sh4s_target = sh4s_target[None, ...]
 
+    # This is still necessary as SO(9) induced by SO(3) cannot cover the full rotation space
     @jit
     def initialize(sh4):
         init_rotvecs = jnp.array([[0, 0, 0], [jnp.pi / 4, 0, 0],
@@ -740,6 +741,14 @@ def proj_sh4_sdp(sh4s_target):
     if len(sh4s_target.shape) < 2:
         sh4s_target = sh4s_target[None, ...]
     return _sdp_helper.project(sh4s_target)
+
+
+# "Revisiting the Continuity of Rotation Representations in Neural Networks" by Xiang et al.
+@jit
+def distance_SO3(R1, R2):
+    cos = 0.5 * (jnp.trace(R2 @ jnp.linalg.inv(R1)) - 1)
+    cos = jnp.clip(cos, -1, 1)
+    return jnp.arccos(cos)
 
 
 if __name__ == '__main__':
