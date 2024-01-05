@@ -81,6 +81,33 @@ class SDFSampler:
 
         return surface_samples, FN[f_id]
 
+    # Random seed managed by numpy
+    def sample_surface_fixed_seed(self, sample_size):
+        dbl_area = igl.doublearea(self.V, self.F)
+
+        prob = dbl_area / dbl_area.sum()
+        fid = np.arange(len(self.F))
+        fid_pick = np.random.choice(fid, sample_size, p=prob)
+
+        # https://mathworld.wolfram.com/TrianglePointPicking.html
+        sample_bary = np.random.uniform(0, 1, (sample_size, 2))
+        # https://mathworld.wolfram.com/TriangleInterior.html
+        sample_outside_mask = sample_bary.sum(-1) > 1
+        sample_bary[sample_outside_mask] -= 1
+        sample_bary = np.abs(sample_bary)
+
+        sample_per_face_vertices = self.V[self.F[fid_pick]]
+        A = sample_per_face_vertices[:, 0]
+        B = sample_per_face_vertices[:, 1]
+        C = sample_per_face_vertices[:, 2]
+        samples_on_sur = C + (A - C) * sample_bary[:, 0][:, None] + (
+            B - C) * sample_bary[:, 1][:, None]
+
+        FN = np.cross(B - A, C - A)
+        FN = normalize(FN)
+
+        return samples_on_sur, FN
+
     def sample_dense(self, res=512):
         line = np.linspace(-1.0, 1.0, res)
         samples = np.stack(np.meshgrid(line, line, line), -1).reshape(-1, 3)
@@ -123,6 +150,8 @@ if __name__ == '__main__':
             glob(os.path.join(model_folder_path, '*.obj')) +
             glob(os.path.join(model_folder_path, '*.ply')))
 
+    # Fix the random seed
+    np.random.seed(0)
     sample_size = args.sample_size
 
     if args.model_path is not None:
@@ -138,7 +167,8 @@ if __name__ == '__main__':
         model_out_path = os.path.join(sdf_base_path, f'{model_name}.npz')
 
         sampler = SDFSampler(model_path)
-        samples_on_sur, normals_on_sur = sampler.sample_surface(sample_size)
+        samples_on_sur, normals_on_sur = sampler.sample_surface_fixed_seed(
+            sample_size)
 
         np.savez(model_out_path,
                  samples_on_sur=samples_on_sur,
