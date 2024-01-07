@@ -104,8 +104,8 @@ def progressive_sample_off_surf(cfg: Config,
                                 data_key,
                                 samples_on_sur,
                                 sample_bound,
-                                close_scale=1e-2,
-                                scaler_factor=[5.0, 2.0, 1.0],
+                                close_scale,
+                                scaler_factor=[1.0, 1.0, 1.0],
                                 ratio=0.25):
     sample_size = cfg.training.n_samples
     # Progressive sample
@@ -166,7 +166,7 @@ def config_training_data(cfg: Config, data_key, latents):
                                         data_key,
                                         data['samples_on_sur'],
                                         sample_bound,
-                                        scaler_factor=[5.0, 5.0, 5.0]))
+                                        close_scale=cfg.training.close_scale))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -209,6 +209,7 @@ def config_training_data_param(cfg: Config, data_key, latents):
                                         data_key,
                                         data['samples_on_sur'],
                                         sample_bound,
+                                        close_scale=cfg.training.close_scale,
                                         ratio=0.0))
 
         del data['sdf_off_sur']

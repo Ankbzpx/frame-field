@@ -24,6 +24,7 @@ class TrainingConfig:
     n_samples: int = 8192    # per step
     plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
+    close_scale: float = 5e-2
 
 
 @dataclass(frozen=True)
