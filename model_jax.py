@@ -9,6 +9,9 @@ from jaxtyping import Array
 
 from icecream import ic
 
+# For abstraction convenience
+jax.nn.sin = jnp.sin
+
 
 class MLP(eqx.Module):
 
@@ -87,12 +90,18 @@ class Linear(eqx.Module):
                  in_features: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 xavier_init: bool = False):
+                 xavier_init: bool = False,
+                 siren_first_init: bool = False):
 
         if xavier_init:
             self.W = jax.random.uniform(
                 key, (out_features, in_features), minval=-1.,
                 maxval=1.) * jnp.sqrt(6. / (in_features + out_features))
+        elif siren_first_init:
+            # SIREN with omega_0=1
+            self.W = jax.random.uniform(key, (out_features, in_features),
+                                        minval=-1.,
+                                        maxval=1.) / in_features
         else:
             self.W = jax.random.normal(
                 key, (out_features, in_features)) * jnp.sqrt(2. / in_features)
@@ -193,8 +202,10 @@ class LipLinear(Linear):
                  in_features: int,
                  out_features: int,
                  key: jax.random.PRNGKey,
-                 xavier_init: bool = False):
-        super().__init__(in_features, out_features, key, xavier_init)
+                 xavier_init: bool = False,
+                 siren_first_init: bool = False):
+        super().__init__(in_features, out_features, key, xavier_init,
+                         siren_first_init)
         self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
 
     # L-infinity weight normalization
@@ -225,11 +236,13 @@ class LipMLP(MLP):
         keys = jax.random.split(key, hidden_layers + 2)
 
         xavier_init = activation == 'tanh'
+        siren_first_init = activation == 'sin'
         self.activation = activation
         self.input_scale = input_scale
 
         self.layers = [
-            LipLinear(in_features, hidden_features, keys[0], xavier_init)
+            LipLinear(in_features, hidden_features, keys[0], xavier_init,
+                      siren_first_init)
         ] + [
             LipLinear(hidden_features, hidden_features, keys[i + 1],
                       xavier_init) for i in range(hidden_layers)

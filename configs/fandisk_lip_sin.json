@@ -10,6 +10,7 @@
             "out_features": 1
         },
         {
+            "activation": "sin",
             "hidden_layers": 4,
             "out_features": 9
         }
@@ -17,8 +18,7 @@
     "loss_cfg": {
         "lip": 1e-6,
         "align": 3e3,
-        "unit_norm": 1e2,
-        "regularize": 1e2
+        "unit_norm": 1e2
     },
     "training": {
         "n_input_samples": 10000
