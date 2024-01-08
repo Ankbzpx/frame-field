@@ -153,11 +153,13 @@ def config_training_data(cfg: Config, data_key, latents):
     def sample_sdf_data(sdf_path, latent):
         sdf_data = dict(np.load(sdf_path))
 
+        # Clamp num of input samples for ablation
+        input_sample_size = jnp.minimum(len(sdf_data['samples_on_sur']),
+                                        cfg.training.n_input_samples)
+        sdf_data = jax.tree_map(lambda x: x[:input_sample_size], sdf_data)
+
         def random_batch(x):
-            # Clamp num of input samples for ablation
-            input_sample_size = jnp.minimum(len(x),
-                                            cfg.training.n_input_samples)
-            idx = jax.random.choice(data_key, jnp.arange(input_sample_size),
+            idx = jax.random.choice(data_key, jnp.arange(len(x)),
                                     (cfg.training.n_steps, sample_size))
             return x[idx]
 
