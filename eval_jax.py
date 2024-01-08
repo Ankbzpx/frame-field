@@ -296,7 +296,13 @@ def eval(cfg: Config,
         # TODO support latent
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
         sur_sample = sdf_data['samples_on_sur']
+        sur_sample_size = jnp.minimum(len(sur_sample),
+                                      cfg.training.n_input_samples)
         sur_normal = sdf_data['normals_on_sur']
+        # Match number of samples used for training
+        sur_sample = sur_sample[:sur_sample_size]
+        sur_normal = sur_normal[:sur_sample_size]
+
         aux = infer(sur_sample)[:, 1:]
 
         if cfg.loss_cfg.xy_scale != 1:

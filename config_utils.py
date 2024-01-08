@@ -154,8 +154,10 @@ def config_training_data(cfg: Config, data_key, latents):
         sdf_data = dict(np.load(sdf_path))
 
         def random_batch(x):
-            total_sample_size = len(x)
-            idx = jax.random.choice(data_key, jnp.arange(total_sample_size),
+            # Clamp num of input samples for ablation
+            input_sample_size = jnp.minimum(len(x),
+                                            cfg.training.n_input_samples)
+            idx = jax.random.choice(data_key, jnp.arange(input_sample_size),
                                     (cfg.training.n_steps, sample_size))
             return x[idx]
 

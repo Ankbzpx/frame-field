@@ -161,7 +161,7 @@ def filter_components(V, F, VN):
         idx_top3 = np.argsort(K)[::-1][:3]
 
         # Remove unreasonable small components
-        idx_top3 = idx_top3[K[idx_top3] / len(V) > 0.05]
+        idx_top3 = idx_top3[K[idx_top3] / K[idx_top3[0]] > 0.15]
 
         def validate_VN(k):
             vid = np.argwhere(C == k).reshape(-1,)
@@ -177,7 +177,7 @@ def filter_components(V, F, VN):
 
         min_dist = np.inf
         confidence = 0
-        idx_min = 0
+        idx_min = idx_top3[0]
 
         for idx in idx_top3:
             dist, ratio = validate_VN(idx)
