@@ -21,6 +21,6 @@
         "regularize": 1e2
     },
     "training": {
-        "n_input_samples": 10000
+        "n_input_samples": 2500
     }
 }

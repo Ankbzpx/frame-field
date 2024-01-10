@@ -281,7 +281,7 @@ class LipSineLayer(SineLayer):
                  out_features: int,
                  key: jax.random.PRNGKey,
                  is_first: bool = False,
-                 omega_0: float = 30):
+                 omega_0: float = 1):
         super().__init__(in_features, out_features, key, is_first, omega_0)
         if is_first:
             self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
@@ -301,6 +301,8 @@ class LipSineLayer(SineLayer):
             self.W, self.c_scale * jax.nn.softplus(self.c)) @ x + self.b)
 
     def lipschitz(self):
+        # TODO: Scale based on omega_0
+        #   otherwise the first layer has different regularization speed than the rest when omega_0 > 1
         return jax.nn.softplus(self.c)
 
 
@@ -316,7 +318,7 @@ class LipMLP(MLP):
                  out_features: int,
                  key: jax.random.PRNGKey,
                  first_omega_0: float = 1,
-                 hidden_omega_0: float = 30,
+                 hidden_omega_0: float = 1,
                  activation='tanh',
                  input_scale: float = 1,
                  **kwargs):
