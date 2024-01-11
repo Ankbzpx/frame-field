@@ -25,6 +25,7 @@ class TrainingConfig:
     plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
     close_scale: float = 5e-2
+    close_ratio: float = 0.25
     n_input_samples: int = 10000
 
 

@@ -170,7 +170,8 @@ def config_training_data(cfg: Config, data_key, latents):
                                         data_key,
                                         data['samples_on_sur'],
                                         sample_bound,
-                                        close_scale=cfg.training.close_scale))
+                                        close_scale=cfg.training.close_scale,
+                                        ratio=cfg.training.close_ratio))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
