@@ -1,11 +1,12 @@
 import numpy as np
 from jax import numpy as jnp, vmap, jit
 
-from sh_representation import oct_polynomial
+from sh_representation import oct_polynomial_zonal_unit_norm
 import math
 import pymeshlab
 import igl
 import open3d as o3d
+from tqdm import tqdm
 
 import polyscope as ps
 from icecream import ic
@@ -33,37 +34,53 @@ def fibonacci_sphere(samples):
 
 if __name__ == '__main__':
 
-    save_path = 'tmp/octa.obj'
+    for xz_scale in tqdm([0.5, 0.75, 0.85, 0.95, 1.0, 1.5, 2.0]):
+        save_name = f"octa_{xz_scale}"
+        save_name = save_name.replace('.', '_')
+        save_path = f'tmp/{save_name}.obj'
 
-    R = np.eye(3)
-    V = fibonacci_sphere(100000)
-    poly_val = vmap(oct_polynomial, in_axes=(0, None))(V, R)
+        # Note it is slightly different from c_0^2 + c_8^2 = const, but it doesn't affect xz relations
+        R = np.diag([xz_scale, 1.0, xz_scale])
+        V = fibonacci_sphere(100000)
+        poly_val = vmap(oct_polynomial_zonal_unit_norm, in_axes=(0, None))(V, R)
 
-    colors = jnp.array([[255, 255, 255], [174, 216, 204], [205, 102, 136],
-                        [122, 49, 111], [70, 25, 89]]) / 255.0
+        colors = jnp.array([[255, 255, 255], [174, 216, 204], [205, 102, 136],
+                            [122, 49, 111], [70, 25, 89]]) / 255.0
 
-    @jit
-    def color_interp(val):
-        idx = jnp.int32(val // 0.25)
-        t = val % 0.25 / 0.25
+        @jit
+        def color_interp(val):
+            idx = jnp.int32(val // 0.25)
+            t = val % 0.25 / 0.25
 
-        c0 = colors[idx]
-        c1 = colors[idx + 1]
+            c0 = colors[idx]
+            c1 = colors[idx + 1]
 
-        return (1 - t) * c0 + t * c1
+            return (1 - t) * c0 + t * c1
 
-    VC = vmap(color_interp)(poly_val)
-    V = V * (1 + poly_val)[:, None]
+        V = V * (1 + poly_val)[:, None]
 
-    m = pymeshlab.Mesh(V)
-    ms = pymeshlab.MeshSet()
-    ms.add_mesh(m, "mesh")
-    ms.generate_surface_reconstruction_ball_pivoting()
-    ms.save_current_mesh(save_path)
-    V, F = igl.read_triangle_mesh(save_path)
+        m = pymeshlab.Mesh(V)
+        ms = pymeshlab.MeshSet()
+        ms.add_mesh(m, "mesh")
+        ms.generate_surface_reconstruction_ball_pivoting()
+        ms.meshing_decimation_quadric_edge_collapse(targetfacenum=5000)
+        ms.save_current_mesh(save_path)
+        V, F = igl.read_triangle_mesh(save_path)
 
-    octa_mesh = o3d.geometry.TriangleMesh()
-    octa_mesh.vertices = o3d.utility.Vector3dVector(V)
-    octa_mesh.triangles = o3d.utility.Vector3iVector(F)
-    octa_mesh.vertex_colors = o3d.utility.Vector3dVector(VC)
-    o3d.io.write_triangle_mesh(save_path, octa_mesh)
+        poly_val = vmap(oct_polynomial_zonal_unit_norm, in_axes=(0, None))(V, R)
+        color_scale = poly_val / poly_val.max() - 1e-2
+        VC = vmap(color_interp)(color_scale)
+
+        # Normalize w.r.t. y
+        V_aabb_max = V.max(0, keepdims=True)
+        V_aabb_min = V.min(0, keepdims=True)
+        V_center = 0.5 * (V_aabb_max + V_aabb_min)
+        V -= V_center
+        scale = (V_aabb_max[0, 1] - V_center[0, 1]) / 0.95
+        V /= scale
+
+        octa_mesh = o3d.geometry.TriangleMesh()
+        octa_mesh.vertices = o3d.utility.Vector3dVector(V)
+        octa_mesh.triangles = o3d.utility.Vector3iVector(F)
+        octa_mesh.vertex_colors = o3d.utility.Vector3dVector(VC)
+        o3d.io.write_triangle_mesh(save_path, octa_mesh)
