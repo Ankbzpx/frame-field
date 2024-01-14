@@ -10,7 +10,6 @@
             "out_features": 1
         },
         {
-            "activation": "sin",
             "hidden_layers": 4,
             "out_features": 9
         }
@@ -22,6 +21,6 @@
         "regularize": 1e2
     },
     "training": {
-        "n_input_samples": 2500
+        "n_input_samples": 5000
     }
 }
