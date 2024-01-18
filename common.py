@@ -175,13 +175,13 @@ def filter_components(V, F, VN):
 
             return np.linalg.norm(mass_center), ratio
 
-        min_dist = np.inf
+        min_dist = 1.0
         confidence = 0
         idx_min = idx_top3[0]
 
         for idx in idx_top3:
             dist, ratio = validate_VN(idx)
-            if dist < min_dist and ratio > 1.0:
+            if dist < min_dist and (ratio > 1.0 or dist < 0.1):
                 min_dist = dist
                 confidence = ratio
                 idx_min = idx
