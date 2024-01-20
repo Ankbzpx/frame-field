@@ -3,6 +3,7 @@ import jax
 from jax import vmap, numpy as jnp, jit
 from sh_representation import rotvec_to_R3, R3_to_sh4_zonal, R3_to_rotvec, rotvec_n_to_z, rotvec_to_R9, rotvec_to_sh4
 import matplotlib.pyplot as plt
+import matplotlib as mpl
 
 import polyscope as ps
 from icecream import ic
@@ -69,6 +70,13 @@ if __name__ == '__main__':
     pi_multi = 0.5
     dim = 10
 
+    cmap = mpl.colors.LinearSegmentedColormap.from_list('octa',
+                                                        [(0, '#461959'),
+                                                         (0.25, '#7A316F'),
+                                                         (0.75, '#CD6688'),
+                                                         (1, '#AED8CC')],
+                                                        N=256)
+
     for xy_scale in [0.5, 0.75, 1.0, 1.5, 2.0]:
         for angle in [10, 30, 60, 90, 120, 150, 170]:
 
@@ -88,8 +96,15 @@ if __name__ == '__main__':
                                np.linspace(0, pi_multi, dim**2))
 
             fig = plt.figure(figsize=(dim, dim))
-            plt.contourf(X, Y, loss.reshape(dim**2, dim**2), levels=21)
+            plt.contourf(X,
+                         Y,
+                         loss.reshape(dim**2, dim**2),
+                         levels=21,
+                         cmap=cmap)
             tag = f"{angle}".zfill(3)
-            z_scale_tag = f'{xy_scale}'.replace('.', '_')
-            plt.savefig(f'plots/loss_l2_{z_scale_tag}_{tag}.png')
+            xy_scale_tag = f'{xy_scale}'.replace('.', '_')
+            plt.axis('off')
+            plt.savefig(f'plots/loss_l2_{xy_scale_tag}_{tag}.png',
+                        bbox_inches='tight',
+                        pad_inches=0)
             plt.close()

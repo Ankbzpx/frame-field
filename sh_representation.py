@@ -239,7 +239,7 @@ def rotvec_to_sh4_expm(rotvec):
 
 # https://en.wikipedia.org/wiki/Rotation_matrix
 @jit
-def euler_to_R3(a, b, c):
+def eulerXYZ_to_R3(a, b, c):
     Rx = jnp.array([[1, 0, 0], [0, jnp.cos(a), -jnp.sin(a)],
                     [0, jnp.sin(a), jnp.cos(a)]])
 
