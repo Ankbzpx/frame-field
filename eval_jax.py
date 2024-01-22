@@ -146,6 +146,7 @@ def eval(cfg: Config,
          geo_only=False,
          isolated_object=True,
          edge_collapse=False,
+         miq=False,
          interp_tag=''):
 
     # Map network output to sh4 parameterization
@@ -292,10 +293,38 @@ def eval(cfg: Config,
 
     igl.write_triangle_mesh(mc_save_path, V, F)
 
+    if miq:
+        aux = infer(V)[:, 1:]
+        sh4 = param_func(aux)
+        sh4 = proj_sh4_sdp(sh4)
+
+        FN = igl.per_face_normals(V, F, np.float64([0, 1, 0]))
+
+        sh4 = sh4[F].mean(1)
+        Rs = proj_sh4_to_R3(sh4)
+
+        Q = vmap(R3_to_repvec)(Rs, FN)
+
+        UV, FUV = frame_field_utils.miq(np.float64(V),
+                                        F,
+                                        np.float64(Q),
+                                        gradient_size=75)
+
+        from mesh_helper import OBJMesh, write_obj
+
+        mesh = OBJMesh(V, F)
+        mesh.uvs = UV
+        mesh.face_uvs_idx = FUV
+
+        write_obj(f'{out_dir}/{cfg.name}_param.obj', mesh)
+
+        exit()
+
     if vis_mc:
         # TODO support latent
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
         sur_sample = sdf_data['samples_on_sur']
+        # FIXME: the input sample size can suppress the memory requirement for single pass
         input_sample_size = jnp.minimum(len(sur_sample),
                                         cfg.training.n_input_samples)
         sur_normal = sdf_data['normals_on_sur']
