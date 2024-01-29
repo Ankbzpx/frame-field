@@ -135,6 +135,40 @@ def IM_remesh(load_path, save_path, num_verts=20000):
     return V, F
 
 
+def batch_call(func,
+               input,
+               num_out_args=1,
+               out_map_func=lambda x: [x],
+               group_size=256**2):
+
+    n_iters = len(input) // group_size
+
+    if n_iters == 0:
+        output = func(input)
+        output = out_map_func(output)
+    else:
+        output = {}
+        for i in range(num_out_args):
+            output[i] = None
+
+        input_splits = jnp.array_split(input, n_iters)
+        for input_batch in input_splits:
+            output_ = func(input_batch)
+            output_ = out_map_func(output_)
+
+            for i in range(num_out_args):
+                output[
+                    i] = output_[i] if output[i] is None else jnp.concatenate(
+                        [output[i], output_[i]])
+
+        output = list(output.values())
+
+    if num_out_args == 1:
+        output = output[0]
+
+    return output
+
+
 def eval(cfg: Config,
          out_dir,
          model: model_jax.MLP,
@@ -209,23 +243,11 @@ def eval(cfg: Config,
         grid_scale = 1.25 * eval_data_scale(cfg)
         V_tet, T = voxel_tet_from_grid_scale(16, grid_scale)
 
-        group_size = 256**2
-        n_iters = len(V_tet) // group_size
+        def out_map_func(out):
+            (sdf_, aux_), VN_ = out
+            return sdf_, aux_, VN_
 
-        if n_iters == 0:
-            (sdf, aux), VN = infer_grad(V_tet)
-        else:
-            sdf = None
-            aux = None
-            VN = None
-
-            V_splits = jnp.array_split(V_tet, n_iters)
-            for V_split in V_splits:
-                (sdf_, aux_), VN_ = infer_grad(V_split)
-
-                sdf = sdf_ if sdf is None else jnp.concatenate([sdf, sdf_])
-                aux = aux_ if aux is None else jnp.concatenate([aux, aux_])
-                VN = VN_ if VN is None else jnp.concatenate([VN, VN_])
+        sdf, aux, VN = batch_call(infer_grad, V_tet, 3, out_map_func)
 
         # V_tet, T, V_id = frame_field_utils.tet_reduce(V_tet, VN, sdf < 0, T)
         # aux = aux[V_id]
@@ -326,7 +348,6 @@ def eval(cfg: Config,
         # TODO support latent
         sdf_data = dict(np.load(cfg.sdf_paths[0]))
         sur_sample = sdf_data['samples_on_sur']
-        # FIXME: the input sample size can suppress the memory requirement for single pass
         input_sample_size = jnp.minimum(len(sur_sample),
                                         cfg.training.n_input_samples)
         sur_normal = sdf_data['normals_on_sur']
@@ -334,7 +355,7 @@ def eval(cfg: Config,
         sur_sample = sur_sample[:input_sample_size]
         sur_normal = sur_normal[:input_sample_size]
 
-        aux = infer(sur_sample)[:, 1:]
+        aux = batch_call(infer, sur_sample)[:, 1:]
 
         if cfg.loss_cfg.xy_scale != 1:
             aux = proj_sh4_sdp(aux)
