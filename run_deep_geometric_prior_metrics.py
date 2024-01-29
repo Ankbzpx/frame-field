@@ -6,7 +6,6 @@ import igl
 
 # This script has extra package dependencies because I don't want to reinvent the wheel...
 import open3d as o3d
-
 import torch
 import pytorch3d
 from pytorch3d import ops

@@ -1,12 +1,13 @@
 import numpy as np
 from jax import numpy as jnp, vmap, jit
 
-from sh_representation import oct_polynomial_zonal_unit_norm
 import math
 import pymeshlab
 import igl
-import open3d as o3d
 from tqdm import tqdm
+
+from common import write_triangle_mesh_VC
+from sh_representation import oct_polynomial_zonal_unit_norm
 
 import polyscope as ps
 from icecream import ic
@@ -79,8 +80,4 @@ if __name__ == '__main__':
         scale = (V_aabb_max[0, 1] - V_center[0, 1]) / 0.95
         V /= scale
 
-        octa_mesh = o3d.geometry.TriangleMesh()
-        octa_mesh.vertices = o3d.utility.Vector3dVector(V)
-        octa_mesh.triangles = o3d.utility.Vector3iVector(F)
-        octa_mesh.vertex_colors = o3d.utility.Vector3dVector(VC)
-        o3d.io.write_triangle_mesh(save_path, octa_mesh)
+        write_triangle_mesh_VC(save_path, V, F, VC)

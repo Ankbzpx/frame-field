@@ -13,13 +13,12 @@ from config import Config
 from config_utils import config_latent, config_model, eval_data_scale
 from common import (normalize, vis_oct_field, filter_components, Timer,
                     voxel_tet_from_grid_scale, ps_register_curve_network,
-                    rm_unref_vertices)
+                    rm_unref_vertices, write_triangle_mesh_VC)
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
                                rotvec_to_sh4, rot6d_to_sh4_zonal, proj_sh4_sdp)
 import frame_field_utils
-import open3d as o3d
 import pymeshlab
 
 import polyscope as ps
@@ -444,12 +443,8 @@ def eval(cfg: Config,
             flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
             ps.show()
 
-        stroke_mesh = o3d.geometry.TriangleMesh()
-        stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
-        stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
-        stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-        o3d.io.write_triangle_mesh(
-            f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj", stroke_mesh)
+        write_triangle_mesh_VC(f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj",
+                               V_vis, F_vis, VC_vis)
 
 
 if __name__ == '__main__':

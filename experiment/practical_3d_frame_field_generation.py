@@ -9,12 +9,12 @@ from jaxopt import LBFGS
 import scipy.sparse
 import scipy.sparse.linalg
 from sksparse.cholmod import cholesky
-from common import unroll_identity_block, normalize_aabb, vis_oct_field, ps_register_curve_network, Timer
+from common import (unroll_identity_block, normalize_aabb, vis_oct_field,
+                    ps_register_curve_network, Timer, write_triangle_mesh_VC)
 from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3,
                                rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
 
-import open3d as o3d
 import argparse
 import os
 
@@ -403,8 +403,4 @@ if __name__ == '__main__':
     ps.register_surface_mesh("cube", V_vis_cube, F_vis_cube, enabled=False)
     ps.show()
 
-    stroke_mesh = o3d.geometry.TriangleMesh()
-    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
-    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
-    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(model_out_path, stroke_mesh)
+    write_triangle_mesh_VC(model_out_path, V_vis, F_vis, VC_vis)

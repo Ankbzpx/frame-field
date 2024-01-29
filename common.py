@@ -5,6 +5,8 @@ import scipy.sparse
 import os
 import time
 
+from mesh_helper import OBJMesh, write_obj
+
 import polyscope as ps
 from icecream import ic
 
@@ -436,3 +438,9 @@ def crop_tets(V, T, grid_scale):
     V, T = rm_unref_vertices(V, T[T_mask])
     V = V * grid_scale.max()
     return V, T
+
+
+def write_triangle_mesh_VC(save_path, V, F, VC):
+    mesh = OBJMesh(V, F)
+    mesh.vertex_colors = VC
+    write_obj(save_path, mesh)

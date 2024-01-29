@@ -7,9 +7,9 @@ from typing import Callable
 import scipy
 import scipy.sparse.linalg
 
-from common import normalize_aabb, normalize, rm_unref_vertices, Timer, surface_vertex_topology
+from common import (normalize_aabb, normalize, rm_unref_vertices, Timer,
+                    surface_vertex_topology, write_triangle_mesh_VC)
 
-import open3d as o3d
 import argparse
 import os
 
@@ -506,8 +506,4 @@ if __name__ == '__main__':
     flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
     ps.show()
 
-    stroke_mesh = o3d.geometry.TriangleMesh()
-    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
-    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
-    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(model_out_path, stroke_mesh)
+    write_triangle_mesh_VC(model_out_path, V_vis, F_vis, VC_vis)

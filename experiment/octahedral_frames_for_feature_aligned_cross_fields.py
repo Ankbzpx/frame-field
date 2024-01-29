@@ -2,14 +2,14 @@ import igl
 import numpy as np
 from jax import vmap, jit, numpy as jnp
 from jaxopt import LBFGS
-from common import unroll_identity_block, normalize_aabb, normalize, unpack_stiffness, Timer
+from common import (unroll_identity_block, normalize_aabb, normalize,
+                    unpack_stiffness, Timer, write_triangle_mesh_VC)
 from sh_representation import R3_to_repvec, rotvec_n_to_z, rotvec_to_R9, proj_sh4_to_R3, proj_sh4_sdp
 
 import scipy.sparse
 import scipy.sparse.linalg
 import scipy.optimize
 
-import open3d as o3d
 import argparse
 import os
 
@@ -174,8 +174,4 @@ if __name__ == '__main__':
     flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
     ps.show()
 
-    stroke_mesh = o3d.geometry.TriangleMesh()
-    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
-    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
-    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(model_out_path, stroke_mesh)
+    write_triangle_mesh_VC(model_out_path, V_vis, F_vis, VC_vis)
