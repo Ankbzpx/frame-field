@@ -17,7 +17,7 @@ class SDFSampler:
                  model_path,
                  normalize=True,
                  surface_ratio=0.6,
-                 close_ratio=0.3,
+                 close_sample_ratio=0.3,
                  sigma=5e-2):
         V, F = igl.read_triangle_mesh(model_path)
         if normalize:
@@ -26,7 +26,7 @@ class SDFSampler:
         self.V = V
         self.F = F
         self.surface_ratio = surface_ratio
-        self.close_ratio = close_ratio
+        self.close_sample_ratio = close_sample_ratio
         self.sigma = sigma
 
     def sample_sdf_igl(self, x):
@@ -36,7 +36,7 @@ class SDFSampler:
 
         sample_size_full = int(sample_size * multiplier)
         n_surface = int(sample_size_full * self.surface_ratio)
-        n_close = int(sample_size_full * self.close_ratio)
+        n_close = int(sample_size_full * self.close_sample_ratio)
         n_free = sample_size_full - (n_surface + n_close)
 
         bary, f_id = igl.random_points_on_mesh(n_surface, self.V, self.F)

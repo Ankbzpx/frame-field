@@ -15,6 +15,7 @@ def decompose(n, v):
     return v_para, v - v_para
 
 
+# Visualize the gradient of the loss function w.r.t. directional vectors
 def vis_gradient(VN, gradient, local_minimums, scale=1e-2):
     gradient_para, gradient_orth = vmap(decompose)(VN, gradient)
     grad_vis_len, grad_para_vis_len, grad_orth_vis_len = jax.tree_map(

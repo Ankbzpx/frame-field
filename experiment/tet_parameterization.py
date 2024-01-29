@@ -9,7 +9,7 @@ from common import (ps_register_curve_network, Timer, normalize,
                     unroll_identity_block, ps_register_basis,
                     surface_vertex_topology, rm_unref_vertices)
 from sh_representation import (proj_sh4_to_R3, proj_sh4_sdp)
-from hex_helper import write_hex, HexMesh
+from experiment.hex_helper import write_hex, HexMesh
 
 import frame_field_utils
 import scipy.sparse
@@ -498,6 +498,7 @@ def extract_seams(Rs_comb, F, T, TT, TTi, F2uF, uF2uE, **kwargs):
     return V_seam, uE_seam, uF_seam, F_seam
 
 
+# Attempt to resolve the case when the uE is shared by non adjacent seams in its one-ring
 def dissolve_non_manifold(Rs_comb, uE_seam, uF_seam, uE_singularity_mask, uE2T,
                           uE2T_cumsum, uE2uF, uE2uF_cumsum, uF2uE, F2uF,
                           **kwargs):
@@ -566,6 +567,7 @@ def dissolve_non_manifold(Rs_comb, uE_seam, uF_seam, uE_singularity_mask, uE2T,
     return Rs_comb, True
 
 
+# If the uF cannot be cut, attempt to comb its adjacent tets, so it would be replaced by new uFs of one of the tets
 def dissolve_uncuttable(Rs_comb, uE_seam, uF_seam, uE, uE_singularity_mask,
                         uE_ids_singular, V_singular_mask, uF2uE, F2uF, uF2T,
                         uE2uF, uE2uF_cumsum, **kwargs):
@@ -658,6 +660,7 @@ def dissolve_uncuttable(Rs_comb, uE_seam, uF_seam, uE, uE_singularity_mask,
     return Rs_comb, dirty
 
 
+# Color one side of tets sharing vertices with the seams
 def tet_cut_coloring(V_seam, uE_seam, uF_seam, F_seam, V, T, TT, uE,
                      V_singular_mask, F2uF, uF2T, uF2uE, uE2uF, uE2uF_cumsum,
                      **kwargs):
@@ -806,6 +809,7 @@ def tet_cut_coloring(V_seam, uE_seam, uF_seam, F_seam, V, T, TT, uE,
         uF_seam], VT_adj_list, V2T_seed, V2T_seed_inv
 
 
+# Cut tetrahedral along the seams. It introduces new verts but the num of tets remains the same
 def tet_cut(uE_seam, uF_seam, F_seam, Rs_comb, VT_adj_list, V2T_seed,
             V2T_seed_inv, V, T, uE, uE_ids_singular, V_singular_mask, F2uF,
             uF2uE, uE2uF, uE2uF_cumsum, **kwargs):
@@ -1027,7 +1031,7 @@ def tet_solve_param(Rs_comb, V_i, V_j, transitions_ji, V, T):
         c = 5
         d = 15
 
-        # For some reason, if I use smoothed weight, one flip cannot be resolved after long iterations
+        # For some reason, if I use smoothed weight, single digital flips cannot be resolved after very long iterations
         # distort = uniform_laplacian(distort, TT)
         weight = np.clip(c * np.abs(distort), 0, d)
 
@@ -1038,7 +1042,7 @@ def tet_solve_param(Rs_comb, V_i, V_j, transitions_ji, V, T):
     return UVW
 
 
-# Some hacky function so it behaves like jupyter notebook
+# Some hacky function so the script behaves like jupyter notebook. Cannot be extracted to a common library
 # https://stackoverflow.com/questions/2933470/how-do-i-call-setattr-on-the-current-module
 def set_var_by_name(name, val):
     globals()[name] = val
@@ -1060,6 +1064,10 @@ def load_tmp(name='tmp', folder='tmp'):
 
 
 if __name__ == '__main__':
+
+    # WARNING: This is my very crappy attempt to implement continuous volume parameterization (CubeCover without integer constraints)
+    #   It can only handle simple case and are very likely to fail with nested singularity graph (not sure how to cut)
+
     import argparse
 
     parser = argparse.ArgumentParser()
@@ -1106,7 +1114,7 @@ if __name__ == '__main__':
     sh4_bary = sh4[T].mean(axis=1)
     Rs_bary = proj_sh4_to_R3(sh4_bary)
 
-    # Technically, we could directly infer sh4 at each tets barycenter, but given NT >> NV, SDP would be extremely heavy..
+    # Technically, we could directly infer sh4 at each tets barycenter, but given NT >> NV, SDP would be extremely expensive..
     sh4_octa = proj_sh4_sdp(sh4)
     # Small linear interpolated sh4 won't deviate much from the variety, hence its recovery would be sufficiently accurate
     sh4_bary_octa = sh4_octa[T].mean(axis=1)

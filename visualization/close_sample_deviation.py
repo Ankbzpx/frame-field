@@ -3,7 +3,7 @@ from jax import numpy as jnp, vmap, jit
 
 from common import normalize
 from sh_representation import rotvec_to_sh4, proj_sh4_sdp, proj_sh4_to_R3, rotvec_to_R3, distance_SO3
-from tet_parameterization import make_compatible
+from experiment.tet_parameterization import make_compatible
 
 import seaborn as sns
 

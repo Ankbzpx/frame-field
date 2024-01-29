@@ -17,7 +17,7 @@
     "loss_cfg": {
         "smooth": 1e-2,
         "align": 3e3,
-        "use_basis": false,
+        "explicit_basis": false,
         "rot6d": true,
         "regularize": 1e2
     }

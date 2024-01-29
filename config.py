@@ -8,7 +8,7 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
-    input_scale: float = 1
+    input_scale: float = 1    # spatial scaling
 
 
 @dataclass
@@ -24,8 +24,8 @@ class TrainingConfig:
     n_samples: int = 8192    # per step
     plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
-    close_scale: float = 5e-2
-    close_ratio: float = 0.25
+    close_sample_sigma: float = 5e-2
+    close_sample_ratio: float = 0.25
     n_input_samples: int = 10000
 
 
@@ -45,10 +45,11 @@ class LossConfig:
 
     rotvec: bool = False
     rot6d: bool = False
-    fix_basis: bool = False
-    use_basis: bool = False
+    explicit_basis: bool = False
+
     match_zero_level_set: bool = False
     match_all_level_set: bool = False
+
     tangent: bool = False
     grid: bool = False
 

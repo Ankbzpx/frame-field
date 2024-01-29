@@ -1,11 +1,13 @@
 import numpy as np
 
 import os
-import open3d as o3d
 
 import igl
-import torch
 
+# This script has extra package dependencies because I don't want to reinvent the wheel...
+import open3d as o3d
+
+import torch
 import pytorch3d
 from pytorch3d import ops
 
@@ -26,6 +28,8 @@ def compute_normalize_aabb(V, scale=0.95):
 
 
 model_list = ['anchor', 'daratech', 'dc', 'gargoyle', 'lord_quas']
+
+# Dataset from https://github.com/fwilliams/deep-geometric-prior
 dataset_folder = '$HOME/dataset/deep_geometric_prior_data'
 dataset_folder = os.path.expandvars(dataset_folder)
 

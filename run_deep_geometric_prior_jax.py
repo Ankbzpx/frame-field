@@ -47,7 +47,7 @@ if __name__ == '__main__':
                 cfg.name = name
 
                 cfg.training.n_input_samples = sample_size
-                cfg.training.close_scale = 1e-1
+                cfg.training.close_sample_sigma = 1e-1
 
                 model_key, data_key = jax.random.split(
                     jax.random.PRNGKey(cfg.training.seed), 2)
@@ -78,6 +78,6 @@ if __name__ == '__main__':
                      model,
                      latent,
                      vis_mc=args.vis,
-                     geo_only=True)
+                     trace_flowline=False)
 
                 # exit()

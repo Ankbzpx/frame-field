@@ -19,7 +19,7 @@ def config_latent(cfg: Config):
     return q[:, 1:], n_models - 1
 
 
-# Note: this function will update cfg
+# IMPORTANT: this function will update cfg
 def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
     if len(cfg.mlp_types) == 1:
         cfg.mlps[0].in_features += latent_dim
@@ -44,17 +44,14 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
 
 def config_optim(cfg: Config, model: model_jax.MLP):
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    # lr_scheduler_standard = optax.constant_schedule(cfg.training.lr_multiplier *
-    #                                                 cfg.training.lr)
     lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
         cfg.training.lr_multiplier * cfg.training.lr,
         peak_value=cfg.training.lr_peak_multiplier * cfg.training.lr,
         warmup_steps=cfg.training.warmup_steps,
         decay_steps=total_steps)
 
-    # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren. So special care must be taken...
-    # lr_scheduler_siren = optax.constant_schedule(
-    #     cfg.training.lr_multiplier_siren * cfg.training.lr)
+    # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren (due to built-in gradient scaling).
+    # So special care must be taken...
     lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
         cfg.training.lr_multiplier_siren * cfg.training.lr,
         peak_value=cfg.training.lr_peak_multiplier_siren * cfg.training.lr,
@@ -76,7 +73,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
                              param_spec,
                              replace_fn=lambda _: "siren")
 
-    # Workaround Callable
+    # Workaround Callable []
     optim = optax.multi_transform(
         {
             "standard": optax.adam(lr_scheduler_standard),
@@ -87,6 +84,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     return optim, opt_state
 
 
+# Estimate aabb scaling
 def eval_data_scale(cfg: Config):
 
     def cal_scale(sdf_path):
@@ -100,23 +98,27 @@ def eval_data_scale(cfg: Config):
     return scale
 
 
+# Default matching training sample size
 def progressive_sample_off_surf(cfg: Config,
                                 data_key,
                                 samples_on_sur,
                                 sample_bound,
-                                close_scale,
-                                scaler_factor=[1.0, 1.0, 1.0],
-                                ratio=0.25):
+                                close_sample_sigma,
+                                close_sample_ratio=0.25,
+                                sigma_scaler_factor=[1.0, 1.0, 1.0]):
     sample_size = cfg.training.n_samples
     # Progressive sample
-    scale = scaler_factor[0] * close_scale * np.ones(cfg.training.n_steps)
-    scale[cfg.training.n_steps // 3:] = scaler_factor[1] * close_scale
-    scale[int(2 * cfg.training.n_steps / 3):] = scaler_factor[2] * close_scale
+    sigma = sigma_scaler_factor[0] * close_sample_sigma * np.ones(
+        cfg.training.n_steps)
+    sigma[cfg.training.n_steps //
+          3:] = sigma_scaler_factor[1] * close_sample_sigma
+    sigma[int(2 * cfg.training.n_steps /
+              3):] = sigma_scaler_factor[2] * close_sample_sigma
 
-    close_sample_size = int(ratio * sample_size)
+    close_sample_size = int(close_sample_ratio * sample_size)
     free_sample_size = sample_size - close_sample_size
 
-    close_samples = scale[:, None, None] * jax.random.normal(
+    close_samples = sigma[:, None, None] * jax.random.normal(
         data_key, (cfg.training.n_steps, close_sample_size,
                    3)) + samples_on_sur[:, :close_sample_size]
     close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
@@ -167,12 +169,13 @@ def config_training_data(cfg: Config, data_key, latents):
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
 
         data.update(
-            progressive_sample_off_surf(cfg,
-                                        data_key,
-                                        data['samples_on_sur'],
-                                        sample_bound,
-                                        close_scale=cfg.training.close_scale,
-                                        ratio=cfg.training.close_ratio))
+            progressive_sample_off_surf(
+                cfg,
+                data_key,
+                data['samples_on_sur'],
+                sample_bound,
+                close_sample_sigma=cfg.training.close_sample_sigma,
+                close_sample_ratio=cfg.training.close_sample_ratio))
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -211,12 +214,15 @@ def config_training_data_param(cfg: Config, data_key, latents):
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
         data.update(
-            progressive_sample_off_surf(cfg,
-                                        data_key,
-                                        data['samples_on_sur'],
-                                        sample_bound,
-                                        close_scale=cfg.training.close_scale,
-                                        ratio=0.0))
+            progressive_sample_off_surf(
+                cfg,
+                data_key,
+                data['samples_on_sur'],
+                sample_bound,
+                close_scale=cfg.training.close_scale,
+        # Disable close surface sample because the sampling is performed in parameterization space
+        # --we do not know if they will be mapped to close surface samples in original space
+                close_sample_ratio=0.0))
 
         del data['sdf_off_sur']
 
@@ -251,7 +257,7 @@ def config_toy_training_data(cfg: Config, data_key, sur_samples,
                                     data_key,
                                     samples_on_sur,
                                     1.0,
-                                    close_scale=gap * 1e-2))
+                                    close_sample_sigma=gap * 1e-2))
     data['latent'] = latents[None, None, 0].repeat(cfg.training.n_steps,
                                                    axis=0).repeat(sample_size,
                                                                   axis=1)

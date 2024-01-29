@@ -28,7 +28,7 @@ class OBJMesh:
 # Modified from https://kaolin.readthedocs.io/en/latest/modules/kaolin.io.obj.html#module-kaolin.io.obj for vertex color support
 def read_obj(path, warning=False) -> OBJMesh:
     r"""
-    Load obj, assume same face size. Support quad mesh, vertex color
+    Load obj, assume same face size. Support quad mesh, vertex color, polygon_groups
     """
     vertices = []
     faces = []
@@ -118,6 +118,7 @@ def read_obj(path, warning=False) -> OBJMesh:
     face_size = faces.shape[1]
     if face_size == 4:
         faces_quad = faces
+        # Quad face splitting matches Libigl and three.js
         faces = np.vstack([
             np.vstack([[face[0], face[1], face[2]],
                        [face[0], face[2], face[3]]]) for face in faces_quad

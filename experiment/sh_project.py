@@ -3,7 +3,7 @@ from jax import numpy as jnp, vmap, jit
 
 from common import Timer
 from sh_representation import rotvec_to_R3, proj_sh4_to_rotvec, proj_sh4_sdp, proj_sh4_to_R3, distance_SO3
-from tet_parameterization import make_compatible
+from experiment.tet_parameterization import make_compatible
 
 import polyscope as ps
 from icecream import ic
@@ -24,7 +24,7 @@ if __name__ == '__main__':
 
     dists = vmap(distance_SO3)(R1, vmap(make_compatible)(R1, R2))
 
-    radians_max = jnp.rad2deg(dists.max())
-    radians_min = jnp.rad2deg(dists.mean())
+    degree_max = jnp.rad2deg(dists.max())
+    degree_min = jnp.rad2deg(dists.mean())
 
-    ic(radians_max, radians_min)
+    ic(degree_max, degree_min)

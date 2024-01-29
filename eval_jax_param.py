@@ -219,6 +219,8 @@ if __name__ == '__main__':
     # model = ParamMLP(mlp_types=[mlp_type] * 3,
     #                  mlp_cfgs=[mlp_cfg] * 3,
     #                  key=model_key)
+
+    # 1 general vector field
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 

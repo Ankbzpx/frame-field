@@ -123,7 +123,8 @@ if __name__ == '__main__':
             x, info = scipy.sparse.linalg.cg(Q.T @ Q, Q.T @ c)
             assert info == 0
             x = x.reshape(NV, 9)
-            # Project back to octahedral variety
+            # Project back to octahedral variety.
+            # Not exactly sure whether the paper refers to SDP or the closest normal aligned projection. Use SDP for now.
             x_proj = proj_sh4_sdp(x)
             d_norm = vmap(jnp.linalg.norm)(x - x_proj)
 

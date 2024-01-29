@@ -143,9 +143,9 @@ def eval(cfg: Config,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False,
-         geo_only=False,
-         isolated_object=True,
+         single_object=True,
          edge_collapse=False,
+         trace_flowline=True,
          miq=False,
          interp_tag=''):
 
@@ -197,13 +197,13 @@ def eval(cfg: Config,
 
     timer.log('Extract surface')
 
-    if isolated_object:
-        # If it is not has_artifacts, it have large amount of flipped components (likely from siren)
-        V, F, has_artifacts = filter_components(V, F, VN)
+    if single_object:
+        # If the output has artifacts, it have large amount of flipped components (likely from siren)
+        V, F, no_artifacts = filter_components(V, F, VN)
 
         timer.log('Filter components')
     else:
-        has_artifacts = True
+        no_artifacts = True
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
@@ -285,9 +285,9 @@ def eval(cfg: Config,
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
 
     if edge_collapse:
-        # Quadratic edge collapsing reduces vertex count while preserves original appear
+        # Quadratic edge collapsing reduces vertex count while preserves original appeal
         V, F = meshlab_edge_collapse(mc_save_path, V, F,
-                                     20000 if has_artifacts else 60000)
+                                     20000 if no_artifacts else 60000)
 
         timer.log('Meshlab edge collapsing')
 
@@ -309,6 +309,8 @@ def eval(cfg: Config,
                                         F,
                                         np.float64(Q),
                                         gradient_size=75)
+
+        timer.log('MIQ')
 
         from mesh_helper import OBJMesh, write_obj
 
@@ -341,33 +343,19 @@ def eval(cfg: Config,
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
-        # @jit
-        # def matching(vn, R):
-        #     dp = jnp.abs(jnp.einsum('m,mn->n', vn, R))
-        #     scale = 0.1 * jnp.ones(3)
-        #     scale = scale.at[jnp.argmax(dp)].set(1)
-
-        #     return R * scale[None, :]
-
-        # Rs = vmap(matching)(sur_normal, Rs)
-        # V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.01)
-        # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_sup.obj", V_vis_sup,
-        #                     F_vis_sup)
-        # exit()
-
         @jit
-        def infer_lap(x):
+        def infer_laplacian(x):
             z = latent[None, ...].repeat(len(x), 0)
-            return model.call_lap(x, z)
+            return model.call_laplacian(x, z)
 
-        lap = jnp.abs(infer_lap(sur_sample))
+        laplacian = jnp.abs(infer_laplacian(sur_sample))
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
         ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
-        pc.add_scalar_quantity('lap', lap, enabled=True)
+        pc.add_scalar_quantity('laplacian', laplacian, enabled=True)
 
         if cfg.loss_cfg.tangent:
 
@@ -390,59 +378,57 @@ def eval(cfg: Config,
 
     timer.reset()
 
-    if geo_only:
-        return
+    if trace_flowline:
+        # IM is isotropic and more suited for tracing flowlines
+        im_save_path = f"{out_dir}/{cfg.name}_{interp_tag}im.obj"
+        V, F = IM_remesh(mc_save_path, im_save_path)
 
-    # IM is isotropic and more suited for tracing flowlines
-    im_save_path = f"{out_dir}/{cfg.name}_{interp_tag}im.obj"
-    V, F = IM_remesh(mc_save_path, im_save_path)
+        timer.log('IM Remesh')
 
-    timer.log('IM Remesh')
+        # Project on isosurface
+        (sdf, _), VN = infer_grad(V)
+        VN = vmap(normalize)(VN)
+        V = V - sdf[:, None] * VN
+        V = np.array(V)
 
-    # Project on isosurface
-    (sdf, _), VN = infer_grad(V)
-    VN = vmap(normalize)(VN)
-    V = V - sdf[:, None] * VN
-    V = np.array(V)
+        timer.log('Project SDF')
 
-    timer.log('Project SDF')
+        (_, aux), VN = infer_grad(V)
+        sh4 = vmap(param_func)(aux)
 
-    (_, aux), VN = infer_grad(V)
-    sh4 = vmap(param_func)(aux)
+        if cfg.loss_cfg.xy_scale != 1:
+            sh4 = proj_sh4_sdp(sh4)
 
-    if cfg.loss_cfg.xy_scale != 1:
-        sh4 = proj_sh4_sdp(sh4)
+        print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
 
-    print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+        L = igl.cotmatrix(V, F)
+        smoothness = np.trace(sh4.T @ -L @ sh4)
+        print(f"Smoothness {smoothness}")
 
-    L = igl.cotmatrix(V, F)
-    smoothness = np.trace(sh4.T @ -L @ sh4)
-    print(f"Smoothness {smoothness}")
+        Rs = proj_func(aux)
+        timer.log('Project SO(3)')
 
-    Rs = proj_func(aux)
-    timer.log('Project SO(3)')
+        timer.reset()
 
-    timer.reset()
+        Q = vmap(R3_to_repvec)(Rs, VN)
+        V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
-    Q = vmap(R3_to_repvec)(Rs, VN)
-    V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
+        timer.log('Trace flowlines')
 
-    timer.log('Trace flowlines')
+        if vis_flowline:
+            ps.init()
+            mesh = ps.register_surface_mesh("mesh", V, F)
+            mesh.add_vector_quantity("VN", VN)
+            flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
+            flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
+            ps.show()
 
-    if vis_flowline:
-        ps.init()
-        mesh = ps.register_surface_mesh("mesh", V, F)
-        mesh.add_vector_quantity("VN", VN)
-        flow_line_vis = ps.register_surface_mesh("flow_line", V_vis, F_vis)
-        flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
-        ps.show()
-
-    stroke_mesh = o3d.geometry.TriangleMesh()
-    stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
-    stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
-    stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
-    o3d.io.write_triangle_mesh(f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj",
-                               stroke_mesh)
+        stroke_mesh = o3d.geometry.TriangleMesh()
+        stroke_mesh.vertices = o3d.utility.Vector3dVector(V_vis)
+        stroke_mesh.triangles = o3d.utility.Vector3iVector(F_vis)
+        stroke_mesh.vertex_colors = o3d.utility.Vector3dVector(VC_vis)
+        o3d.io.write_triangle_mesh(
+            f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj", stroke_mesh)
 
 
 if __name__ == '__main__':

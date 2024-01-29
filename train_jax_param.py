@@ -32,6 +32,7 @@ def orthogonality(J):
     return jnp.linalg.norm(J.T @ J - jnp.eye(3))
 
 
+# "Self-supervised Learning of Implicit Shape Representation with Dense Correspondence for Deformable Objects" by Zhang et al.
 @jit
 def neg_det_penalty(J):
     return jax.nn.relu(-jnp.linalg.det(J))
@@ -150,6 +151,9 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
             loss_align = align_weight * vmap(jnp.linalg.norm)(J - basis).mean()
             loss_orth = orth_weight * vmap(orthogonality)(J).mean()
         else:
+            # Use fitted J because the original one is not orthogonal such that
+            # - Its inverse is not its transpose
+            # - Minimize sh4 difference norm loses it meaning
             J, loss_fit = vmap(fit_jac_rot6d)(J)
             J = jnp.transpose(J, (0, 2, 1)) if inverse else J
 
@@ -258,7 +262,7 @@ if __name__ == '__main__':
     mlp_cfg = cfg.mlp_cfgs[0]
     mlp_type = cfg.mlp_types[0]
 
-    # Single vector potential
+    # 1 general vector field
     mlp_cfg['out_features'] = 3
     model = ParamMLP(**mlp_cfg, key=model_key)
 

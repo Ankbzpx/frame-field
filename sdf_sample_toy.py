@@ -1,6 +1,6 @@
 import numpy as np
 
-from sh_representation import euler_to_R3, rotvec_to_R3
+from sh_representation import eulerXYZ_to_R3, rotvec_to_R3
 
 from icecream import ic
 import polyscope as ps
@@ -20,7 +20,7 @@ def gen_toy_sample(gap, theta, offset=4, grid_size=10):
     sub_samples2_vn = np.zeros_like(sub_samples2)
     sub_samples2_vn[:, 0] = -1
 
-    R = np.float64(euler_to_R3(0, 0, -np.pi / 4))
+    R = np.float64(eulerXYZ_to_R3(0, 0, -np.pi / 4))
     S = np.diag(np.array([np.cos(theta / 2),
                           np.sin(theta / 2),
                           np.sqrt(2) / 2]))
@@ -46,7 +46,7 @@ if __name__ == '__main__':
                 gap, np.deg2rad(theta))
 
             # Add small rotation to avoid axis aligned bias
-            R = euler_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
+            R = eulerXYZ_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
             samples_sup = samples_sup @ R.T
             # R^(-T) = R
             samples_vn_sup = samples_vn_sup @ R.T

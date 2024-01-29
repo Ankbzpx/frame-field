@@ -46,7 +46,7 @@ class MLP(eqx.Module):
 
         return jacfwd(__single_call, has_aux=True)(x, z)
 
-    def single_call_lap(self, x, z):
+    def single_call_laplacian(self, x, z):
 
         def __single_call(x, z):
             return self.single_call(x, z)[0]
@@ -76,8 +76,8 @@ class MLP(eqx.Module):
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
-    def call_lap(self, x, z):
-        return vmap(self.single_call_lap)(x, z)
+    def call_laplacian(self, x, z):
+        return vmap(self.single_call_laplacian)(x, z)
 
     def __call__(self, x, z):
         x = vmap(self.single_call)(x, z)
@@ -272,6 +272,7 @@ class LipLinear(Linear):
         return jax.nn.softplus(self.c)
 
 
+# Sin activation with omega_0=1 is still 1-Lipschitz activation function
 class LipSineLayer(SineLayer):
     c: Array
     c_scale: float
@@ -381,7 +382,7 @@ class MLPComposer(MLP):
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
-    def single_call_lap(self, x, z):
+    def single_call_laplacian(self, x, z):
 
         def __single_call(x, z):
             return self.mlps[0].single_call(x, z)[0]
@@ -395,6 +396,7 @@ def curl(jac):
         [jac[2, 1] - jac[1, 2], jac[0, 2] - jac[2, 0], jac[1, 0] - jac[0, 1]])
 
 
+# This is wrong because tangent vectors are not the curl of a vector potential
 class MLPComposerCurl(MLPComposer):
 
     def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):

@@ -5,9 +5,8 @@ from dataclasses import dataclass
 import polyscope as ps
 from icecream import ic
 
+
 # Read https://github.com/HendrikBrueckler/MC3D
-
-
 @dataclass
 class HexMesh:
     vertices: np.ndarray

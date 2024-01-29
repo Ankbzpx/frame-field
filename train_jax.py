@@ -75,9 +75,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             param_func = lambda x: x
             proj_func = proj_sh4_to_R3
 
-        # I'm not allowed to compare jit traced value with a scalar
+        # The scheduled weight is jit traced value--I'm not allowed to compare it with a scalar
         if not loss_cfg.grid and loss_cfg.smooth > 0:
-
             jac, out_on = model.call_jac_param(samples_on_sur, latent,
                                                param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
@@ -92,7 +91,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
-        # loss_sdf = jnp.abs(pred_off_sur_sdf - sdf_off_sur).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
         loss_normal = loss_cfg.normal * (1 - vmap(cosine_similarity)(
@@ -120,7 +118,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 normal_align = normals_on_sur
                 aux_align = aux
 
-            if loss_cfg.use_basis:
+            if loss_cfg.explicit_basis:
                 basis_align = proj_func(aux_align)
                 # Normalization matters here because we want the dot product to be either 0 or 1
                 dps = jnp.einsum('bij,bi->bj', basis_align,
@@ -146,6 +144,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     # Its projection on n should match itself
                     loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
                                                    (sh4_align, sh4_n)).mean()
+                    # The balance of align and unit norm weighting matters for flowline, even if the unit norm can mostly be satisfied near the end
                     loss_sh4_norm = loss_cfg.unit_norm * vmap(
                         eikonal, in_axes=(0, None))(sh4_align,
                                                     norm_scale).mean()
@@ -160,7 +159,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             aux_reg = jax.lax.stop_gradient(aux_off)
             normal_reg = pred_normals_off_sur
 
-            if loss_cfg.use_basis:
+            if loss_cfg.explicit_basis:
                 basis_reg = proj_func(aux_reg)
                 # Normalization matters here because we want the dot product to be either 0 or 1
                 dps = jnp.einsum('bij,bi->bj', basis_reg,
@@ -173,10 +172,11 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                     basis_reg = proj_func(aux_reg)
                     poly_val = vmap(oct_polynomial_zonal_unit_norm)(normal_reg,
                                                                     basis_reg)
-                    # For rot6d, it is guaranteed to lies on the octahedral variety
+                    # For rot6d, it is guaranteed to lies on the octahedral variety, so the polynomial value is guaranteed to be bounded
                     loss_regularize = regularize_weight * (1 - poly_val).mean()
                 else:
                     sh4_reg = vmap(param_func)(aux_reg)
+                    # Normalization is needed to bound the polynomial functional value
                     poly_val = vmap(oct_polynomial_sh4_unit_norm)(
                         normal_reg, vmap(normalize)(sh4_reg))
 
@@ -242,7 +242,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         pbar.set_postfix({"loss": loss_dict['loss_total']})
 
-        # TODO: Better plot such as using tensorboardX
+        # TODO: Use better plot such as tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
         if epoch % cfg.training.plot_every == 0:

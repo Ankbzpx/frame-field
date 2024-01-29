@@ -430,8 +430,8 @@ if __name__ == '__main__':
 
     timer.log('Load and preprocess mesh')
 
-    # My attempt to abuse vmap for graph like data structure
-    # Might well just use for loop in the future...
+    # TODO: This implementation is exceedingly complicated and memory inefficient because I attempt to traverse graph like data structure using vmap
+    #   Might well just use for loop in the future...
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
 
     timer.log('Build traversal graph')

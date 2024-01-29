@@ -4,7 +4,7 @@ import polyscope as ps
 from icecream import ic
 
 from common import normalize
-from extrinsically_smooth_direction_field import per_face_basis
+from experiment.extrinsically_smooth_direction_field import per_face_basis
 
 V, F = igl.read_triangle_mesh('data/mesh/sphere.obj')
 

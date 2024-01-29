@@ -411,7 +411,7 @@ def voxel_tet_from_grid_scale(res, grid_scale):
     V, T = tet_from_grid(grid_res)
 
     # FIXME: Nasty workaround, should find a better way to do it
-    # V, T = crop_tets(V, T, grid_scale)
+    V, T = crop_tets(V, T, grid_scale)
 
     return V, T
 
@@ -424,6 +424,7 @@ def voxel_tet_from_grid_scale(res, grid_scale):
     # return V, T, grid_res
 
 
+# IMPORTANT: Don't use if the unrolled indices matters
 def crop_tets(V, T, grid_scale):
     V_mask = np.ones(len(V)).astype(bool)
     grid_scale_safe = grid_scale / grid_scale.max(keepdims=True)

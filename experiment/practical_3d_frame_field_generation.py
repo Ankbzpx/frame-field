@@ -351,7 +351,7 @@ if __name__ == '__main__':
 
         # sh4_n = R9_zn.T @ sh4_z
         sh4_n = jnp.einsum('bji,bj->bi', R9_zn, vmap(sh4_z)(theta))
-        # Use theta parameterization for boundary
+        # Use tangential twist parameterization for boundary frames
         sh4 = sh4.at[boundary_vid].set(sh4_n)
 
         if args.sharp:
