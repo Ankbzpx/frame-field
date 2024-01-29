@@ -24,8 +24,6 @@ import pymeshlab
 import polyscope as ps
 from icecream import ic
 
-IM_PATH = '$HOME/instant-meshes/build'
-
 
 # infer: R^3 -> R
 def voxel_infer(infer,
@@ -127,13 +125,6 @@ def meshlab_edge_collapse(save_path, V, F, num_faces):
     return V, F
 
 
-def IM_remesh(load_path, save_path, num_verts=20000):
-    cmd = f'{IM_PATH}/Instant\ Meshes {load_path} -c 11 -v {num_verts} -r 6 -p 3 -b -o {save_path}'
-    os.system(cmd)
-    V, F = igl.read_triangle_mesh(save_path)
-    return V, F
-
-
 def batch_call(func,
                input,
                num_out_args=1,
@@ -177,7 +168,7 @@ def eval(cfg: Config,
          vis_smooth=False,
          vis_flowline=False,
          single_object=True,
-         edge_collapse=False,
+         edge_collapse=True,
          trace_flowline=True,
          miq=False,
          interp_tag=''):
@@ -236,7 +227,7 @@ def eval(cfg: Config,
 
         timer.log('Filter components')
     else:
-        no_artifacts = True
+        no_artifacts = False
 
     if vis_singularity:
         grid_scale = 1.25 * eval_data_scale(cfg)
@@ -399,12 +390,6 @@ def eval(cfg: Config,
     timer.reset()
 
     if trace_flowline:
-        # IM is isotropic and more suited for tracing flowlines
-        im_save_path = f"{out_dir}/{cfg.name}_{interp_tag}im.obj"
-        V, F = IM_remesh(mc_save_path, im_save_path)
-
-        timer.log('IM Remesh')
-
         # Project on isosurface
         (sdf, _), VN = infer_grad(V)
         VN = vmap(normalize)(VN)
