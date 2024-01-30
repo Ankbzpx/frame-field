@@ -199,7 +199,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_smooth = smooth_weight * model.get_aux_loss()
             else:
                 sh4_jac = jnp.vstack([jac, jac_off])
-                sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=[0, None])(sh4_jac,
+                sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=(0, None))(sh4_jac,
                                                                         'f')
                 loss_smooth = smooth_weight * sh4_jac_norm.mean()
             loss += loss_smooth

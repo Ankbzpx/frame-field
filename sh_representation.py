@@ -786,15 +786,15 @@ if __name__ == '__main__':
 
     for _ in range(1000):
         v = vmap(normalize)(vmap(grad(oct_polynomial_sh4),
-                                 in_axes=[0, None])(v, sh4))
+                                 in_axes=(0, None))(v, sh4))
 
-    dps = vmap(oct_polynomial_sh4, in_axes=[0, None])(v, sh4)
+    dps = vmap(oct_polynomial_sh4, in_axes=(0, None))(v, sh4)
     print(f"Dot product ≈ 1: {jnp.allclose(dps, 1)}")
 
     ps.register_point_cloud('pc_converge', v)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(oct_polynomial), in_axes=[0, None])(v,
+        v = vmap(normalize)(vmap(grad(oct_polynomial), in_axes=(0, None))(v,
                                                                           R3))
 
     ps.register_point_cloud('pc_converge_origin', v)
