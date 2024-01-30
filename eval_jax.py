@@ -200,7 +200,7 @@ def eval(cfg: Config,
         def infer_smoothness(x):
             z = latent[None, ...].repeat(len(x), 0)
             jac, _ = model.call_jac_param(x, z, param_func)
-            return vmap(jnp.linalg.norm, in_axes=[0, None])(jac, 'f')
+            return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f')
 
         smoothness, grid_samples = voxel_infer(infer_smoothness)
 
