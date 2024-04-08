@@ -282,6 +282,7 @@ if __name__ == '__main__':
 
     timer.log('Build stiffness and RHS')
 
+    # FIXME Use Lagrange multiplier rather than simple least square
     # Build system
     # NV x 9 + NB x 2, have to unroll...
     # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
