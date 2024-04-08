@@ -1,7 +1,6 @@
 import numpy as np
 import os
 from PIL import Image
-import trimesh
 from dataclasses import dataclass, field
 
 import polyscope as ps
@@ -137,6 +136,7 @@ def read_obj(path, warning=False) -> OBJMesh:
     if len(vertex_normals) == 0 or len(vertex_normals) != len(vertices):
         if warning:
             print("Obj doesn't contain vertex_normals, compute using trimesh")
+        import trimesh
         vertex_normals = np.copy(
             trimesh.Trimesh(
                 vertices=vertices,

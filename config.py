@@ -47,9 +47,6 @@ class LossConfig:
     rot6d: bool = False
     explicit_basis: bool = False
 
-    match_zero_level_set: bool = False
-    match_all_level_set: bool = False
-
     tangent: bool = False
     grid: bool = False
 

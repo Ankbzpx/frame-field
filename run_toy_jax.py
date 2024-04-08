@@ -125,7 +125,7 @@ if __name__ == '__main__':
     # 1, 2, 3, 4
     # 150, 135, 120, 90, 60, 45, 30
     for gap in [4]:
-        for theta in [150, 120, 90, 60, 30]:
+        for theta in [90]:
             name = f"crease_{gap}_{theta}"
 
             config = json.load(open(args.config))
@@ -156,4 +156,4 @@ if __name__ == '__main__':
             eval(cfg, model, jnp.zeros((0,)), samples_sup, samples_interp,
                  "output/toy", args.vis)
 
-            # exit()
+            exit()

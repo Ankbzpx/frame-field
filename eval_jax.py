@@ -18,7 +18,6 @@ from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
                                rotvec_to_sh4, rot6d_to_sh4_zonal, proj_sh4_sdp)
-import frame_field_utils
 import pymeshlab
 
 import polyscope as ps
@@ -194,6 +193,8 @@ def eval(cfg: Config,
         z = latent[None, ...].repeat(len(x), 0)
         return model.call_grad(x, z)
 
+    timer = Timer()
+
     if vis_smooth:
 
         @jit
@@ -203,6 +204,8 @@ def eval(cfg: Config,
             return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f')
 
         smoothness, grid_samples = voxel_infer(infer_smoothness)
+
+        timer.log('Infer gradient F-norm')
 
         ps.init()
         pc = ps.register_point_cloud('grid_samples',
@@ -214,15 +217,13 @@ def eval(cfg: Config,
         ps.show()
         exit()
 
-    timer = Timer()
-
     infer_sdf = lambda x: infer(x)[:, 0]
     V, F, VN = extract_surface(infer_sdf)
 
     timer.log('Extract surface')
 
     if single_object:
-        # If the output has artifacts, it have large amount of flipped components (likely from siren)
+        # If the output has artifacts, it have large amount of flipped components / ghost geometries
         V, F, no_artifacts = filter_components(V, F, VN)
 
         timer.log('Filter components')
@@ -230,6 +231,8 @@ def eval(cfg: Config,
         no_artifacts = False
 
     if vis_singularity:
+        import frame_field_utils
+
         grid_scale = 1.25 * eval_data_scale(cfg)
         V_tet, T = voxel_tet_from_grid_scale(16, grid_scale)
 
@@ -294,18 +297,24 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
+    # Save raw MC mesh
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
+    igl.write_triangle_mesh(mc_save_path, V, F)
 
+    # Quadratic edge collapsing reduces vertex count while preserves original appeal
     if edge_collapse:
-        # Quadratic edge collapsing reduces vertex count while preserves original appeal
+        # Reduced mesh is preferable for visualization / downstream task
         V, F = meshlab_edge_collapse(mc_save_path, V, F,
                                      20000 if no_artifacts else 60000)
 
         timer.log('Meshlab edge collapsing')
 
-    igl.write_triangle_mesh(mc_save_path, V, F)
+        qc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
+        igl.write_triangle_mesh(qc_save_path, V, F)
 
     if miq:
+        import frame_field_utils
+
         aux = infer(V)[:, 1:]
         sh4 = param_func(aux)
         sh4 = proj_sh4_sdp(sh4)
@@ -390,6 +399,8 @@ def eval(cfg: Config,
     timer.reset()
 
     if trace_flowline:
+        import frame_field_utils
+
         # Project on isosurface
         (sdf, _), VN = infer_grad(V)
         VN = vmap(normalize)(VN)

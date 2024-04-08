@@ -1,11 +1,9 @@
 import numpy as np
-import cvxpy as cp
 import optax
 
 from common import normalize, Timer
 import jax
 from jax import numpy as jnp, vmap, grad, jit, value_and_grad
-import frame_field_utils
 
 import polyscope as ps
 from icecream import ic
@@ -733,11 +731,11 @@ def vec9_to_non_orth_zonal(vec9):
     return A3_to_non_orth_zonal(A3)
 
 
-_sdp_helper = frame_field_utils.SH4SDPProjectHelper()
-
-
 # Reference: Section 4.2 of "Algebraic Representations for Volumetric Frame Fields" by PALMER et al.
 def proj_sh4_sdp(sh4s_target):
+    import frame_field_utils
+    _sdp_helper = frame_field_utils.SH4SDPProjectHelper()
+
     if len(sh4s_target.shape) < 2:
         sh4s_target = sh4s_target[None, ...]
     return _sdp_helper.project(sh4s_target)
