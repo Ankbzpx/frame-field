@@ -43,12 +43,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     else:
         smooth_schedule = optax.constant_schedule(0)
 
-    if cfg.loss_cfg.regularize > 0:
-        regularize_schedule = optax.polynomial_schedule(
-            1e-2 * cfg.loss_cfg.regularize, cfg.loss_cfg.regularize, 0.5,
-            total_steps, cfg.training.warmup_steps)
+    if cfg.loss_cfg.align > 0:
+        align_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.align,
+                                                   cfg.loss_cfg.align, 0.5,
+                                                   total_steps,
+                                                   cfg.training.warmup_steps)
     else:
-        regularize_schedule = optax.constant_schedule(0)
+        align_schedule = optax.constant_schedule(0)
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -56,12 +57,11 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: Array,
-                  normals_on_sur: Array, samples_off_sur: Array,
-                  sdf_off_sur: Array, close_samples_mask: Array, latent: Array,
+                  normals_on_sur: Array, samples_off_sur: Array, latent: Array,
                   loss_cfg: LossConfig, step_count: int):
 
         smooth_weight = smooth_schedule(step_count)
-        regularize_weight = regularize_schedule(step_count)
+        align_weight = align_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -87,36 +87,27 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         ((pred_on_sur_sdf, aux), pred_normals_on_sur) = out_on
         ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
+
         normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
+        aux_pred = jnp.vstack([aux, aux_off])
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_normal = loss_cfg.normal * (1 - vmap(cosine_similarity)(
-            pred_normals_on_sur, normals_on_sur)).mean()
         loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
-
-        loss = loss_mse + loss_off + loss_normal + loss_eikonal
-
+        loss = loss_mse + loss_off + loss_eikonal
         loss_dict = {
             'loss_mse': loss_mse,
             'loss_off': loss_off,
-            'loss_normal': loss_normal,
             'loss_eikonal': loss_eikonal
         }
 
         if loss_cfg.align > 0:
-            # For alignment, we match oct frame to normal, thus we stop back propagation w.r.t. normal
-            if loss_cfg.match_all_level_set:
-                normal_align = jax.lax.stop_gradient(normal_pred)
-                aux_align = jnp.vstack([aux, aux_off])
-            elif loss_cfg.match_zero_level_set:
-                normal_align = jax.lax.stop_gradient(pred_normals_on_sur)
-                aux_align = aux
-            else:
-                normal_align = normals_on_sur
-                aux_align = aux
+            # For alignment, we match oct frame with sdf gradient, thus we stop back propagation w.r.t. sdf gradient
+            # **IMPORTANT** This encourages octahedral variety
+            normal_align = normal_pred
+            aux_align = aux_pred
 
             if loss_cfg.explicit_basis:
                 basis_align = proj_func(aux_align)
@@ -142,8 +133,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                                  in_axes=(0, 0, None))(sh4_align, R9_zn,
                                                        loss_cfg.xy_scale)
                     # Its projection on n should match itself
-                    loss_align = loss_cfg.align * (1 - vmap(cosine_similarity)
-                                                   (sh4_align, sh4_n)).mean()
+                    loss_align = align_weight * (1 - vmap(cosine_similarity)
+                                                 (sh4_align, sh4_n)).mean()
                     # The balance of align and unit norm weighting matters for flowline, even if the unit norm can mostly be satisfied near the end
                     loss_sh4_norm = loss_cfg.unit_norm * vmap(
                         eikonal, in_axes=(0, None))(sh4_align,
@@ -153,41 +144,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
             loss += loss_align
             loss_dict['loss_align'] = loss_align
-
-        if loss_cfg.regularize > 0:
-            # For regularization, we match normal with oct frame, thus we stop back propagation w.r.t. oct frame
-            aux_reg = jax.lax.stop_gradient(aux_off)
-            normal_reg = pred_normals_off_sur
-
-            if loss_cfg.explicit_basis:
-                basis_reg = proj_func(aux_reg)
-                # Normalization matters here because we want the dot product to be either 0 or 1
-                dps = jnp.einsum('bij,bi->bj', basis_reg,
-                                 vmap(normalize)(normal_reg))
-                loss_regularize = (
-                    regularize_weight *
-                    double_well_potential(jnp.abs(dps)).sum(-1)).mean()
-            else:
-                if loss_cfg.rot6d:
-                    basis_reg = proj_func(aux_reg)
-                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(normal_reg,
-                                                                    basis_reg)
-                    # For rot6d, it is guaranteed to lies on the octahedral variety, so the polynomial value is guaranteed to be bounded
-                    loss_regularize = regularize_weight * (1 - poly_val).mean()
-                else:
-                    sh4_reg = vmap(param_func)(aux_reg)
-                    # Normalization is needed to bound the polynomial functional value
-                    poly_val = vmap(oct_polynomial_sh4_unit_norm)(
-                        normal_reg, vmap(normalize)(sh4_reg))
-
-                    # Only regularize points close to supervision samples
-                    # Under smooth settings, the assumption is that their projection on S^8 should not deviate much from octahedral variety
-                    loss_regularize = regularize_weight * (
-                        (close_samples_mask *
-                         (1 - poly_val)).sum() / close_samples_mask.sum())
-
-            loss += loss_regularize
-            loss_dict['loss_regularize'] = loss_regularize
 
         if loss_cfg.lip > 0:
             loss_lip = loss_cfg.lip * model.get_aux_loss()

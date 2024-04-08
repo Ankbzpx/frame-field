@@ -224,8 +224,6 @@ def config_training_data_param(cfg: Config, data_key, latents):
         # --we do not know if they will be mapped to close surface samples in original space
                 close_sample_ratio=0.0))
 
-        del data['sdf_off_sur']
-
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -247,19 +245,19 @@ def config_toy_training_data(cfg: Config, data_key, sur_samples,
     idx = jax.random.choice(data_key, jnp.arange(len(sur_samples)),
                             (cfg.training.n_steps, sample_size))
     samples_on_sur = sur_samples[idx]
+    normals_on_sur = sur_normal_samples[idx]
+    samples_off_sur = jax.random.uniform(
+        data_key, (cfg.training.n_steps, cfg.training.n_samples, 3),
+        minval=-1.0,
+        maxval=1.0)
+    latent = latents[None, None, 0].repeat(cfg.training.n_steps,
+                                           axis=0).repeat(sample_size, axis=1)
 
     data = {
         'samples_on_sur': samples_on_sur,
-        'normals_on_sur': sur_normal_samples[idx]
+        'normals_on_sur': normals_on_sur,
+        'samples_off_sur': samples_off_sur,
+        'latent': latent
     }
-    data.update(
-        progressive_sample_off_surf(cfg,
-                                    data_key,
-                                    samples_on_sur,
-                                    1.0,
-                                    close_sample_sigma=gap * 1e-2))
-    data['latent'] = latents[None, None, 0].repeat(cfg.training.n_steps,
-                                                   axis=0).repeat(sample_size,
-                                                                  axis=1)
 
     return data

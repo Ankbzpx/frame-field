@@ -1,28 +1,25 @@
 {
-    "mlp_types": [
-        "StandardMLP",
-        "StandardMLP"
-    ],
-    "mlps": [
-        {
-            "hidden_features": 64,
-            "hidden_layers": 4,
-            "out_features": 1
-        },
-        {
-            "hidden_features": 64,
-            "hidden_layers": 2,
-            "out_features": 9
-        }
-    ],
-    "loss_cfg": {
-        "smooth": 1e1,
-        "regularize": 3e3,
-        "align": 3e3,
-        "unit_norm": 1e2
+  "mlp_types": ["StandardMLP", "LipMLP"],
+  "mlps": [
+    {
+      "hidden_features": 64,
+      "hidden_layers": 4,
+      "out_features": 1
     },
-    "training": {
-        "n_samples": 1024,
-        "n_steps": 5000
+    {
+      "hidden_features": 64,
+      "hidden_layers": 4,
+      "out_features": 9,
+      "activation": "sin"
     }
+  ],
+  "loss_cfg": {
+    "align": 3e3,
+    "unit_norm": 1e2,
+    "lip": 1e-6
+  },
+  "training": {
+    "n_samples": 1024,
+    "n_steps": 5000
+  }
 }
