@@ -108,7 +108,7 @@ if __name__ == '__main__':
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
-
+        # FIXME Use Lagrange multiplier rather than simple least square
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)
