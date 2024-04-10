@@ -72,32 +72,6 @@ def eval(cfg: Config,
         ps.register_surface_mesh("Oct frames supervise", V_vis_sup, F_vis_sup)
         ps.register_surface_mesh("Oct frames interpolation", V_vis_interp,
                                  F_vis_interp)
-        if cfg.loss_cfg.tangent:
-
-            @jit
-            def infer_extra(x):
-                z = latent[None, ...].repeat(len(x), 0)
-                (_, aux), _, vec_potential = vmap(model._single_call_grad)(x, z)
-                return aux[:, :3], aux[:, 3:], vec_potential
-
-            VN_interp, TAN_interp, vec_potential_interp = infer_extra(
-                samples_interp)
-
-            potential_interp = vmap(jnp.linalg.norm)(vec_potential_interp)
-
-            pc_interp = ps.register_point_cloud('interp',
-                                                samples_interp @ R,
-                                                radius=1e-4)
-            pc_interp.add_vector_quantity('VN_interp',
-                                          VN_interp @ R,
-                                          enabled=True)
-            pc_interp.add_vector_quantity('TAN_interp',
-                                          TAN_interp @ R,
-                                          enabled=True)
-            pc_interp.add_scalar_quantity('potential_interp',
-                                          potential_interp,
-                                          enabled=True)
-
         ps.show()
 
     # V_cube = np.vstack([V_vis_sup, V_vis_interp])

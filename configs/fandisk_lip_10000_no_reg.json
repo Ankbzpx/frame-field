@@ -15,14 +15,12 @@
             "out_features": 9
         }
     ],
-    "loss_cfg": {
-        "lip": 1e-6,
-        "align": 2e2,
-        "unit_norm": 1e2
-    },
     "training": {
         "n_input_samples": 10000,
         "n_epochs": 1,
-        "lr": 2e-4
+        "lr": 5e-5
+    },
+    "loss_cfg": {
+        "div": 1e2
     }
 }

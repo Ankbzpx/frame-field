@@ -10,21 +10,10 @@ import torch
 import pytorch3d
 from pytorch3d import ops
 
+from common import aabb_compute
+
 import polyscope as ps
 from icecream import ic
-
-
-# Match how we generate data samples
-def compute_normalize_aabb(V, scale=0.95):
-    V = np.copy(V)
-
-    V_aabb_max = V.max(0, keepdims=True)
-    V_aabb_min = V.min(0, keepdims=True)
-    V_center = 0.5 * (V_aabb_max + V_aabb_min)
-    scale = (V_aabb_max - V_center).max() / scale
-
-    return V_center, scale, (V_aabb_max - V_aabb_min)
-
 
 model_list = ['anchor', 'daratech', 'dc', 'gargoyle', 'lord_quas']
 
@@ -54,7 +43,7 @@ for model in model_list:
     pc_scan_o3d = o3d.io.read_point_cloud(
         os.path.join(scan_path, f'{model}.ply'))
     pc_scan = np.asarray(pc_scan_o3d.points)
-    pc_center, pc_scale, pc_aabb = compute_normalize_aabb(pc_scan)
+    pc_center, pc_scale, pc_aabb = aabb_compute(pc_scan)
 
     chamfer_scale = 1 / (0.1 * pc_aabb.max())
     f_score_threshold = 0.02 * pc_aabb.max()

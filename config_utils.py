@@ -6,6 +6,9 @@ import equinox as eqx
 
 import model_jax
 from config import Config
+from common import normalize_aabb
+
+import open3d as o3d
 
 import polyscope as ps
 from icecream import ic
@@ -27,10 +30,7 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
                                                     key=model_key)
 
     else:
-        if cfg.loss_cfg.tangent:
-            MultiMLP = model_jax.MLPComposerCurl
-        else:
-            MultiMLP = model_jax.MLPComposer
+        MultiMLP = model_jax.MLPComposer
 
         for mlp_cfg in cfg.mlps:
             mlp_cfg.in_features += latent_dim
@@ -143,17 +143,26 @@ def progressive_sample_off_surf(cfg: Config,
     }
 
 
+def load_sdf(sdf_path):
+    if sdf_path.split('.')[-1] == 'ply':
+        pc_o3d = o3d.io.read_point_cloud(sdf_path)
+        sdf_data = {
+            'samples_on_sur': normalize_aabb(np.asarray(pc_o3d.points)),
+            'normals_on_sur': np.asarray(pc_o3d.normals)
+        }
+    else:
+        sdf_data = dict(np.load(sdf_path))
+    return sdf_data
+
+
 # preload data in memory to speedup training
 def config_training_data(cfg: Config, data_key, latents):
     n_models = len(cfg.sdf_paths)
     assert n_models > 0
     sample_size = cfg.training.n_samples // n_models
 
-    # Here we uniform sample region slight larger than and of same aspect ratio of aabb
-    sample_bound = 1.25 * eval_data_scale(cfg)
-
     def sample_sdf_data(sdf_path, latent):
-        sdf_data = dict(np.load(sdf_path))
+        sdf_data = load_sdf(sdf_path)
 
         if cfg.training.n_input_samples != -1:
             # Clamp num of input samples for ablation
@@ -167,15 +176,10 @@ def config_training_data(cfg: Config, data_key, latents):
             return x[idx]
 
         data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-
-        data.update(
-            progressive_sample_off_surf(
-                cfg,
-                data_key,
-                data['samples_on_sur'],
-                sample_bound,
-                close_sample_sigma=cfg.training.close_sample_sigma,
-                close_sample_ratio=cfg.training.close_sample_ratio))
+        data['samples_off_sur'] = jax.random.uniform(
+            data_key, (cfg.training.n_steps, cfg.training.n_samples, 3),
+            minval=-1,
+            maxval=1)
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
@@ -201,7 +205,7 @@ def config_training_data_param(cfg: Config, data_key, latents):
     sample_bound = 1.25 * eval_data_scale(cfg)
 
     def sample_sdf_data(sdf_path, latent):
-        sdf_data = dict(np.load(sdf_path))
+        sdf_data = load_sdf(sdf_path)
 
         # Don't need normals
         del sdf_data['normals_on_sur']

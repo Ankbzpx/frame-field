@@ -10,10 +10,10 @@ import os
 
 import model_jax
 from config import Config
-from config_utils import config_latent, config_model, eval_data_scale
+from config_utils import config_latent, config_model, load_sdf
 from common import (normalize, vis_oct_field, filter_components, Timer,
                     voxel_tet_from_grid_scale, ps_register_curve_network,
-                    rm_unref_vertices, write_triangle_mesh_VC)
+                    rm_unref_vertices, write_triangle_mesh_VC, aabb_compute)
 from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
                                project_n, rot6d_to_R3, R3_to_sh4_zonal,
@@ -167,8 +167,8 @@ def eval(cfg: Config,
          vis_smooth=False,
          vis_flowline=False,
          single_object=True,
-         edge_collapse=True,
-         trace_flowline=True,
+         edge_collapse=False,
+         trace_flowline=False,
          miq=False,
          interp_tag=''):
 
@@ -218,23 +218,22 @@ def eval(cfg: Config,
         exit()
 
     infer_sdf = lambda x: infer(x)[:, 0]
-    V, F, VN = extract_surface(infer_sdf)
+    V, F, VN = extract_surface(infer_sdf, grid_res=256)
 
     timer.log('Extract surface')
 
-    if single_object:
-        # If the output has artifacts, it have large amount of flipped components / ghost geometries
-        V, F, no_artifacts = filter_components(V, F, VN)
+    # if single_object:
+    #     # If the output has artifacts, it have large amount of flipped components / ghost geometries
+    #     V, F, no_artifacts = filter_components(V, F, VN)
 
-        timer.log('Filter components')
-    else:
-        no_artifacts = False
+    #     timer.log('Filter components')
+    # else:
+    #     no_artifacts = False
 
     if vis_singularity:
         import frame_field_utils
 
-        grid_scale = 1.25 * eval_data_scale(cfg)
-        V_tet, T = voxel_tet_from_grid_scale(16, grid_scale)
+        V_tet, T = voxel_tet_from_grid_scale(16, 1)
 
         def out_map_func(out):
             (sdf_, aux_), VN_ = out
@@ -297,6 +296,13 @@ def eval(cfg: Config,
     if not os.path.exists(out_dir):
         os.mkdir(out_dir)
 
+    # Recovery input scale
+    # TODO support latent
+    sdf_data = load_sdf(cfg.sdf_paths[0])
+    sur_sample = sdf_data['samples_on_sur']
+    pc_center, pc_scale, _ = aabb_compute(sur_sample)
+    V = V * pc_scale + pc_center
+
     # Save raw MC mesh
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
     igl.write_triangle_mesh(mc_save_path, V, F)
@@ -344,55 +350,35 @@ def eval(cfg: Config,
         exit()
 
     if vis_mc:
-        # TODO support latent
-        sdf_data = dict(np.load(cfg.sdf_paths[0]))
-        sur_sample = sdf_data['samples_on_sur']
-        input_sample_size = jnp.minimum(len(sur_sample),
-                                        cfg.training.n_input_samples)
-        sur_normal = sdf_data['normals_on_sur']
-        # Match number of samples used for training
-        sur_sample = sur_sample[:input_sample_size]
-        sur_normal = sur_normal[:input_sample_size]
+        # input_sample_size = jnp.minimum(len(sur_sample),
+        #                                 cfg.training.n_input_samples)
+        # sur_normal = sdf_data['normals_on_sur']
+        # # Match number of samples used for training
+        # sur_sample = sur_sample[:input_sample_size]
+        # sur_normal = sur_normal[:input_sample_size]
 
-        aux = batch_call(infer, sur_sample)[:, 1:]
+        # aux = batch_call(infer, sur_sample)[:, 1:]
 
-        if cfg.loss_cfg.xy_scale != 1:
-            aux = proj_sh4_sdp(aux)
+        # if cfg.loss_cfg.xy_scale != 1:
+        #     aux = proj_sh4_sdp(aux)
 
-        Rs = proj_func(aux)
+        # Rs = proj_func(aux)
 
-        V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
+        # V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
-        @jit
-        def infer_laplacian(x):
-            z = latent[None, ...].repeat(len(x), 0)
-            return model.call_laplacian(x, z)
+        # @jit
+        # def infer_laplacian(x):
+        #     z = latent[None, ...].repeat(len(x), 0)
+        #     return model.call_laplacian(x, z)
 
-        laplacian = jnp.abs(infer_laplacian(sur_sample))
+        # laplacian = jnp.abs(infer_laplacian(sur_sample))
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
-        pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
-        pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
-        pc.add_scalar_quantity('laplacian', laplacian, enabled=True)
-
-        if cfg.loss_cfg.tangent:
-
-            @jit
-            def infer_extra(x):
-                z = latent[None, ...].repeat(len(x), 0)
-                (_, aux), _, vec_potential = vmap(model._single_call_grad)(x, z)
-                return aux[:, :3], aux[:, 3:], vec_potential
-
-            _, TAN_sup, vec_potential_sup = infer_extra(sur_sample)
-            potential_interp = vmap(jnp.linalg.norm)(vec_potential_sup)
-
-            pc.add_vector_quantity('TAN_sup', TAN_sup, enabled=True)
-            pc.add_scalar_quantity('potential_interp',
-                                   potential_interp,
-                                   enabled=True)
-
+        # ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
+        # pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
+        # pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
+        # pc.add_scalar_quantity('laplacian', laplacian, enabled=True)
         ps.show()
         exit()
 
