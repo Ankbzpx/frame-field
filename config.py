@@ -8,6 +8,7 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
+    init_method: str = 'siren'
     input_scale: float = 1    # spatial scaling
 
 
@@ -21,7 +22,7 @@ class TrainingConfig:
     warmup_steps: int = 100
     n_epochs: int = 1
     n_steps: int = 12500    # per epoch
-    n_samples: int = 8192    # per step
+    n_samples: int = 4096    # per step
     plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
     close_sample_sigma: float = 5e-2
@@ -42,12 +43,12 @@ class LossConfig:
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface
     xy_scale: float = 1    # actually sqrt(xy_scale)
+    div: float = 0    # divergence
 
     rotvec: bool = False
     rot6d: bool = False
     explicit_basis: bool = False
 
-    tangent: bool = False
     grid: bool = False
 
 

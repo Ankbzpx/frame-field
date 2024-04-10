@@ -7,6 +7,8 @@ from glob import glob
 from tqdm import tqdm
 import os
 
+import open3d as o3d
+
 from icecream import ic
 import polyscope as ps
 
@@ -15,7 +17,7 @@ class SDFSampler:
 
     def __init__(self,
                  model_path,
-                 normalize=True,
+                 normalize=False,
                  surface_ratio=0.6,
                  close_sample_ratio=0.3,
                  sigma=5e-2):
@@ -164,12 +166,13 @@ if __name__ == '__main__':
 
     for model_path in tqdm(model_path_list):
         model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = os.path.join(sdf_base_path, f'{model_name}.npz')
+        model_out_path = os.path.join(sdf_base_path, f'{model_name}.ply')
 
         sampler = SDFSampler(model_path)
         samples_on_sur, normals_on_sur = sampler.sample_surface_fixed_seed(
             sample_size)
 
-        np.savez(model_out_path,
-                 samples_on_sur=samples_on_sur,
-                 normals_on_sur=normals_on_sur)
+        pc_o3d = o3d.geometry.PointCloud()
+        pc_o3d.points = o3d.utility.Vector3dVector(samples_on_sur)
+        pc_o3d.normals = o3d.utility.Vector3dVector(normals_on_sur)
+        o3d.io.write_point_cloud(model_out_path, pc_o3d)

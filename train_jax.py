@@ -51,6 +51,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     else:
         align_schedule = optax.constant_schedule(0)
 
+    if cfg.loss_cfg.div > 0:
+        div_schedule = optax.polynomial_schedule(cfg.loss_cfg.div, 0, 1,
+                                                 int(0.6 * total_steps),
+                                                 int(0.2 * total_steps))
+    else:
+        div_schedule = optax.constant_schedule(0)
+
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
 
@@ -62,6 +69,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         smooth_weight = smooth_schedule(step_count)
         align_weight = align_schedule(step_count)
+        div_weight = div_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -77,10 +85,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         # The scheduled weight is jit traced value--I'm not allowed to compare it with a scalar
         if not loss_cfg.grid and loss_cfg.smooth > 0:
-            jac, out_on = model.call_jac_param(samples_on_sur, latent,
-                                               param_func)
+            jac_on, out_on = model.call_jac_param(samples_on_sur, latent,
+                                                  param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
                                                     param_func)
+        elif loss_cfg.div > 0:
+            div_on, out_on = model.call_divergence(samples_on_sur, latent)
+            div_off, out_off = model.call_divergence(samples_on_sur, latent)
         else:
             out_on = model.call_grad(samples_on_sur, latent)
             out_off = model.call_grad(samples_off_sur, latent)
@@ -104,8 +115,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         }
 
         if loss_cfg.align > 0:
-            # For alignment, we match oct frame with sdf gradient, thus we stop back propagation w.r.t. sdf gradient
-            # **IMPORTANT** This encourages octahedral variety
             normal_align = normal_pred
             aux_align = aux_pred
 
@@ -154,12 +163,19 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             if loss_cfg.grid:
                 loss_smooth = smooth_weight * model.get_aux_loss()
             else:
-                sh4_jac = jnp.vstack([jac, jac_off])
+                sh4_jac = jnp.vstack([jac_on, jac_off])
                 sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=(0, None))(sh4_jac,
                                                                         'f')
                 loss_smooth = smooth_weight * sh4_jac_norm.mean()
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
+
+        if loss_cfg.div > 0:
+            div = jnp.concatenate([div_on, div_off])
+            loss_div = div_weight * jnp.clip(jnp.square(div), 0.1, 50).mean()
+
+            loss += loss_div
+            loss_dict['loss_div'] = loss_div
 
         loss_dict['loss_total'] = loss
 
@@ -179,9 +195,9 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
     loss_history = {}
     pbar = tqdm(range(total_steps))
-    for epoch in pbar:
-        batch_id = epoch % cfg.training.n_steps
-        batch = jax.tree_map(lambda x: x[batch_id], data)
+    for iteration in pbar:
+        batch_id = iteration % cfg.training.n_steps
+        batch = jax.tree_util.tree_map(lambda x: x[batch_id], data)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
                                                 cfg.loss_cfg)
 
@@ -194,17 +210,20 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             # preallocate
             if key not in loss_history:
                 loss_history[key] = np.zeros(total_steps)
-            loss_history[key][epoch] = loss_dict[key]
+            loss_history[key][iteration] = loss_dict[key]
 
-        pbar.set_postfix({"loss": loss_dict['loss_total']})
+        pbar.set_postfix({
+            "loss": loss_dict['loss_total'],
+            "loss_div": loss_dict['loss_div']
+        })
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
-        if epoch % cfg.training.plot_every == 0:
+        if iteration % cfg.training.plot_every == 0:
             plt.close(1)
             plt.figure(1)
-            plt.semilogy(loss_history['loss_total'][:epoch])
+            plt.semilogy(loss_history['loss_total'][:iteration])
             plt.title('Reconstruction loss')
             plt.grid()
             plt.savefig(f"{checkpoints_folder}/{cfg.name}_loss_history.jpg")

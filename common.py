@@ -21,17 +21,17 @@ def normalize(x):
     return x / (jnp.linalg.norm(x) + 1e-8)
 
 
-def normalize_aabb(V, scale=0.95):
-    V = np.copy(V)
-
+def aabb_compute(V, scale=0.95):
     V_aabb_max = V.max(0, keepdims=True)
     V_aabb_min = V.min(0, keepdims=True)
     V_center = 0.5 * (V_aabb_max + V_aabb_min)
-    V -= V_center
     scale = (V_aabb_max - V_center).max() / scale
-    V /= scale
+    return V_center, scale, (V_aabb_max - V_aabb_min)
 
-    return V
+
+def normalize_aabb(V, scale=0.95):
+    V_center, scale, _ = aabb_compute(V)
+    return (V - V_center) / scale
 
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
