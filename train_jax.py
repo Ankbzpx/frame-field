@@ -258,7 +258,7 @@ if __name__ == '__main__':
     model = config_model(cfg, model_key, latent_dim)
 
     # Debug
-    cfg.training.n_steps = 501
+    cfg.training.n_steps = 1001
 
     data = config_training_data_pytorch(cfg, latents)
 
