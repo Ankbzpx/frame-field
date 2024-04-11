@@ -116,7 +116,8 @@ class Linear(eqx.Module):
             self.W = jax.random.normal(
                 key, (out_features, in_features)) * jnp.sqrt(2. / in_features)
 
-        self.b = jnp.zeros(out_features)
+        self.b = jax.random.uniform(key, (out_features,), minval=-1.,
+                                    maxval=1.) * jnp.sqrt(1 / in_features)
 
     def __call__(self, x):
         return self.W @ x + self.b
