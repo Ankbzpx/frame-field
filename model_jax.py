@@ -221,7 +221,8 @@ class SineLayer(eqx.Module):
                 key, (out_features, in_features), minval=-1.,
                 maxval=1.) * jnp.sqrt(6 / in_features) / omega_0
 
-        self.b = jnp.zeros(out_features)
+        self.b = jax.random.uniform(key, (out_features,), minval=-1.,
+                                    maxval=1.) * jnp.sqrt(1 / in_features)
 
     def __call__(self, x):
         return self.omega_0 * (self.W @ x + self.b)

@@ -15,6 +15,7 @@
   "loss_cfg": {
     "on_sur": 7e3,
     "off_sur": 6e2,
-    "eikonal": 5e1
+    "eikonal": 5e1,
+    "hessian": 3
   }
 }
