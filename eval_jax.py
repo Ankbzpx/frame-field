@@ -297,7 +297,7 @@ def eval(cfg: Config,
         os.mkdir(out_dir)
 
     # Recovery input scale
-    # TODO support latent
+    # TODO: support latent
     sdf_data = load_sdf(cfg.sdf_paths[0])
     sur_sample = sdf_data['samples_on_sur']
     pc_center, pc_scale, _ = aabb_compute(sur_sample)
@@ -366,19 +366,11 @@ def eval(cfg: Config,
 
         # V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
 
-        # @jit
-        # def infer_laplacian(x):
-        #     z = latent[None, ...].repeat(len(x), 0)
-        #     return model.call_laplacian(x, z)
-
-        # laplacian = jnp.abs(infer_laplacian(sur_sample))
-
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
         # ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         # pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         # pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
-        # pc.add_scalar_quantity('laplacian', laplacian, enabled=True)
         ps.show()
         exit()
 
