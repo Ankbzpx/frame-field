@@ -11,11 +11,12 @@ import matplotlib.pyplot as plt
 import argparse
 import json
 import os
+import torch
 
 import model_jax
 from common import normalize
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, config_training_data
+from config_utils import config_latent, config_model, config_optim, config_training_data, config_training_data_pytorch
 from sh_representation import (rotvec_to_sh4, rotvec_to_sh4_expm, rotvec_to_R3,
                                rotvec_n_to_z, rotvec_to_R9, project_n, sh4_z_4,
                                rot6d_to_R3, rot6d_to_sh4_zonal, proj_sh4_to_R3,
@@ -33,7 +34,8 @@ matplotlib.use('Agg')
 def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     optim, opt_state = config_optim(cfg, model)
 
-    total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    # total_steps = cfg.training.n_epochs * cfg.training.n_steps
+    total_steps = 10000
 
     if cfg.loss_cfg.smooth > 0:
         smooth_schedule = optax.polynomial_schedule(1e-1 * cfg.loss_cfg.smooth,
@@ -203,11 +205,11 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         return model, opt_state, loss_dict
 
     loss_history = {}
-    pbar = tqdm(range(total_steps))
+    pbar = tqdm(range(cfg.training.n_steps))
+
     for iteration in pbar:
-        # TODO: Use proper dataloader
-        batch_id = iteration % cfg.training.n_steps
-        batch = jax.tree_util.tree_map(lambda x: x[batch_id], data)
+        batch = next(iter(data))
+        batch = jax.tree.map(lambda x: x.numpy()[0], batch)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
                                                 cfg.loss_cfg)
 
@@ -222,7 +224,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][iteration] = loss_dict[key]
 
-        pbar.set_postfix(loss_dict)
+        loss_dict_log = jax.tree.map(lambda x: f"{x:.4}", loss_dict)
+        pbar.set_postfix(loss_dict_log)
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot
@@ -257,6 +260,6 @@ if __name__ == '__main__':
     # Debug
     cfg.training.n_steps = 501
 
-    data = config_training_data(cfg, data_key, latents)
+    data = config_training_data_pytorch(cfg, latents)
 
     train(cfg, model, data, 'checkpoints')
