@@ -46,12 +46,12 @@ class MLP(eqx.Module):
 
         return jacfwd(__single_call, has_aux=True)(x, z)
 
-    def single_call_laplacian(self, x, z):
+    def single_call_hessian(self, x, z):
 
         def __single_call(x, z):
             return self.single_call(x, z)[0]
 
-        return jnp.trace(hessian(__single_call)(x, z))
+        return hessian(__single_call)(x, z)
 
     def call_aux(self, x, z):
         return vmap(self.single_call_aux)(x, z)
@@ -76,19 +76,19 @@ class MLP(eqx.Module):
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
-    def call_laplacian(self, x, z):
-        return vmap(self.single_call_laplacian)(x, z)
-
-    def call_divergence(self, x, z):
+    def call_hessian_aux(self, x, z):
 
         def __single_call(x, z):
             (sdf, aux), normal = self.single_call_grad(x, z)
             return normal, ((sdf, aux), normal)
 
-        jac, out = vmap(jacfwd(__single_call, has_aux=True))(x, z)
-        div = vmap(jnp.trace)(jac)
+        return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
-        return div, out
+    def call_hessian(self, x, z):
+        return vmap(self.single_call_hessian)(x, z)
+
+    def call_laplacian(self, x, z):
+        return vmap(jnp.trace)(self.call_hessian(x, z))
 
     def __call__(self, x, z):
         x = vmap(self.single_call)(x, z)
@@ -205,11 +205,12 @@ class SineLayer(eqx.Module):
                  out_features: int,
                  key: jax.random.PRNGKey,
                  is_first: bool = False,
+                 is_last: bool = False,
                  omega_0: float = 30):
 
         # Workaround " Results do not match the reference. This is likely a bug/unexpected loss of precision."
         # FIXME This shouldn't be necessary
-        self.omega_0 = jnp.asarray(omega_0)
+        self.omega_0 = jnp.ones(1,) if is_last else jnp.asarray(omega_0)
 
         if is_first:
             self.W = jax.random.uniform(key, (out_features, in_features),
@@ -226,112 +227,10 @@ class SineLayer(eqx.Module):
         return self.omega_0 * (self.W @ x + self.b)
 
 
-# Reference: https://github.com/Chumbyte/DiGS/blob/44bcc890b8519e89263411476c892e671a024151/models/DiGS.py#L111
-class GeomSineLayer(eqx.Module):
-    W: Array
-    b: Array
-    omega_0: float
-
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_second_last=False,
-                 omega_0: float = 30):
-
-        # Workaround "Results do not match the reference. This is likely a bug/unexpected loss of precision."
-        # FIXME This shouldn't be necessary
-        self.omega_0 = jnp.asarray(omega_0)
-
-        if is_second_last:
-            self.W = 0.5 * jnp.pi * jnp.eye(
-                out_features, in_features) / omega_0 + 1e-3 * jax.random.normal(
-                    key, (out_features, in_features))
-            self.b = 0.5 * jnp.pi * jnp.ones(
-                out_features) / omega_0 + 1e-3 * jax.random.normal(
-                    key, (out_features,))
-        else:
-            self.W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / out_features) / omega_0
-            # Small Gaussian noise to facilitate learning
-            self.b = jnp.zeros(out_features) + jax.random.uniform(
-                key, (out_features,), minval=-1.,
-                maxval=1.) / (out_features * 1000) / omega_0
-
-    def __call__(self, x):
-        return self.omega_0 * (self.W @ x + self.b)
-
-
-class MFGILayer(eqx.Module):
-    W: Array
-    b: Array
-    omega_0: Array
-
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_first: bool = False,
-                 omega_0: float = 30,
-                 low_freq_portion: float = 0.25):
-
-        # Workaround " Results do not match the reference. This is likely a bug/unexpected loss of precision."
-        # FIXME This shouldn't be necessary
-        self.omega_0 = jnp.asarray(omega_0)
-
-        low_freq_features = jnp.int32(out_features * low_freq_portion)
-        high_freq_features = out_features - low_freq_features
-
-        if is_first:
-            W_low_freq = jax.random.uniform(
-                key, (low_freq_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features) / omega_0
-            W_high_freq = jax.random.uniform(
-                key, (high_freq_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features)
-
-            self.W = jnp.vstack([W_low_freq, W_high_freq])
-        else:
-            # TODO 1e-3 in paper, but 5e-4 in code. Why scales down?
-            W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features) / omega_0 * 5e-4
-
-            # FIXME Handle out of bound cases
-            self.W = W.at[:low_freq_features, :low_freq_features].set(
-                jax.random.uniform(key, (low_freq_features, low_freq_features),
-                                   minval=-1.,
-                                   maxval=1.) * jnp.sqrt(3 / in_features) /
-                omega_0)
-
-        self.b = jnp.zeros(out_features)
-
-    def __call__(self, x):
-        return self.omega_0 * (self.W @ x + self.b)
-
-
-class GeoSineLast(eqx.Module):
-    W: Array
-    b: Array
-
-    def __init__(self, in_features: int, out_features: int,
-                 key: jax.random.PRNGKey):
-
-        self.W = -jnp.ones(
-            (out_features, in_features)) + 1e-5 * jax.random.normal(
-                key, (out_features, in_features))
-        self.b = jnp.ones(out_features) * in_features
-
-    def __call__(self, x):
-        return self.W @ x + self.b
-
-
 class Siren(MLP):
     layers: list[eqx.Module]
     activation: str
     input_scale: float
-    r_sphere: bool
 
     def __init__(self,
                  in_features: int,
@@ -342,86 +241,23 @@ class Siren(MLP):
                  first_omega_0: float = 30,
                  hidden_omega_0: float = 30,
                  input_scale: float = 1,
-                 init_method: str = 'mfgi',
                  **kwargs):
         keys = jax.random.split(key, hidden_layers + 2)
         self.input_scale = input_scale
         self.activation = 'sin'
 
-        if init_method == 'geom':
-            self.r_sphere = True
-            self.layers = [
-                GeomSineLayer(in_features,
-                              hidden_features,
-                              keys[0],
-                              omega_0=first_omega_0),
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[1 + i],
-                              omega_0=hidden_omega_0)
-                for i in range(hidden_layers - 1)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[-2],
-                              omega_0=hidden_omega_0,
-                              is_second_last=True)
-            ] + [GeoSineLast(hidden_features, out_features, keys[-1])]
-        elif init_method == 'mfgi':
-            self.r_sphere = True
-            self.layers = [
-                MFGILayer(in_features,
-                          hidden_features,
-                          keys[0],
-                          is_first=True,
-                          omega_0=first_omega_0)
-            ] + [
-                MFGILayer(hidden_features,
-                          hidden_features,
-                          keys[1],
-                          is_first=False,
-                          omega_0=hidden_omega_0)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[2 + i],
-                              omega_0=hidden_omega_0)
-                for i in range(hidden_layers - 2)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[-2],
-                              omega_0=hidden_omega_0,
-                              is_second_last=True)
-            ] + [GeoSineLast(hidden_features, out_features, keys[-1])]
-        else:
-            self.r_sphere = False
-            self.layers = [
-                SineLayer(in_features,
-                          hidden_features,
-                          keys[0],
-                          is_first=True,
-                          omega_0=first_omega_0)
-            ] + [
-                SineLayer(hidden_features,
-                          hidden_features,
-                          keys[i + 1],
-                          omega_0=hidden_omega_0) for i in range(hidden_layers)
-            ] + [Linear(hidden_features, out_features, keys[-1], False)]
-
-    def single_call(self, x, z):
-        x = jnp.hstack([self.input_scale * x, z])
-        for i in range(len(self.layers)):
-            x = self.layers[i](x)
-            if i != len(self.layers) - 1:
-                x = getattr(jax.nn, self.activation)(x)
-
-        if self.r_sphere:
-            x = jnp.sign(x) * jnp.sqrt(jnp.abs(x) + 1e-8)
-            x = 0.1 * (x - 1)
-
-        return x
+        self.layers = [
+            SineLayer(in_features,
+                      hidden_features,
+                      keys[0],
+                      is_first=True,
+                      omega_0=first_omega_0)
+        ] + [
+            SineLayer(hidden_features,
+                      hidden_features,
+                      keys[i + 1],
+                      omega_0=hidden_omega_0) for i in range(hidden_layers)
+        ] + [SineLayer(hidden_features, out_features, keys[-1], is_last=True)]
 
 
 # Modified from: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/model.py
@@ -561,12 +397,12 @@ class MLPComposer(MLP):
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
-    def single_call_laplacian(self, x, z):
+    def single_call_hessian(self, x, z):
 
         def __single_call(x, z):
             return self.mlps[0].single_call(x, z)[0]
 
-        return jnp.trace(hessian(__single_call)(x, z))
+        return hessian(__single_call)(x, z)
 
 
 @jit

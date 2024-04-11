@@ -1,5 +1,5 @@
 {
-    "sdf_paths": ["data/sdf/fandisk.npz"],
+    "sdf_paths": ["data/sdf/fandisk.ply"],
     "mlp_types": [
         "Siren",
         "LipMLP"
@@ -11,13 +11,12 @@
         },
         {
             "hidden_layers": 4,
-            "out_features": 9
+            "out_features": 3
         }
     ],
-    "loss_cfg": {
-        "lip": 1e-6,
-        "align": 3e3,
-        "unit_norm": 1e2,
-        "xy_scale": 2
+    "training": {
+        "n_input_samples": 10000,
+        "n_epochs": 1,
+        "lr": 2e-4
     }
 }

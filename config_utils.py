@@ -9,6 +9,7 @@ from config import Config
 from common import normalize_aabb
 
 import open3d as o3d
+import scipy.spatial
 
 import polyscope as ps
 from icecream import ic
@@ -58,6 +59,9 @@ def config_optim(cfg: Config, model: model_jax.MLP):
         warmup_steps=cfg.training.warmup_steps,
         decay_steps=total_steps)
 
+    # Matters for querying the step count
+    lr_scheduler = optax.constant_schedule(cfg.training.lr)
+
     # Reference: https://github.com/patrick-kidger/equinox/issues/79
     param_spec = jax.tree_map(lambda _: "standard", model)
     # I think `is_siren` treat `SineLayer` as a leaf, but tree_leaves still return other leaves during traversal, hence needs to call `is_siren` again
@@ -73,11 +77,17 @@ def config_optim(cfg: Config, model: model_jax.MLP):
                              param_spec,
                              replace_fn=lambda _: "siren")
 
+    chain = [
+        optax.scale_by_adam(),
+        optax.scale_by_learning_rate(lr_scheduler),
+        optax.clip_by_global_norm(10.)
+    ]
+
     # Workaround Callable []
     optim = optax.multi_transform(
         {
-            "standard": optax.adam(lr_scheduler_standard),
-            "siren": optax.adam(lr_scheduler_siren),
+            "standard": optax.chain(*chain),
+            "siren": optax.chain(*chain),
         }, [param_spec])
     opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
@@ -163,19 +173,29 @@ def config_training_data(cfg: Config, data_key, latents):
 
     def sample_sdf_data(sdf_path, latent):
         sdf_data = load_sdf(sdf_path)
+        samples_on_sur = sdf_data['samples_on_sur']
+
+        # Reference: https://github.com/bearprin/Neural-Singular-Hessian/blob/ca7da0ce5d0c680393f1091ac8a6eafbe32248b4/surface_reconstruction/recon_dataset.py#L49
+        # Use max distance among 51 closet points to approximate close neighbor
+        kd_tree = scipy.spatial.KDTree(samples_on_sur)
+        dists, _ = kd_tree.query(samples_on_sur, k=51, workers=-1)
+        sigmas = dists[:, -1:]
+        sdf_data['sigmas'] = sigmas
 
         if cfg.training.n_input_samples != -1:
-            # Clamp num of input samples for ablation
-            input_sample_size = jnp.minimum(len(sdf_data['samples_on_sur']),
+            # Clamp num of input samples
+            input_sample_size = jnp.minimum(len(samples_on_sur),
                                             cfg.training.n_input_samples)
             sdf_data = jax.tree_map(lambda x: x[:input_sample_size], sdf_data)
 
-        def random_batch(x):
-            idx = jax.random.choice(data_key, jnp.arange(len(x)),
-                                    (cfg.training.n_steps, sample_size))
-            return x[idx]
+        # Share the index to preserve correspondence
+        idx = jax.random.choice(data_key, jnp.arange(len(samples_on_sur)),
+                                (cfg.training.n_steps, sample_size))
+        data = jax.tree_map(lambda x: x[idx], sdf_data)
 
-        data = jax.tree_map(lambda x: random_batch(x), sdf_data)
+        data['samples_close_sur'] = data[
+            'samples_on_sur'] + data['sigmas'] * jax.random.normal(
+                data_key, (cfg.training.n_steps, cfg.training.n_samples, 3))
         data['samples_off_sur'] = jax.random.uniform(
             data_key, (cfg.training.n_steps, cfg.training.n_samples, 3),
             minval=-1,
@@ -183,6 +203,7 @@ def config_training_data(cfg: Config, data_key, latents):
         data['latent'] = latent[None, None,
                                 ...].repeat(cfg.training.n_steps,
                                             axis=0).repeat(sample_size, axis=1)
+        del data['sigmas']
         return data
 
     data_frags = [
@@ -261,6 +282,7 @@ def config_toy_training_data(cfg: Config, data_key, sur_samples,
         'samples_on_sur': samples_on_sur,
         'normals_on_sur': normals_on_sur,
         'samples_off_sur': samples_off_sur,
+        'samples_close_sur': None,
         'latent': latent
     }
 

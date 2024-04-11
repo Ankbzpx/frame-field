@@ -8,7 +8,6 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = 'elu'
-    init_method: str = 'siren'
     input_scale: float = 1    # spatial scaling
 
 
@@ -37,13 +36,13 @@ class LossConfig:
     normal: float = 1e2
     eikonal: float = 5e1
 
-    align: float = 1e2    # sh4
+    align: float = 0    # sh4
     unit_norm: float = 1    # sh4 norm
     lip: float = 0
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface
     xy_scale: float = 1    # actually sqrt(xy_scale)
-    div: float = 0    # divergence
+    hessian: float = 0
 
     rotvec: bool = False
     rot6d: bool = False

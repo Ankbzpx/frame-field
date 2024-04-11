@@ -51,12 +51,15 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     else:
         align_schedule = optax.constant_schedule(0)
 
-    if cfg.loss_cfg.div > 0:
-        div_schedule = optax.polynomial_schedule(cfg.loss_cfg.div, 0, 1,
-                                                 int(0.6 * total_steps),
-                                                 int(0.2 * total_steps))
-    else:
-        div_schedule = optax.constant_schedule(0)
+    # if cfg.loss_cfg.hessian > 0:
+    #     hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian,
+    #                                                  1e-4, 0.5,
+    #                                                  int(0.4 * total_steps),
+    #                                                  int(0.2 * total_steps))
+    # else:
+    #     hessian_schedule = optax.constant_schedule(0)
+
+    hessian_schedule = optax.constant_schedule(cfg.loss_cfg.hessian)
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -64,12 +67,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
     def loss_func(model: model_jax.MLP, samples_on_sur: Array,
-                  normals_on_sur: Array, samples_off_sur: Array, latent: Array,
-                  loss_cfg: LossConfig, step_count: int):
+                  normals_on_sur: Array, samples_off_sur: Array,
+                  samples_close_sur: Array, latent: Array, loss_cfg: LossConfig,
+                  step_count: int):
 
         smooth_weight = smooth_schedule(step_count)
         align_weight = align_schedule(step_count)
-        div_weight = div_schedule(step_count)
+        hessian_weight = hessian_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -89,9 +93,10 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                                                   param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
                                                     param_func)
-        elif loss_cfg.div > 0:
-            div_on, out_on = model.call_divergence(samples_on_sur, latent)
-            div_off, out_off = model.call_divergence(samples_on_sur, latent)
+        elif loss_cfg.hessian > 0:
+            hessian_on, out_on = model.call_hessian_aux(samples_on_sur, latent)
+            hessian_close = model.call_hessian(samples_close_sur, latent)
+            out_off = model.call_grad(samples_off_sur, latent)
         else:
             out_on = model.call_grad(samples_on_sur, latent)
             out_off = model.call_grad(samples_off_sur, latent)
@@ -106,7 +111,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(normal_pred).mean()
+        loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(
+            pred_normals_on_sur).mean()
         loss = loss_mse + loss_off + loss_eikonal
         loss_dict = {
             'loss_mse': loss_mse,
@@ -170,12 +176,14 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
-        if loss_cfg.div > 0:
-            div = jnp.concatenate([div_on, div_off])
-            loss_div = div_weight * jnp.clip(jnp.square(div), 0.1, 50).mean()
-
-            loss += loss_div
-            loss_dict['loss_div'] = loss_div
+        if loss_cfg.hessian > 0:
+            # loss_hessian = hessian_weight * 0.5 * (
+            #     jnp.abs(vmap(jnp.linalg.det)(hessian_on)).mean() +
+            #     jnp.abs(vmap(jnp.linalg.det)(hessian_close)).mean())
+            loss_hessian = hessian_weight * 0.5 * jnp.abs(
+                vmap(jnp.linalg.det)(hessian_close)).mean()
+            loss += loss_hessian
+            loss_dict['loss_hessian'] = loss_hessian
 
         loss_dict['loss_total'] = loss
 
@@ -184,7 +192,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     @eqx.filter_jit
     def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
-        step_count = opt_state.inner_states['standard'].inner_state[-1].count
+        # FIXME: The static index is risky--it depends on the order of optax.chain
+        step_count = opt_state.inner_states['standard'].inner_state[0].count
         grads, loss_dict = loss_func(model,
                                      **batch,
                                      loss_cfg=loss_cfg,
@@ -196,6 +205,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     loss_history = {}
     pbar = tqdm(range(total_steps))
     for iteration in pbar:
+        # TODO: Use proper dataloader
         batch_id = iteration % cfg.training.n_steps
         batch = jax.tree_util.tree_map(lambda x: x[batch_id], data)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
@@ -212,10 +222,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                 loss_history[key] = np.zeros(total_steps)
             loss_history[key][iteration] = loss_dict[key]
 
-        pbar.set_postfix({
-            "loss": loss_dict['loss_total'],
-            "loss_div": loss_dict['loss_div']
-        })
+        pbar.set_postfix(loss_dict)
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot
@@ -248,7 +255,7 @@ if __name__ == '__main__':
     model = config_model(cfg, model_key, latent_dim)
 
     # Debug
-    # cfg.training.n_steps = 101
+    cfg.training.n_steps = 501
 
     data = config_training_data(cfg, data_key, latents)
 
