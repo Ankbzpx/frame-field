@@ -3,6 +3,13 @@ import jax
 from jax import numpy as jnp
 import optax
 import equinox as eqx
+import torch
+from torch.utils.data import Dataset, DataLoader
+import random
+# https://github.com/google/jax/issues/3382
+import torch.multiprocessing as multiprocessing
+
+multiprocessing.set_start_method('spawn')
 
 import model_jax
 from config import Config
@@ -163,6 +170,104 @@ def load_sdf(sdf_path):
     else:
         sdf_data = dict(np.load(sdf_path))
     return sdf_data
+
+
+class SDFDataset(Dataset):
+
+    def __init__(self, cfg: Config, latents):
+        super().__init__()
+
+        n_models = len(cfg.sdf_paths)
+        assert n_models > 0
+
+        # self.n_samples = cfg.training.n_samples
+        self.n_samples = 15000
+
+        # self.n_steps = cfg.training.n_steps
+        self.n_steps = 10000
+
+        # Working on numpy array
+        latents = np.array(latents)
+
+        def sample_sdf_data(sdf_path, latent):
+            sdf_data = load_sdf(sdf_path)
+            samples_on_sur = sdf_data['samples_on_sur']
+
+            # Reference: https://github.com/bearprin/Neural-Singular-Hessian/blob/ca7da0ce5d0c680393f1091ac8a6eafbe32248b4/surface_reconstruction/recon_dataset.py#L49
+            # Use max distance among 51 closet points to approximate close neighbor
+            kd_tree = scipy.spatial.KDTree(samples_on_sur)
+            dists, _ = kd_tree.query(samples_on_sur, k=51, workers=-1)
+            sigmas = dists[:, -1:]
+            sdf_data['sigmas'] = sigmas
+            sdf_data['latent'] = latent
+            return sdf_data
+
+        self.sdf_data_list = [
+            sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
+        ]
+
+    def __len__(self):
+        return self.n_steps
+
+    def __getitem__(self, index):
+
+        def sample_data(samples_on_sur, normals_on_sur, sigmas, latent):
+            idx_permute = np.random.permutation(len(samples_on_sur))
+            idx = idx_permute[:self.n_samples]
+
+            samples_on_sur = samples_on_sur[idx]
+            normals_on_sur = normals_on_sur[idx]
+
+            samples_off_sur = np.random.uniform(-1,
+                                                1,
+                                                size=(len(samples_on_sur), 3))
+
+            samples_close_sur = samples_on_sur + sigmas * np.random.randn(
+                len(samples_on_sur), 3)
+
+            latent = np.repeat(latent[None, ...], len(samples_on_sur), axis=0)
+
+            return {
+                "samples_on_sur": samples_on_sur.astype(np.float32),
+                "normals_on_sur": normals_on_sur.astype(np.float32),
+                "samples_off_sur": samples_off_sur.astype(np.float32),
+                "samples_close_sur": samples_close_sur.astype(np.float32),
+                "latent": latent.astype(np.float32)
+            }
+
+        sdf_data_samples_frag = [
+            sample_data(**sdf_data) for sdf_data in self.sdf_data_list
+        ]
+
+        sdf_data = {}
+        for key in sdf_data_samples_frag[0].keys():
+            sdf_data[key] = np.hstack(
+                [frag[key] for frag in sdf_data_samples_frag])
+
+        return sdf_data
+
+
+def config_training_data_pytorch(cfg: Config, latents):
+    np.random.seed(0)
+    dataset = SDFDataset(cfg, latents)
+
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    g = torch.Generator()
+    g.manual_seed(0)
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=1,
+        num_workers=0,
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+
+    return dataloader
 
 
 # preload data in memory to speedup training
