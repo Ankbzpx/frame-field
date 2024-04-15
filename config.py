@@ -13,15 +13,15 @@ class MLPConfig:
 
 @dataclass
 class TrainingConfig:
-    lr: float = 5e-4
+    lr: float = 5e-5
     lr_multiplier: float = 1
     lr_peak_multiplier: float = 5
     lr_multiplier_siren: float = 0.2
     lr_peak_multiplier_siren: float = 1
     warmup_steps: int = 100
     n_epochs: int = 1
-    n_steps: int = 12500    # per epoch
-    n_samples: int = 4096    # per step
+    n_steps: int = 10000    # per epoch
+    n_samples: int = 15000    # per step
     plot_every: int = 500
     seed: int = 2139028991    # 1111111011111101111110111111111
     close_sample_sigma: float = 5e-2
