@@ -1,5 +1,5 @@
 {
-  "sdf_paths": ["data/sdf/fandisk_10000.ply"],
+  "sdf_paths": ["data/sdf/fandisk_2500.ply"],
   "mlp_types": ["Siren"],
   "mlps": [
     {

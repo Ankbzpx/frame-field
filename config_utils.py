@@ -51,51 +51,10 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
 
 
 def config_optim(cfg: Config, model: model_jax.MLP):
-    total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    lr_scheduler_standard = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr_multiplier * cfg.training.lr,
-        peak_value=cfg.training.lr_peak_multiplier * cfg.training.lr,
-        warmup_steps=cfg.training.warmup_steps,
-        decay_steps=total_steps)
-
-    # Large lr (i.e. 5e-4 for batch size of 1024) could blow up Siren (due to built-in gradient scaling).
-    # So special care must be taken...
-    lr_scheduler_siren = optax.warmup_cosine_decay_schedule(
-        cfg.training.lr_multiplier_siren * cfg.training.lr,
-        peak_value=cfg.training.lr_peak_multiplier_siren * cfg.training.lr,
-        warmup_steps=cfg.training.warmup_steps,
-        decay_steps=total_steps)
-
     # Matters for querying the step count
     lr_scheduler = optax.constant_schedule(cfg.training.lr)
 
-    # Reference: https://github.com/patrick-kidger/equinox/issues/79
-    param_spec = jax.tree_map(lambda _: "standard", model)
-    # I think `is_siren` treat `SineLayer` as a leaf, but tree_leaves still return other leaves during traversal, hence needs to call `is_siren` again
-    is_siren = lambda x: hasattr(x, "omega_0")
-    where_siren_W = lambda m: tuple(x.W for x in jax.tree_util.tree_leaves(
-        m, is_leaf=is_siren) if is_siren(x))
-    where_siren_b = lambda m: tuple(x.b for x in jax.tree_util.tree_leaves(
-        m, is_leaf=is_siren) if is_siren(x))
-    param_spec = eqx.tree_at(where_siren_W,
-                             param_spec,
-                             replace_fn=lambda _: "siren")
-    param_spec = eqx.tree_at(where_siren_b,
-                             param_spec,
-                             replace_fn=lambda _: "siren")
-
-    chain = [
-        optax.scale_by_adam(),
-        optax.scale_by_learning_rate(lr_scheduler),
-        optax.clip_by_global_norm(10.)
-    ]
-
-    # Workaround Callable []
-    optim = optax.multi_transform(
-        {
-            "standard": optax.chain(*chain),
-            "siren": optax.chain(*chain),
-        }, [param_spec])
+    optim = optax.adam(lr_scheduler)
     opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     return optim, opt_state
@@ -164,7 +123,7 @@ def load_sdf(sdf_path):
     if sdf_path.split('.')[-1] == 'ply':
         pc_o3d = o3d.io.read_point_cloud(sdf_path)
         sdf_data = {
-            'samples_on_sur': normalize_aabb(np.asarray(pc_o3d.points)),
+            'samples_on_sur': np.asarray(pc_o3d.points),
             'normals_on_sur': np.asarray(pc_o3d.normals)
         }
     else:
@@ -180,18 +139,16 @@ class SDFDataset(Dataset):
         n_models = len(cfg.sdf_paths)
         assert n_models > 0
 
-        # self.n_samples = cfg.training.n_samples
-        self.n_samples = 15000
-
-        # self.n_steps = cfg.training.n_steps
-        self.n_steps = 10000
+        self.n_samples = cfg.training.n_samples
+        self.n_steps = cfg.training.n_steps
 
         # Working on numpy array
         latents = np.array(latents)
 
         def sample_sdf_data(sdf_path, latent):
             sdf_data = load_sdf(sdf_path)
-            samples_on_sur = sdf_data['samples_on_sur']
+            samples_on_sur = normalize_aabb(sdf_data['samples_on_sur'])
+            sdf_data['samples_on_sur'] = samples_on_sur
 
             # Reference: https://github.com/bearprin/Neural-Singular-Hessian/blob/ca7da0ce5d0c680393f1091ac8a6eafbe32248b4/surface_reconstruction/recon_dataset.py#L49
             # Use max distance among 51 closet points to approximate close neighbor
@@ -278,7 +235,8 @@ def config_training_data(cfg: Config, data_key, latents):
 
     def sample_sdf_data(sdf_path, latent):
         sdf_data = load_sdf(sdf_path)
-        samples_on_sur = sdf_data['samples_on_sur']
+        samples_on_sur = normalize_aabb(sdf_data['samples_on_sur'])
+        sdf_data['samples_on_sur'] = samples_on_sur
 
         # Reference: https://github.com/bearprin/Neural-Singular-Hessian/blob/ca7da0ce5d0c680393f1091ac8a6eafbe32248b4/surface_reconstruction/recon_dataset.py#L49
         # Use max distance among 51 closet points to approximate close neighbor

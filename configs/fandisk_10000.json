@@ -1,22 +1,19 @@
 {
-    "sdf_paths": ["data/sdf/fandisk.ply"],
-    "mlp_types": [
-        "Siren",
-        "LipMLP"
-    ],
-    "mlps": [
-        {
-            "hidden_layers": 4,
-            "out_features": 1
-        },
-        {
-            "hidden_layers": 4,
-            "out_features": 3
-        }
-    ],
-    "training": {
-        "n_input_samples": 10000,
-        "n_epochs": 1,
-        "lr": 2e-4
+  "sdf_paths": ["data/sdf/fandisk_10000.ply"],
+  "mlp_types": ["Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
     }
+  ],
+  "training": {
+    "n_epochs": 1,
+    "lr": 5e-5
+  },
+  "loss_cfg": {
+    "on_sur": 7e3,
+    "off_sur": 6e2,
+    "eikonal": 5e1
+  }
 }

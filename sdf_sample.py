@@ -166,7 +166,8 @@ if __name__ == '__main__':
 
     for model_path in tqdm(model_path_list):
         model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = os.path.join(sdf_base_path, f'{model_name}.ply')
+        model_out_path = os.path.join(sdf_base_path,
+                                      f'{model_name}_{sample_size}.ply')
 
         sampler = SDFSampler(model_path)
         samples_on_sur, normals_on_sur = sampler.sample_surface_fixed_seed(

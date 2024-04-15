@@ -33,9 +33,7 @@ matplotlib.use('Agg')
 
 def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     optim, opt_state = config_optim(cfg, model)
-
-    # total_steps = cfg.training.n_epochs * cfg.training.n_steps
-    total_steps = 10000
+    total_steps = cfg.training.n_steps
 
     if cfg.loss_cfg.smooth > 0:
         smooth_schedule = optax.polynomial_schedule(1e-1 * cfg.loss_cfg.smooth,
@@ -53,15 +51,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     else:
         align_schedule = optax.constant_schedule(0)
 
-    # if cfg.loss_cfg.hessian > 0:
-    #     hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian,
-    #                                                  1e-4, 0.5,
-    #                                                  int(0.4 * total_steps),
-    #                                                  int(0.2 * total_steps))
-    # else:
-    #     hessian_schedule = optax.constant_schedule(0)
-
-    hessian_schedule = optax.constant_schedule(cfg.loss_cfg.hessian)
+    if cfg.loss_cfg.hessian > 0:
+        hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian,
+                                                     1e-4, 0.5,
+                                                     int(0.4 * total_steps),
+                                                     int(0.2 * total_steps))
+    else:
+        hessian_schedule = optax.constant_schedule(0)
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -95,13 +91,12 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                                                   param_func)
             jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
                                                     param_func)
-        elif loss_cfg.hessian > 0:
-            hessian_on, out_on = model.call_hessian_aux(samples_on_sur, latent)
-            hessian_close = model.call_hessian(samples_close_sur, latent)
-            out_off = model.call_grad(samples_off_sur, latent)
         else:
             out_on = model.call_grad(samples_on_sur, latent)
             out_off = model.call_grad(samples_off_sur, latent)
+
+        if loss_cfg.hessian > 0:
+            hessian_close = model.call_hessian(samples_close_sur, latent)
 
         ((pred_on_sur_sdf, aux), pred_normals_on_sur) = out_on
         ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
@@ -179,9 +174,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.hessian > 0:
-            # loss_hessian = hessian_weight * 0.5 * (
-            #     jnp.abs(vmap(jnp.linalg.det)(hessian_on)).mean() +
-            #     jnp.abs(vmap(jnp.linalg.det)(hessian_close)).mean())
             loss_hessian = hessian_weight * 0.5 * jnp.abs(
                 vmap(jnp.linalg.det)(hessian_close)).mean()
             loss += loss_hessian
@@ -195,7 +187,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
         # FIXME: The static index is risky--it depends on the order of optax.chain
-        step_count = opt_state.inner_states['standard'].inner_state[0].count
+        step_count = opt_state[-1].count
         grads, loss_dict = loss_func(model,
                                      **batch,
                                      loss_cfg=loss_cfg,
@@ -205,7 +197,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         return model, opt_state, loss_dict
 
     loss_history = {}
-    pbar = tqdm(range(cfg.training.n_steps))
+    pbar = tqdm(range(total_steps))
 
     for iteration in pbar:
         batch = next(iter(data))
@@ -258,7 +250,7 @@ if __name__ == '__main__':
     model = config_model(cfg, model_key, latent_dim)
 
     # Debug
-    cfg.training.n_steps = 1001
+    # cfg.training.n_steps = 501
 
     data = config_training_data_pytorch(cfg, latents)
 
