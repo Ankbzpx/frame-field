@@ -35,29 +35,15 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
     optim, opt_state = config_optim(cfg, model)
     total_steps = cfg.training.n_steps
 
-    if cfg.loss_cfg.smooth > 0:
-        smooth_schedule = optax.polynomial_schedule(1e-1 * cfg.loss_cfg.smooth,
-                                                    1e1 * cfg.loss_cfg.smooth,
-                                                    0.5, total_steps,
-                                                    cfg.training.warmup_steps)
-    else:
-        smooth_schedule = optax.constant_schedule(0)
-
-    if cfg.loss_cfg.align > 0:
-        align_schedule = optax.polynomial_schedule(1e-2 * cfg.loss_cfg.align,
-                                                   cfg.loss_cfg.align, 0.5,
-                                                   total_steps,
-                                                   cfg.training.warmup_steps)
-    else:
-        align_schedule = optax.constant_schedule(0)
-
-    if cfg.loss_cfg.hessian > 0:
-        hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian,
-                                                     1e-4, 0.5,
-                                                     int(0.4 * total_steps),
-                                                     int(0.2 * total_steps))
-    else:
-        hessian_schedule = optax.constant_schedule(0)
+    smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
+    align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
+    regularize_schedule = optax.polynomial_schedule(1e-4,
+                                                    cfg.loss_cfg.regularize,
+                                                    0.5, int(0.4 * total_steps),
+                                                    int(0.2 * total_steps))
+    hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian, 1e-4,
+                                                 0.5, int(0.4 * total_steps),
+                                                 int(0.2 * total_steps))
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -71,6 +57,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         smooth_weight = smooth_schedule(step_count)
         align_weight = align_schedule(step_count)
+        regularize_weight = regularize_schedule(step_count)
         hessian_weight = hessian_schedule(step_count)
 
         # Map network output to sh4 parameterization
@@ -96,13 +83,17 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             out_off = model.call_grad(samples_off_sur, latent)
 
         if loss_cfg.hessian > 0:
-            hessian_close = model.call_hessian(samples_close_sur, latent)
+            hessian_close, out_close = model.call_hessian_aux(
+                samples_close_sur, latent)
+        else:
+            out_close = model.call_grad(samples_close_sur, latent)
 
-        ((pred_on_sur_sdf, aux), pred_normals_on_sur) = out_on
+        ((pred_on_sur_sdf, aux_on), pred_normals_on_sur) = out_on
         ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
+        ((pred_close_sur_sdf, aux_close), pred_normals_close_sur) = out_close
 
-        normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
-        aux_pred = jnp.vstack([aux, aux_off])
+        # normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
+        # aux_pred = jnp.vstack([aux_on, aux_off])
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -118,8 +109,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         }
 
         if loss_cfg.align > 0:
-            normal_align = normal_pred
-            aux_align = aux_pred
+            normal_align = jax.lax.stop_gradient(pred_normals_on_sur)
+            aux_align = aux_on
 
             if loss_cfg.explicit_basis:
                 basis_align = proj_func(aux_align)
@@ -128,34 +119,60 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
                                  vmap(normalize)(normal_align))
                 loss_align = loss_cfg.align * double_well_potential(
                     jnp.abs(dps)).sum(-1).mean()
+            elif loss_cfg.rot6d:
+                basis_align = proj_func(aux_align)
+                poly_val = vmap(oct_polynomial_zonal_unit_norm)(
+                    jax.lax.stop_gradient(normal_align), basis_align)
+                loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
             else:
-                if loss_cfg.rot6d:
-                    basis_align = proj_func(aux_align)
-                    poly_val = vmap(oct_polynomial_zonal_unit_norm)(
-                        jax.lax.stop_gradient(normal_align), basis_align)
-                    loss_align = loss_cfg.align * jnp.abs(1 - poly_val).mean()
-                else:
-                    sh4_align = vmap(param_func)(aux_align)
-                    R9_zn = vmap(rotvec_to_R9)(
-                        vmap(rotvec_n_to_z)(normal_align))
+                sh4_align = vmap(param_func)(aux_align)
+                R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal_align))
 
-                    norm_scale = jnp.sqrt(7 / 12 +
-                                          loss_cfg.xy_scale**2 * 5 / 12)
-                    sh4_n = vmap(project_n,
-                                 in_axes=(0, 0, None))(sh4_align, R9_zn,
-                                                       loss_cfg.xy_scale)
-                    # Its projection on n should match itself
-                    loss_align = align_weight * (1 - vmap(cosine_similarity)
-                                                 (sh4_align, sh4_n)).mean()
-                    # The balance of align and unit norm weighting matters for flowline, even if the unit norm can mostly be satisfied near the end
-                    loss_sh4_norm = loss_cfg.unit_norm * vmap(
-                        eikonal, in_axes=(0, None))(sh4_align,
-                                                    norm_scale).mean()
-                    loss += loss_sh4_norm
-                    loss_dict['loss_sh4_norm'] = loss_sh4_norm
+                norm_scale = jnp.sqrt(7 / 12 + loss_cfg.xy_scale**2 * 5 / 12)
+                sh4_n = vmap(project_n, in_axes=(0, 0, None))(sh4_align, R9_zn,
+                                                              loss_cfg.xy_scale)
+                # Its projection on n should match itself
+                loss_align = align_weight * (1 - vmap(cosine_similarity)
+                                             (sh4_align, sh4_n)).mean()
+                # The balance of align and unit norm weighting matters for flowline, even if the unit norm can mostly be satisfied near the end
+                loss_sh4_norm = loss_cfg.unit_norm * vmap(
+                    eikonal, in_axes=(0, None))(sh4_align, norm_scale).mean()
+                loss += loss_sh4_norm
+                loss_dict['loss_sh4_norm'] = loss_sh4_norm
 
             loss += loss_align
             loss_dict['loss_align'] = loss_align
+
+        if loss_cfg.regularize > 0:
+            if loss_cfg.hessian > 0:
+                normal_reg = pred_normals_close_sur
+                aux_reg = jax.lax.stop_gradient(aux_close)
+            else:
+                normal_reg = pred_normals_off_sur
+                aux_reg = jax.lax.stop_gradient(aux_off)
+
+            if loss_cfg.explicit_basis:
+                basis_reg = proj_func(aux_reg)
+                # Normalization matters here because we want the dot product to be either 0 or 1
+                dps = jnp.einsum('bij,bi->bj', basis_reg,
+                                 vmap(normalize)(normal_reg))
+                loss_regularize = (
+                    regularize_weight *
+                    double_well_potential(jnp.abs(dps)).sum(-1)).mean()
+            elif loss_cfg.rot6d:
+                basis_reg = proj_func(aux_reg)
+                poly_val = vmap(oct_polynomial_zonal_unit_norm)(normal_reg,
+                                                                basis_reg)
+
+            else:
+                sh4_reg = vmap(param_func)(aux_reg)
+                # Normalization is needed to bound the polynomial functional value
+                poly_val = vmap(oct_polynomial_sh4_unit_norm)(
+                    normal_reg, vmap(normalize)(sh4_reg))
+
+            loss_regularize = regularize_weight * (1 - poly_val).mean()
+            loss += loss_regularize
+            loss_dict['loss_regularize'] = loss_regularize
 
         if loss_cfg.lip > 0:
             loss_lip = loss_cfg.lip * model.get_aux_loss()
@@ -217,7 +234,13 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             loss_history[key][iteration] = loss_dict[key]
 
         loss_dict_log = jax.tree.map(lambda x: f"{x:.4}", loss_dict)
-        pbar.set_postfix(loss_dict_log)
+        pbar.set_postfix({
+            "loss_total": loss_dict_log['loss_total'],
+            "loss_align": loss_dict_log['loss_align'],
+            "loss_mse": loss_dict_log['loss_mse'],
+            "loss_regularize": loss_dict_log['loss_regularize'],
+            "loss_smooth": loss_dict_log['loss_smooth']
+        })
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot

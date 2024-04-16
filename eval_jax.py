@@ -303,6 +303,9 @@ def eval(cfg: Config,
     pc_center, pc_scale, _ = aabb_compute(sur_sample)
     V = V * pc_scale + pc_center
 
+    def scale_pc_aabb(pc):
+        return (pc - pc_center) / pc_scale
+
     # Save raw MC mesh
     mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
     igl.write_triangle_mesh(mc_save_path, V, F)
@@ -357,18 +360,19 @@ def eval(cfg: Config,
         # sur_sample = sur_sample[:input_sample_size]
         # sur_normal = sur_normal[:input_sample_size]
 
-        # aux = batch_call(infer, sur_sample)[:, 1:]
+        aux = batch_call(infer, scale_pc_aabb(sur_sample))[:, 1:]
+        sh4 = param_func(aux)
 
-        # if cfg.loss_cfg.xy_scale != 1:
-        #     aux = proj_sh4_sdp(aux)
+        if cfg.loss_cfg.xy_scale != 1:
+            sh4 = proj_sh4_sdp(sh4)
 
-        # Rs = proj_func(aux)
+        Rs = proj_func(sh4)
 
-        # V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.005)
+        V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.01 * pc_scale)
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        # ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
+        ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
         # pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         # pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
         ps.show()
