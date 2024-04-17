@@ -36,18 +36,14 @@ def align_basis_functional(basis, normal):
 
 
 @jit
-def align_sh4_explicit(sh4, normal, norm_weight=1e-1, xy_scale=1):
+def align_sh4_explicit(sh4, normal, xy_scale=1):
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal))
     sh4_n = vmap(project_n, in_axes=(0, 0, None))(sh4, R9_zn, xy_scale)
-    # Its projection on n should match itself
-    norm_scale = jnp.sqrt(7 / 12 + xy_scale**2 * 5 / 12)
-    return (1 - vmap(cosine_similarity)(sh4, sh4_n)).mean(
-    ) + norm_weight * vmap(eikonal, in_axes=(0, None))(sh4, norm_scale).mean()
+    return vmap(jnp.linalg.norm, in_axes=(0, None))(sh4 - sh4_n, 1).mean()
 
 
 @jit
-def align_sh4_functional(sh4, normal, norm_weight=1e-1):
+def align_sh4_functional(sh4, normal):
     poly_val = vmap(oct_polynomial_sh4_unit_norm)(normal, vmap(normalize)(sh4))
     # poly_val shouldn't exceed 1 but just to be safe
-    return jnp.abs(1 -
-                   poly_val).mean() + norm_weight * vmap(eikonal)(sh4).mean()
+    return jnp.abs(1 - poly_val).mean()

@@ -145,6 +145,15 @@ def cartesian_to_spherical(v):
                        v[2]), jnp.arctan2(v[1], v[0])
 
 
+@jit
+def spherical_to_cartesian(phi, theta):
+    return jnp.array([
+        jnp.sin(phi) * jnp.cos(theta),
+        jnp.sin(phi) * jnp.sin(theta),
+        jnp.cos(phi)
+    ])
+
+
 # First order approximation
 @jit
 def rotvec_to_R9_approx(rotvec):
