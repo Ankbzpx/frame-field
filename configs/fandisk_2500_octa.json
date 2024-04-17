@@ -21,6 +21,7 @@
     "eikonal": 5e1,
     "hessian": 3,
     "align": 1e2,
+    "regularize": 5e1,
     "unit_norm": 1,
     "lip": 1e-6
   }

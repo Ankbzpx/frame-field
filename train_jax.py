@@ -28,6 +28,10 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
+    regularize_schedule = optax.polynomial_schedule(1e-4,
+                                                    cfg.loss_cfg.regularize,
+                                                    0.5, int(0.4 * total_steps),
+                                                    int(0.2 * total_steps))
     hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian, 1e-4,
                                                  0.5, int(0.4 * total_steps),
                                                  int(0.2 * total_steps))
@@ -44,6 +48,7 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
 
         smooth_weight = smooth_schedule(step_count)
         align_weight = align_schedule(step_count)
+        regularize_weight = regularize_schedule(step_count)
         hessian_weight = hessian_schedule(step_count)
 
         # Map network output to sh4 parameterization
@@ -95,11 +100,9 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         }
 
         if loss_cfg.align > 0:
-            normal_align = jnp.vstack([
-                jax.lax.stop_gradient(pred_normals_on_sur),
-                pred_normals_close_sur
-            ])
-            aux_align = jnp.vstack([aux_on, jax.lax.stop_gradient(aux_close)])
+            normal_align = jax.lax.stop_gradient(
+                jnp.vstack([pred_normals_on_sur]))
+            aux_align = jnp.vstack([aux_on])
 
             if loss_cfg.explicit_basis:
                 basis_align = proj_func(aux_align)
@@ -114,6 +117,25 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
             loss_align = align_weight * loss_align
             loss += loss_align
             loss_dict['loss_align'] = loss_align
+
+        # The same as align. Duplicate for weight scheduling
+        if loss_cfg.regularize > 0:
+            normal_reg = jnp.vstack([pred_normals_close_sur])
+            aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_close]))
+
+            if loss_cfg.explicit_basis:
+                basis_reg = proj_func(aux_reg)
+                loss_reg = align_basis_explicit(basis_reg, normal_reg)
+            elif loss_cfg.rot6d:
+                basis_reg = proj_func(aux_reg)
+                loss_reg = align_basis_functional(basis_reg, normal_reg)
+            else:
+                sh4_align = vmap(param_func)(aux_reg)
+                loss_reg = align_sh4_explicit(sh4_align, normal_reg)
+
+            loss_reg = regularize_weight * loss_reg
+            loss += loss_reg
+            loss_dict['loss_reg'] = loss_reg
 
         if loss_cfg.lip > 0:
             loss_lip = loss_cfg.lip * model.get_aux_loss()
@@ -178,7 +200,8 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         pbar.set_postfix({
             "loss_total": loss_dict_log['loss_total'],
             "loss_align": loss_dict_log['loss_align'],
-            "loss_mse": loss_dict_log['loss_mse']
+            "loss_reg": loss_dict_log['loss_reg'],
+            "loss_mse": loss_dict_log['loss_mse'],
         })
 
         # TODO: Use better plot such as tensorboardX
