@@ -366,6 +366,8 @@ def eval(cfg: Config,
         if cfg.loss_cfg.xy_scale != 1:
             sh4 = proj_sh4_sdp(sh4)
 
+        print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+
         Rs = proj_func(sh4)
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.01 * pc_scale)
