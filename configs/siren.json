@@ -1,0 +1,9 @@
+{
+  "mlp_types": ["Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
+    }
+  ]
+}
