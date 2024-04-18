@@ -14,10 +14,6 @@ class MLPConfig:
 @dataclass
 class TrainingConfig:
     lr: float = 5e-5
-    lr_multiplier: float = 1
-    lr_peak_multiplier: float = 5
-    lr_multiplier_siren: float = 0.2
-    lr_peak_multiplier_siren: float = 1
     warmup_steps: int = 100
     n_epochs: int = 1
     n_steps: int = 10000    # per epoch
@@ -31,8 +27,8 @@ class TrainingConfig:
 
 @dataclass(frozen=True)
 class LossConfig:
-    on_sur: float = 3e3
-    off_sur: float = 1e2
+    on_sur: float = 7e3
+    off_sur: float = 6e2
     normal: float = 1e2
     eikonal: float = 5e1
 

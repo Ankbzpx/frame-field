@@ -199,8 +199,6 @@ def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
         loss_dict_log = jax.tree.map(lambda x: f"{x:.4}", loss_dict)
         pbar.set_postfix({
             "loss_total": loss_dict_log['loss_total'],
-            "loss_align": loss_dict_log['loss_align'],
-            "loss_reg": loss_dict_log['loss_reg'],
             "loss_mse": loss_dict_log['loss_mse'],
         })
 

@@ -1,5 +1,4 @@
 {
-  "sdf_paths": ["data/sdf/fandisk_2500.ply"],
   "mlp_types": ["Siren"],
   "mlps": [
     {
@@ -7,10 +6,6 @@
       "out_features": 1
     }
   ],
-  "training": {
-    "n_epochs": 1,
-    "lr": 5e-5
-  },
   "loss_cfg": {
     "hessian": 3
   }
