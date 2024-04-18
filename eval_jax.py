@@ -360,21 +360,29 @@ def eval(cfg: Config,
         # sur_sample = sur_sample[:input_sample_size]
         # sur_normal = sur_normal[:input_sample_size]
 
-        aux = batch_call(infer, scale_pc_aabb(sur_sample))[:, 1:]
-        sh4 = param_func(aux)
-
-        if cfg.loss_cfg.xy_scale != 1:
-            sh4 = proj_sh4_sdp(sh4)
-
-        print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
-
-        Rs = proj_func(sh4)
-
-        V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample, 0.01 * pc_scale)
+        has_octa = False
+        if len(cfg.mlp_cfgs) > 1:
+            has_octa = True
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        ps.register_surface_mesh('Oct frames supervise', V_vis_sup, F_vis_sup)
+        if has_octa:
+            aux = batch_call(infer, scale_pc_aabb(sur_sample))[:, 1:]
+            sh4 = param_func(aux)
+
+            if cfg.loss_cfg.xy_scale != 1:
+                sh4 = proj_sh4_sdp(sh4)
+
+            print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+
+            Rs = proj_func(sh4)
+
+            V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample,
+                                                 0.01 * pc_scale)
+
+            ps.register_surface_mesh('Oct frames supervise', V_vis_sup,
+                                     F_vis_sup)
+
         # pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         # pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
         ps.show()
