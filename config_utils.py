@@ -174,6 +174,7 @@ class SDFDataset(Dataset):
 
             samples_on_sur = samples_on_sur[idx]
             normals_on_sur = normals_on_sur[idx]
+            sigmas = sigmas[idx]
 
             samples_off_sur = np.random.uniform(-1,
                                                 1,
