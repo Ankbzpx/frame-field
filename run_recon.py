@@ -1,8 +1,5 @@
 import equinox as eqx
-import numpy as np
 import jax
-from jax import jit, numpy as jnp, vmap
-import igl
 import json
 import argparse
 from glob import glob
@@ -13,12 +10,12 @@ from config_utils import config_model, config_latent, config_training_data_pytor
 from train_jax import train
 from eval_jax import eval
 
-import polyscope as ps
-from icecream import ic
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, help='Path to config file.')
+    parser.add_argument('--model',
+                        type=str,
+                        nargs='*',
+                        help='Path to pointcloud.')
     parser.add_argument('--config',
                         type=str,
                         default='configs/octa.json',
@@ -30,7 +27,7 @@ if __name__ == '__main__':
     if args.model is None:
         model_list = sorted(glob('data/sdf/*.ply'))
     else:
-        model_list = [args.model]
+        model_list = args.model
 
     for model in model_list:
         sdf_paths = [model]
@@ -55,12 +52,17 @@ if __name__ == '__main__':
             model: model_jax.MLP = eqx.tree_deserialise_leaves(
                 f"checkpoints/{cfg.name}.eqx", model)
         else:
-            # Debug
-            # cfg.training.n_steps = 101
-
             data = config_training_data_pytorch(cfg, latents)
 
-            model = train(cfg, model, data, 'checkpoints')
+            # Debug
+            # total_steps = 1001
+            total_steps = None
+
+            model = train(cfg,
+                          model,
+                          data,
+                          'checkpoints',
+                          total_steps=total_steps)
 
         tokens = '0_1_0'.split('_')
         # Interpolate latent
