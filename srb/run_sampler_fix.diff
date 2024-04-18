@@ -1,0 +1,196 @@
+diff --git a/scripts/RunSampler.py b/scripts/RunSampler.py
+index 9ce692c..b58c90d 100755
+--- a/scripts/RunSampler.py
++++ b/scripts/RunSampler.py
+@@ -24,7 +24,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ """
+
+-import ConfigParser
++import configparser
+ import os
+ import subprocess
+ import sys
+@@ -38,8 +38,8 @@ class RunError(Exception):
+
+ def runcommand(args):
+ 	try:
+-		print os.getcwd()
+-		print args
++		print(os.getcwd())
++		print(args)
+ 		subprocess.check_call(args)
+ 	except OSError as e:
+ 		raise RunError(args[0] + ': Fork falied with error \'' + e.strerror + '\'')
+@@ -48,74 +48,74 @@ def runcommand(args):
+
+
+ def runUniform(config, pathdir, infile, outfile):
+-       if config.has_section("uniform"):
+-					args = []
+-					#args.append('bin/bash')
+-					#args.append('-c')
+-					args.append("./" + pathdir + "/" + config.get("uniform", "exec_name"))
+-					args.append(infile)
+-					args.append(outfile)
++	if config.has_section("uniform"):
++		args = []
++		#args.append('bin/bash')
++		#args.append('-c')
++		args.append("./" + pathdir + "/" + config.get("uniform", "exec_name"))
++		args.append(infile)
++		args.append(outfile)
+
+-					# required
++		# required
+
+-					args.append(config.get("uniform", "camera_res_x"))
+-					args.append(config.get("uniform", "camera_res_y"))
+-					args.append(config.get("uniform", "scan_res"))
++		args.append(config.get("uniform", "camera_res_x"))
++		args.append(config.get("uniform", "camera_res_y"))
++		args.append(config.get("uniform", "scan_res"))
+
+-					# optional
++		# optional
+
+-					if config.has_option("uniform", "min_range"):
+-						args.append("min_range")
+-						args.append(config.get("uniform", "min_range"))
++		if config.has_option("uniform", "min_range"):
++			args.append("min_range")
++			args.append(config.get("uniform", "min_range"))
+
+-					if config.has_option("uniform", "max_range"):
+-						args.append("max_range")
+-						args.append(config.get("uniform", "max_range"))
++		if config.has_option("uniform", "max_range"):
++			args.append("max_range")
++			args.append(config.get("uniform", "max_range"))
+
+-					if config.has_option("uniform", "num_stripes"):
+-						args.append("num_stripes")
+-						args.append(config.get("uniform", "num_stripes"))
++		if config.has_option("uniform", "num_stripes"):
++			args.append("num_stripes")
++			args.append(config.get("uniform", "num_stripes"))
+
+-					if config.has_option("uniform", "laser_fov"):
+-						args.append("laser_fov")
+-						args.append(config.get("uniform", "laser_fov"))
++		if config.has_option("uniform", "laser_fov"):
++			args.append("laser_fov")
++			args.append(config.get("uniform", "laser_fov"))
+
+-					if config.has_option("uniform", "peak_threshold"):
+-						args.append("peak_threshold")
+-						args.append(config.get("uniform", "peak_threshold"))
++		if config.has_option("uniform", "peak_threshold"):
++			args.append("peak_threshold")
++			args.append(config.get("uniform", "peak_threshold"))
+
+-					if config.has_option("uniform", "std_threshold"):
+-						args.append("std_threshold")
+-						args.append(config.get("uniform", "std_threshold"))
++		if config.has_option("uniform", "std_threshold"):
++			args.append("std_threshold")
++			args.append(config.get("uniform", "std_threshold"))
+
+-					if config.has_option("uniform", "additive_noise"):
+-						args.append("additive_noise")
+-						args.append(config.get("uniform", "additive_noise"))
++		if config.has_option("uniform", "additive_noise"):
++			args.append("additive_noise")
++			args.append(config.get("uniform", "additive_noise"))
+
+-					if config.has_option("uniform", "laser_smoother"):
+-						args.append("laser_smoother")
+-						args.append(config.get("uniform", "laser_smoother"))
++		if config.has_option("uniform", "laser_smoother"):
++			args.append("laser_smoother")
++			args.append(config.get("uniform", "laser_smoother"))
+
+-					if config.has_option("uniform", "registration_error"):
+-						args.append("registration_error")
+-						args.append(config.get("uniform", "registration_error"))
++		if config.has_option("uniform", "registration_error"):
++			args.append("registration_error")
++			args.append(config.get("uniform", "registration_error"))
+
+-					if config.has_option("uniform", "normal_type"):
+-						args.append("normal_type")
+-						args.append(config.get("uniform", "normal_type"))
++		if config.has_option("uniform", "normal_type"):
++			args.append("normal_type")
++			args.append(config.get("uniform", "normal_type"))
+
+-					if config.has_option("uniform", "pca_knn"):
+-						args.append("pca_knn")
+-						args.append(config.get("uniform", "pca_knn"))
++		if config.has_option("uniform", "pca_knn"):
++			args.append("pca_knn")
++			args.append(config.get("uniform", "pca_knn"))
+
+-					if config.has_option("uniform", "random_sample_rotation"):
+-						args.append("random_sample_rotation")
+-						args.append(config.get("uniform", "random_sample_rotation"))
++		if config.has_option("uniform", "random_sample_rotation"):
++			args.append("random_sample_rotation")
++			args.append(config.get("uniform", "random_sample_rotation"))
+
+-					runcommand(args)
++		runcommand(args)
+
+ try:
+-	config = ConfigParser.ConfigParser()
++	config = configparser.ConfigParser()
+ 	config.read(sys.argv[1])
+
+ 	infile = config.get("sampler", "infile")
+diff --git a/scripts/scripts_recon.py b/scripts/scripts_recon.py
+index dfaecb2..a3e7086 100755
+--- a/scripts/scripts_recon.py
++++ b/scripts/scripts_recon.py
+@@ -24,7 +24,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
+ EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ """
+
+-import ConfigParser
++import configparser
+ import os
+ import subprocess
+ import sys
+@@ -40,9 +40,9 @@ def runcommand(args):
+ 	try:
+ 		subprocess.check_call(args)
+ 	except OSError as e:
+-		print args[0] + " : Fork failed with error : " + e.strerror
++		print(args[0] + " : Fork failed with error : " + e.strerror)
+ 	except subprocess.CalledProcessError as e:
+-		print args[0] + " : Execution failed with returncode = : "  + repr(e.returncode)
++		print(args[0] + " : Execution failed with returncode = : "  + repr(e.returncode))
+
+
+ def runPoisson(config, pathdir, infile, outdir):
+@@ -75,11 +75,11 @@ def runPoisson(config, pathdir, infile, outdir):
+ 		runcommand(args)
+
+ # --- entry point --- #
+-config = ConfigParser.ConfigParser()
++config = configparser.ConfigParser()
+ config.read(sys.argv[1])
+
+ if config.has_option("dir_structs", "infile"):
+-	print 'WRONG SCRIPT: perhaps you want single_recon.py...'
++	print('WRONG SCRIPT: perhaps you want single_recon.py...')
+ 	sys.exit(1)
+
+ pathdir = config.get("dir_structs", "pathdir")
+@@ -91,6 +91,6 @@ file_num = 0
+ for infile in os.listdir(indir):
+ 	if not infile.endswith(".npts"):
+ 		continue
+-	print 'run all on file ' + infile
++	print('run all on file ' + infile)
+ 	runPoisson(config, pathdir, infile, outdir)
+ 	file_num=file_num+1;

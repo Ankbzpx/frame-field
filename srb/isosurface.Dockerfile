@@ -1,0 +1,3 @@
+FROM srb
+
+ENTRYPOINT [ "./isosurface" ]
