@@ -22,19 +22,24 @@ from loss import (eikonal, align_sh4_explicit, align_basis_explicit,
 matplotlib.use('Agg')
 
 
-def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
+def train(cfg: Config,
+          model: model_jax.MLP,
+          data,
+          checkpoints_folder,
+          total_steps=None):
     optim, opt_state = config_optim(cfg, model)
-    total_steps = cfg.training.n_steps
+
+    if total_steps is None:
+        total_steps = cfg.training.n_steps
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
-    regularize_schedule = optax.polynomial_schedule(1e-4,
-                                                    cfg.loss_cfg.regularize,
-                                                    0.5, int(0.4 * total_steps),
-                                                    int(0.2 * total_steps))
-    hessian_schedule = optax.polynomial_schedule(cfg.loss_cfg.hessian, 1e-4,
-                                                 0.5, int(0.4 * total_steps),
-                                                 int(0.2 * total_steps))
+    regularize_schedule = optax.polynomial_schedule(
+        1e-4, cfg.loss_cfg.regularize, 0.5, int(0.4 * cfg.training.n_steps),
+        int(0.2 * cfg.training.n_steps))
+    hessian_schedule = optax.polynomial_schedule(
+        cfg.loss_cfg.hessian, 1e-4, 0.5, int(0.4 * cfg.training.n_steps),
+        int(0.2 * cfg.training.n_steps))
 
     if not os.path.exists(checkpoints_folder):
         os.makedirs(checkpoints_folder)
@@ -233,8 +238,9 @@ if __name__ == '__main__':
     model = config_model(cfg, model_key, latent_dim)
 
     # Debug
-    # cfg.training.n_steps = 501
+    # total_steps = 1001
+    total_steps = None
 
-    data = config_training_data_pytorch(cfg, latents)
+    data = config_training_data_pytorch(cfg, latents, total_steps=total_steps)
 
     train(cfg, model, data, 'checkpoints')
