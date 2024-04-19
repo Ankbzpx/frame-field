@@ -173,8 +173,10 @@ class SDFDataset(Dataset):
             idx = idx_permute[:self.n_samples]
 
             samples_on_sur = samples_on_sur[idx]
-            normals_on_sur = normals_on_sur[idx]
             sigmas = sigmas[idx]
+
+            if len(normals_on_sur) > 0:
+                normals_on_sur = normals_on_sur[idx]
 
             samples_off_sur = np.random.uniform(-1,
                                                 1,
