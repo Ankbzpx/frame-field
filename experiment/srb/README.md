@@ -24,7 +24,7 @@ docker run --rm -v "$HOME/frame-field/data:/data" mesh_to_implicit /data/mesh/fa
 docker run --rm -v "$HOME/frame-field/data:/data" isosurface /data/implicit/fandisk.mpu 256 /data/implicit/fandisk.obj
 
 # mkdir data/recon
-docker run --rm -v "$HOME/frame-field/data:/data" pc_generator /data/implicit/fandisk.mpu /data/recon/fandisk res 350 scans 8 min_range 75 max_range 115
+docker run --rm -v "$HOME/frame-field/data:/data" pc_generator /data/implicit/fandisk.mpu /data/recon/fandisk res 350 scans 8 min_range 75 max_range 115 additive_noise 0.6 registration_noise 0.4 peak_threshold 0.2
 
 docker run --rm -v "$HOME/frame-field/data:/data" run_sampler /data/recon/fandisk
 ```
