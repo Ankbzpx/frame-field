@@ -13,7 +13,7 @@
   "loss_cfg": {
     "hessian": 3,
     "align": 1e2,
-    "regularize": 5e1,
+    "regularize": 2.5e1,
     "lip": 1e-6
   }
 }
