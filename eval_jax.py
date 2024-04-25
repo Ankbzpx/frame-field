@@ -159,9 +159,9 @@ def batch_call(func,
 
 
 def eval(cfg: Config,
-         out_dir,
          model: model_jax.MLP,
          latent,
+         grid_res=512,
          vis_singularity=False,
          vis_mc=False,
          vis_smooth=False,
@@ -218,7 +218,7 @@ def eval(cfg: Config,
         exit()
 
     infer_sdf = lambda x: infer(x)[:, 0]
-    V, F, VN = extract_surface(infer_sdf, grid_res=256)
+    V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
 
     timer.log('Extract surface')
 
@@ -268,7 +268,7 @@ def eval(cfg: Config,
         F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
 
         V_b, F_b = rm_unref_vertices(V_tet, F_b)
-        # igl.write_triangle_mesh(f"{out_dir}/{cfg.name}_tet_bound.obj",
+        # igl.write_triangle_mesh(f"{cfg.out_dir}/{cfg.name}_tet_bound.obj",
         #                         np.float64(V_b), F_b)
 
         # V_uE, uE_singular = rm_unref_vertices(V_tet, uE_singular)
@@ -276,7 +276,7 @@ def eval(cfg: Config,
         #     'V': V_uE.reshape(-1,).tolist(),
         #     'uE': uE_singular.reshape(-1,).tolist()
         # }
-        # with open(f'{out_dir}/{cfg.name}.json', 'w') as f:
+        # with open(f'{cfg.out_dir}/{cfg.name}.json', 'w') as f:
         #     json.dump(data, f)
 
         # exit()
@@ -288,13 +288,13 @@ def eval(cfg: Config,
             ps_register_curve_network('singularity', V_tet, uE_singular)
         ps.show()
 
-        param_path = os.path.join(f"{out_dir}/{cfg.name}.npz")
+        param_path = os.path.join(f"{cfg.out_dir}/{cfg.name}.npz")
         np.savez(param_path, V=V_tet, T=T, sh4=sh4, sdf=sdf)
 
         exit()
 
-    if not os.path.exists(out_dir):
-        os.mkdir(out_dir)
+    if not os.path.exists(cfg.out_dir):
+        os.mkdir(cfg.out_dir)
 
     # Recovery input scale
     # TODO: support latent
@@ -307,7 +307,8 @@ def eval(cfg: Config,
         return (pc - pc_center) / pc_scale
 
     # Save raw MC mesh
-    mc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc.obj"
+
+    mc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}.obj" if interp_tag == '' else f"{cfg.out_dir}/{cfg.name}.obj"
     igl.write_triangle_mesh(mc_save_path, V, F)
 
     # Quadratic edge collapsing reduces vertex count while preserves original appeal
@@ -318,7 +319,7 @@ def eval(cfg: Config,
 
         timer.log('Meshlab edge collapsing')
 
-        qc_save_path = f"{out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
+        qc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
         igl.write_triangle_mesh(qc_save_path, V, F)
 
     if miq:
@@ -348,7 +349,7 @@ def eval(cfg: Config,
         mesh.uvs = UV
         mesh.face_uvs_idx = FUV
 
-        write_obj(f'{out_dir}/{cfg.name}_param.obj', mesh)
+        write_obj(f'{cfg.out_dir}/{cfg.name}_param.obj', mesh)
 
         exit()
 
@@ -431,8 +432,9 @@ def eval(cfg: Config,
             flow_line_vis.add_color_quantity("VC_vis", VC_vis, enabled=True)
             ps.show()
 
-        write_triangle_mesh_VC(f"{out_dir}/{cfg.name}_{interp_tag}stroke.obj",
-                               V_vis, F_vis, VC_vis)
+        write_triangle_mesh_VC(
+            f"{cfg.out_dir}/{cfg.name}_{interp_tag}stroke.obj", V_vis, F_vis,
+            VC_vis)
 
 
 if __name__ == '__main__':
@@ -463,6 +465,7 @@ if __name__ == '__main__':
 
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
+    cfg.out_dir = args.output
 
     latents, latent_dim = config_latent(cfg)
     tokens = args.interp.split('_')
@@ -477,5 +480,5 @@ if __name__ == '__main__':
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         f"checkpoints/{cfg.name}.eqx", model)
 
-    eval(cfg, args.output, model, latent, args.vis_singularity, args.vis_mc,
-         args.vis_smooth, args.vis_flowline)
+    eval(cfg, model, latent, args.vis_singularity, args.vis_mc, args.vis_smooth,
+         args.vis_flowline)

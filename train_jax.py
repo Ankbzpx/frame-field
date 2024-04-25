@@ -18,19 +18,21 @@ from sh_representation import (rotvec_to_sh4_expm, rotvec_to_R3, rot6d_to_R3,
                                rot6d_to_sh4_zonal, proj_sh4_to_R3)
 from loss import (eikonal, align_sh4_explicit, align_basis_explicit,
                   align_basis_functional)
+from eval_jax import eval
+import copy
 
 matplotlib.use('Agg')
 
 
-def train(cfg: Config,
-          model: model_jax.MLP,
-          data,
-          checkpoints_folder,
-          total_steps=None):
-    optim, opt_state = config_optim(cfg, model)
+def eval_iter(cfg: Config, model, latent, iter):
+    cfg = copy.copy(cfg)
+    cfg.name = f"{cfg.name}_{iter}"
+    cfg.out_dir = os.path.join(cfg.out_dir, 'debug_iters')
+    eval(cfg, model, latent, grid_res=256)
 
-    if total_steps is None:
-        total_steps = cfg.training.n_steps
+
+def train(cfg: Config, model: model_jax.MLP, data, checkpoints_folder):
+    optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
@@ -182,7 +184,7 @@ def train(cfg: Config,
         return model, opt_state, loss_dict
 
     loss_history = {}
-    pbar = tqdm(range(total_steps))
+    pbar = tqdm(range(cfg.training.n_steps))
 
     for iteration in pbar:
         batch = next(iter(data))
@@ -198,7 +200,7 @@ def train(cfg: Config,
         for key in loss_dict.keys():
             # preallocate
             if key not in loss_history:
-                loss_history[key] = np.zeros(total_steps)
+                loss_history[key] = np.zeros(cfg.training.n_steps)
             loss_history[key][iteration] = loss_dict[key]
 
         loss_dict_log = jax.tree.map(lambda x: f"{x:.4}", loss_dict)
@@ -217,6 +219,10 @@ def train(cfg: Config,
             plt.title('Reconstruction loss')
             plt.grid()
             plt.savefig(f"{checkpoints_folder}/{cfg.name}_loss_history.jpg")
+
+            if iteration % cfg.training.eval_every == 0 and iteration != 0:
+                eval_latent = jnp.empty((0,))
+                eval_iter(cfg, model, eval_latent, iteration)
 
     eqx.tree_serialise_leaves(f"{checkpoints_folder}/{cfg.name}.eqx", model)
 
@@ -237,10 +243,6 @@ if __name__ == '__main__':
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    # Debug
-    # total_steps = 1001
-    total_steps = None
-
-    data = config_training_data_pytorch(cfg, latents, total_steps=total_steps)
+    data = config_training_data_pytorch(cfg, latents)
 
     train(cfg, model, data, 'checkpoints')

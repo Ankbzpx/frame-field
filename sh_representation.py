@@ -469,7 +469,7 @@ def eval_sh0_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh0_basis))
+    return jnp.array(jax.tree.map(lambda f: f(x, y, z), sh0_basis))
 
 
 @jit
@@ -477,7 +477,7 @@ def eval_sh2_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh2_basis))
+    return jnp.array(jax.tree.map(lambda f: f(x, y, z), sh2_basis))
 
 
 @jit
@@ -485,7 +485,7 @@ def eval_sh4_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh4_basis))
+    return jnp.array(jax.tree.map(lambda f: f(x, y, z), sh4_basis))
 
 
 @jit
@@ -493,7 +493,7 @@ def eval_oct_basis(v):
     x = v[0]
     y = v[1]
     z = v[2]
-    return jnp.array(jax.tree_map(lambda f: f(x, y, z), sh0_basis + sh4_basis))
+    return jnp.array(jax.tree.map(lambda f: f(x, y, z), sh0_basis + sh4_basis))
 
 
 @jit
@@ -502,7 +502,7 @@ def eval_non_orth_basis(v):
     y = v[1]
     z = v[2]
     return jnp.array(
-        jax.tree_map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis))
+        jax.tree.map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis))
 
 
 # x^4 + y^4 + z^4

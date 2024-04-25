@@ -19,6 +19,7 @@ class TrainingConfig:
     n_steps: int = 10000    # per epoch
     n_samples: int = 15000    # per step
     plot_every: int = 500
+    eval_every: int = 1000
     seed: int = 2139028991    # 1111111011111101111110111111111
     close_sample_sigma: float = 5e-2
     close_sample_ratio: float = 0.25
@@ -50,6 +51,7 @@ class LossConfig:
 @dataclass
 class Config:
     sdf_paths: list[str]
+    out_dir: str = 'output'
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()
 
