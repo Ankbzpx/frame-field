@@ -10,6 +10,8 @@ from config_utils import config_model, config_latent, config_training_data_pytor
 from train_jax import train
 from eval_jax import eval
 
+from icecream import ic
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
@@ -53,16 +55,7 @@ if __name__ == '__main__':
                 f"checkpoints/{cfg.name}.eqx", model)
         else:
             data = config_training_data_pytorch(cfg, latents)
-
-            # Debug
-            # total_steps = 1001
-            total_steps = None
-
-            model = train(cfg,
-                          model,
-                          data,
-                          'checkpoints',
-                          total_steps=total_steps)
+            model = train(cfg, model, data, 'checkpoints')
 
         tokens = '0_1_0'.split('_')
         # Interpolate latent
@@ -71,6 +64,6 @@ if __name__ == '__main__':
         t = float(tokens[2])
         latent = (1 - t) * latents[i] + t * latents[j]
 
-        eval(cfg, 'output', model, latent, vis_mc=args.vis)
+        eval(cfg, model, latent, vis_mc=args.vis)
 
         # exit()
