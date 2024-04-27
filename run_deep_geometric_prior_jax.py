@@ -5,6 +5,7 @@ from jax import jit, numpy as jnp, vmap
 import igl
 import json
 import argparse
+import os
 
 import model_jax
 from config import Config
@@ -57,14 +58,15 @@ if __name__ == '__main__':
 
                 if args.eval:
                     model: model_jax.MLP = eqx.tree_deserialise_leaves(
-                        f"checkpoints/{cfg.name}.eqx", model)
+                        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"),
+                        model)
                 else:
                     # Debug
                     # cfg.training.n_steps = 101
 
                     data = config_training_data(cfg, data_key, latents)
 
-                    model = train(cfg, model, data, 'checkpoints')
+                    model = train(cfg, model, data)
 
                 tokens = '0_1_0'.split('_')
                 # Interpolate latent

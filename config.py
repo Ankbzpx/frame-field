@@ -51,7 +51,9 @@ class LossConfig:
 @dataclass
 class Config:
     sdf_paths: list[str]
+    name: str = 'default'
     out_dir: str = 'output'
+    checkpoints_dir: str = 'checkpoints'
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()
 

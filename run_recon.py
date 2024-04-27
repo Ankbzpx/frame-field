@@ -3,6 +3,7 @@ import jax
 import json
 import argparse
 from glob import glob
+import os
 
 import model_jax
 from config import Config
@@ -17,7 +18,11 @@ if __name__ == '__main__':
     parser.add_argument('--model',
                         type=str,
                         nargs='*',
-                        help='Path to pointcloud.')
+                        help='Path to pointcloud files.')
+    parser.add_argument('--model_folder',
+                        type=str,
+                        default='data/sdf',
+                        help='Path to pointcloud folder.')
     parser.add_argument('--config',
                         type=str,
                         default='configs/octa.json',
@@ -26,10 +31,13 @@ if __name__ == '__main__':
     parser.add_argument('--vis', action='store_true', help='Visualize')
     args = parser.parse_args()
 
-    if args.model is None:
-        model_list = sorted(glob('data/sdf/*.ply'))
-    else:
+    if args.model is not None:
+        tag = ''
         model_list = args.model
+    else:
+        # TODO; Maybe not hard coded
+        tag = '_'.join(args.model_folder.split('/')[-2:])
+        model_list = sorted(glob(os.path.join(args.model_folder, '*.ply')))
 
     for model in model_list:
         sdf_paths = [model]
@@ -38,11 +46,13 @@ if __name__ == '__main__':
 
         cfg_name = args.config.split('/')[-1].split('.')[0]
         model_name = model.split('/')[-1].split('.')[0]
-        name = f"{model_name}_{cfg_name}"
+        name = model_name
         print(name)
 
         cfg = Config(**config)
         cfg.name = name
+        cfg.out_dir = os.path.join(cfg.out_dir, cfg_name, tag)
+        cfg.checkpoints_dir = os.path.join(cfg.checkpoints_dir, cfg_name, tag)
 
         model_key, data_key = jax.random.split(
             jax.random.PRNGKey(cfg.training.seed), 2)
@@ -52,10 +62,10 @@ if __name__ == '__main__':
 
         if args.eval:
             model: model_jax.MLP = eqx.tree_deserialise_leaves(
-                f"checkpoints/{cfg.name}.eqx", model)
+                os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
         else:
             data = config_training_data_pytorch(cfg, latents)
-            model = train(cfg, model, data, 'checkpoints')
+            model = train(cfg, model, data)
 
         tokens = '0_1_0'.split('_')
         # Interpolate latent

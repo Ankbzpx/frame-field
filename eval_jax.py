@@ -294,7 +294,7 @@ def eval(cfg: Config,
         exit()
 
     if not os.path.exists(cfg.out_dir):
-        os.mkdir(cfg.out_dir)
+        os.makedirs(cfg.out_dir)
 
     # Recovery input scale
     # TODO: support latent
@@ -478,7 +478,7 @@ if __name__ == '__main__':
     model_key = jax.random.PRNGKey(0)
     model = config_model(cfg, model_key, latent_dim)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
-        f"checkpoints/{cfg.name}.eqx", model)
+        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
 
     eval(cfg, model, latent, args.vis_singularity, args.vis_mc, args.vis_smooth,
          args.vis_flowline)

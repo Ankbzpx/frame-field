@@ -14,6 +14,7 @@ from common import vis_oct_field, Timer
 from eval_jax import extract_surface, meshlab_edge_collapse
 from sh_representation import (proj_sh4_to_R3, rot6d_to_R3, eulerXYZ_to_R3,
                                rotvec_to_R3, proj_sh4_to_rotvec)
+import os
 
 import polyscope as ps
 from icecream import ic
@@ -121,11 +122,11 @@ if __name__ == '__main__':
 
             if args.eval:
                 model: model_jax.MLP = eqx.tree_deserialise_leaves(
-                    f"checkpoints/{cfg.name}.eqx", model)
+                    os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
             else:
                 data = config_toy_training_data(cfg, data_key, samples_sup,
                                                 samples_vn_sup, latents, gap)
-                model = train(cfg, model, data, 'checkpoints')
+                model = train(cfg, model, data)
 
             eval(cfg, model, jnp.zeros((0,)), samples_sup, samples_interp,
                  "output/toy", args.vis)
