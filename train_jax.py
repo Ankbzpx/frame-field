@@ -16,10 +16,11 @@ from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data_pytorch
 from sh_representation import (rotvec_to_sh4_expm, rotvec_to_R3, rot6d_to_R3,
                                rot6d_to_sh4_zonal, proj_sh4_to_R3)
-from loss import (eikonal, align_sh4_explicit, align_basis_explicit,
-                  align_basis_functional)
+from loss import (eikonal, align_sh4_explicit, align_sh4_functional,
+                  align_basis_explicit, align_basis_functional)
 from eval_jax import eval
 import copy
+from icecream import ic
 
 matplotlib.use('Agg')
 
@@ -37,10 +38,10 @@ def train(cfg: Config, model: model_jax.MLP, data):
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     regularize_schedule = optax.polynomial_schedule(
-        1e-4, cfg.loss_cfg.regularize, 0.5, int(0.4 * cfg.training.n_steps),
-        int(0.2 * cfg.training.n_steps))
+        0, cfg.loss_cfg.regularize, 1, int(0.2 * cfg.training.n_steps),
+        int(0.4 * cfg.training.n_steps))
     hessian_schedule = optax.polynomial_schedule(
-        cfg.loss_cfg.hessian, 1e-4, 0.5, int(0.4 * cfg.training.n_steps),
+        cfg.loss_cfg.hessian, 0, 1, int(0.2 * cfg.training.n_steps),
         int(0.2 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
@@ -70,25 +71,42 @@ def train(cfg: Config, model: model_jax.MLP, data):
             param_func = lambda x: x
             proj_func = proj_sh4_to_R3
 
-        # The scheduled weight is jit traced value--I'm not allowed to compare it with a scalar
-        if not loss_cfg.grid and loss_cfg.smooth > 0:
-            jac_on, out_on = model.call_jac_param(samples_on_sur, latent,
-                                                  param_func)
-            jac_off, out_off = model.call_jac_param(samples_off_sur, latent,
-                                                    param_func)
+        # The python if is determined at tracing time. jax.lax.cond helps reduce computation when weight is scheduled to be 0
+        if loss_cfg.smooth > 0:
+
+            def eval_smooth(samples):
+                return model.call_jac_param(samples, latent, param_func)
+
+            def eval_grad(samples):
+                return jnp.empty(
+                    (len(samples), 9, 3)), model.call_grad(samples, latent)
+
+            jac_on, out_on = jax.lax.cond(smooth_weight > 0, eval_smooth,
+                                          eval_grad, samples_on_sur)
+            jac_off, out_off = jax.lax.cond(smooth_weight > 0, eval_smooth,
+                                            eval_grad, samples_off_sur)
         else:
             out_on = model.call_grad(samples_on_sur, latent)
             out_off = model.call_grad(samples_off_sur, latent)
 
         if loss_cfg.hessian > 0:
-            hessian_close, out_close = model.call_hessian_aux(
-                samples_close_sur, latent)
+
+            def eval_hessian(samples):
+                return model.call_hessian_aux(samples, latent)
+
+            def eval_grad(samples):
+                return jnp.empty(
+                    (len(samples), 3, 3)), model.call_grad(samples, latent)
+
+            hessian_close, out_close = jax.lax.cond(hessian_weight > 0,
+                                                    eval_hessian, eval_grad,
+                                                    samples_close_sur)
         else:
             out_close = model.call_grad(samples_close_sur, latent)
 
-        ((pred_on_sur_sdf, aux_on), pred_normals_on_sur) = out_on
-        ((pred_off_sur_sdf, aux_off), pred_normals_off_sur) = out_off
-        ((pred_close_sur_sdf, aux_close), pred_normals_close_sur) = out_close
+        (pred_on_sur_sdf, aux_on), pred_normals_on_sur = out_on
+        (pred_off_sur_sdf, aux_off), pred_normals_off_sur = out_off
+        (pred_close_sur_sdf, aux_close), pred_normals_close_sur = out_close
 
         # normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
         # aux_pred = jnp.vstack([aux_on, aux_off])
@@ -106,41 +124,42 @@ def train(cfg: Config, model: model_jax.MLP, data):
             'loss_eikonal': loss_eikonal
         }
 
-        if loss_cfg.align > 0:
-            normal_align = jax.lax.stop_gradient(
-                jnp.vstack([pred_normals_on_sur]))
-            aux_align = jnp.vstack([aux_on])
-
-            if loss_cfg.explicit_basis:
-                basis_align = proj_func(aux_align)
-                loss_align = align_basis_explicit(basis_align, normal_align)
-            elif loss_cfg.rot6d:
-                basis_align = proj_func(aux_align)
-                loss_align = align_basis_functional(basis_align, normal_align)
+        def eval_align_loss(normal, aux):
+            if loss_cfg.explicit_basis or loss_cfg.rot6d:
+                basis_align = proj_func(aux)
+                loss_align = align_basis_explicit(basis_align, normal).mean()
             else:
-                sh4_align = vmap(param_func)(aux_align)
-                loss_align = align_sh4_explicit(sh4_align, normal_align)
+                sh4_align = vmap(param_func)(aux)
+                loss_align = align_sh4_explicit(sh4_align, normal).mean()
 
-            loss_align = align_weight * loss_align
+            return loss_align
+
+        if loss_cfg.align > 0:
+            samples_proj = samples_on_sur - pred_on_sur_sdf[:,
+                                                            None] * pred_normals_on_sur
+            out_proj = model.call_grad(jax.lax.stop_gradient(samples_proj),
+                                       latent)
+            (_, aux_proj), pred_normals_proj = out_proj
+
+            normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_proj
+                                                            ]))
+            aux_align = jnp.vstack([aux_proj])
+
+            # normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_on_sur
+            #                                                 ]))
+            # aux_align = jnp.vstack([aux_on])
+            loss_align = align_weight * jax.lax.cond(
+                align_weight > 0, eval_align_loss, lambda x, y: 0.,
+                *(normal_align, aux_align))
             loss += loss_align
             loss_dict['loss_align'] = loss_align
 
-        # The same as align. Duplicate for weight scheduling
         if loss_cfg.regularize > 0:
             normal_reg = jnp.vstack([pred_normals_close_sur])
             aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_close]))
-
-            if loss_cfg.explicit_basis:
-                basis_reg = proj_func(aux_reg)
-                loss_reg = align_basis_explicit(basis_reg, normal_reg)
-            elif loss_cfg.rot6d:
-                basis_reg = proj_func(aux_reg)
-                loss_reg = align_basis_functional(basis_reg, normal_reg)
-            else:
-                sh4_align = vmap(param_func)(aux_reg)
-                loss_reg = align_sh4_explicit(sh4_align, normal_reg)
-
-            loss_reg = regularize_weight * loss_reg
+            loss_reg = regularize_weight * jax.lax.cond(
+                regularize_weight > 0, eval_align_loss, lambda x, y: 0.,
+                *(normal_reg, aux_reg))
             loss += loss_reg
             loss_dict['loss_reg'] = loss_reg
 
@@ -150,19 +169,24 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_dict['loss_lip'] = loss_lip
 
         if loss_cfg.smooth > 0:
-            if loss_cfg.grid:
-                loss_smooth = smooth_weight * model.get_aux_loss()
-            else:
-                sh4_jac = jnp.vstack([jac_on, jac_off])
-                sh4_jac_norm = vmap(jnp.linalg.norm, in_axes=(0, None))(sh4_jac,
-                                                                        'f')
-                loss_smooth = smooth_weight * sh4_jac_norm.mean()
+
+            def eval_smooth_loss(jac):
+                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f')
+
+            sh4_jac = jnp.vstack([jac_on, jac_off])
+            loss_smooth = smooth_weight * jax.lax.cond(
+                smooth_weight > 0, eval_smooth_loss, lambda x: 0., sh4_jac)
             loss += loss_smooth
             loss_dict['loss_smooth'] = loss_smooth
 
         if loss_cfg.hessian > 0:
-            loss_hessian = hessian_weight * 0.5 * jnp.abs(
-                vmap(jnp.linalg.det)(hessian_close)).mean()
+
+            def eval_hessian_loss(hessian):
+                return 0.5 * jnp.abs(vmap(jnp.linalg.det)(hessian)).mean()
+
+            loss_hessian = hessian_weight * jax.lax.cond(
+                hessian_weight > 0, eval_hessian_loss, lambda x: 0.,
+                hessian_close)
             loss += loss_hessian
             loss_dict['loss_hessian'] = loss_hessian
 
@@ -174,7 +198,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
     def make_step(model: model_jax.MLP, opt_state: PyTree, batch: PyTree,
                   loss_cfg: LossConfig):
         # FIXME: The static index is risky--it depends on the order of optax.chain
-        step_count = opt_state[-1].count
+        step_count = opt_state[0].count
         grads, loss_dict = loss_func(model,
                                      **batch,
                                      loss_cfg=loss_cfg,

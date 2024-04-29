@@ -54,7 +54,13 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     # Matters for querying the step count
     lr_scheduler = optax.constant_schedule(cfg.training.lr)
 
-    optim = optax.adam(lr_scheduler)
+    chain = [
+        optax.scale_by_adam(),
+        optax.scale_by_learning_rate(lr_scheduler),
+        optax.clip_by_global_norm(10.)
+    ]
+
+    optim = optax.chain(*chain)
     opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     return optim, opt_state

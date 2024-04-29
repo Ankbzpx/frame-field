@@ -45,8 +45,6 @@ class LossConfig:
     rot6d: bool = False
     explicit_basis: bool = False
 
-    grid: bool = False
-
 
 @dataclass
 class Config:
