@@ -12,12 +12,14 @@ import json
 import os
 
 import model_jax
+from common import normalize
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data_pytorch
 from sh_representation import (rotvec_to_sh4_expm, rotvec_to_R3, rot6d_to_R3,
                                rot6d_to_sh4_zonal, proj_sh4_to_R3)
 from loss import (eikonal, align_sh4_explicit, align_sh4_functional,
-                  align_basis_explicit, align_basis_functional)
+                  align_sh4_explicit_cosine, align_basis_explicit,
+                  align_basis_functional)
 from eval_jax import eval
 from tensorboardX import SummaryWriter
 import copy
@@ -40,11 +42,10 @@ def train(cfg: Config, model: model_jax.MLP, data):
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     regularize_schedule = optax.polynomial_schedule(
-        0, cfg.loss_cfg.regularize, 1, int(0.2 * cfg.training.n_steps),
-        int(0.4 * cfg.training.n_steps))
+        0, cfg.loss_cfg.regularize, 1, int(0.1 * cfg.training.n_steps),
+        int(0.5 * cfg.training.n_steps))
     hessian_schedule = optax.polynomial_schedule(
-        cfg.loss_cfg.hessian, 0, 1, int(0.2 * cfg.training.n_steps),
-        int(0.2 * cfg.training.n_steps))
+        cfg.loss_cfg.hessian, 0, 1, int(0.05 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
@@ -126,17 +127,20 @@ def train(cfg: Config, model: model_jax.MLP, data):
             'loss_eikonal': loss_eikonal
         }
 
-        def eval_align_loss(normal, aux):
-            if loss_cfg.explicit_basis or loss_cfg.rot6d:
-                basis_align = proj_func(aux)
-                loss_align = align_basis_explicit(basis_align, normal).mean()
-            else:
-                sh4_align = vmap(param_func)(aux)
-                loss_align = align_sh4_explicit(sh4_align, normal).mean()
-
-            return loss_align
-
         if loss_cfg.align > 0:
+
+            def eval_align_loss(normal, aux):
+                if loss_cfg.explicit_basis or loss_cfg.rot6d:
+                    basis_align = proj_func(aux)
+                    loss_align = align_basis_explicit(basis_align,
+                                                      normal).mean()
+                else:
+                    sh4_align = vmap(param_func)(aux)
+                    loss_align = align_sh4_explicit_cosine(sh4_align,
+                                                           normal).mean()
+
+                return loss_align
+
             samples_proj = samples_on_sur - pred_on_sur_sdf[:,
                                                             None] * pred_normals_on_sur
             out_proj = model.call_grad(jax.lax.stop_gradient(samples_proj),
@@ -157,10 +161,22 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_dict['loss_align'] = loss_align
 
         if loss_cfg.regularize > 0:
+
+            def eval_reg_loss(normal, aux):
+                if loss_cfg.explicit_basis or loss_cfg.rot6d:
+                    basis_reg = proj_func(aux)
+                    loss_reg = align_basis_explicit(basis_reg, normal).mean()
+                else:
+                    sh4_align = vmap(param_func)(aux)
+                    sh4_align = vmap(normalize)(sh4_align)
+                    loss_reg = align_sh4_explicit(sh4_align, normal).mean()
+
+                return loss_reg
+
             normal_reg = jnp.vstack([pred_normals_close_sur])
             aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_close]))
             loss_reg = regularize_weight * jax.lax.cond(
-                regularize_weight > 0, eval_align_loss, lambda x, y: 0.,
+                regularize_weight > 0, eval_reg_loss, lambda x, y: 0.,
                 *(normal_reg, aux_reg))
             loss += loss_reg
             loss_dict['loss_reg'] = loss_reg

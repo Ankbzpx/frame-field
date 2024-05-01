@@ -1,8 +1,8 @@
 from jax import numpy as jnp, jit, vmap
 from common import normalize
 from sh_representation import (oct_polynomial_zonal_unit_norm, rotvec_to_R9,
-                               rotvec_n_to_z, project_n,
-                               oct_polynomial_sh4_unit_norm)
+                               rotvec_n_to_z, project_n, project_z,
+                               oct_polynomial_sh4_unit_norm, sh4_canonical)
 
 
 @jit
@@ -40,6 +40,13 @@ def align_sh4_explicit(sh4, normal, xy_scale=1):
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal))
     sh4_n = vmap(project_n, in_axes=(0, 0, None))(sh4, R9_zn, xy_scale)
     return vmap(jnp.linalg.norm, in_axes=(0, None))(sh4 - sh4_n, 1)
+
+
+@jit
+def align_sh4_explicit_cosine(sh4, normal, xy_scale=1):
+    R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal))
+    sh4_n = vmap(project_n, in_axes=(0, 0, None))(sh4, R9_zn, xy_scale)
+    return (1 - vmap(cosine_similarity)(sh4, sh4_n))
 
 
 @jit
