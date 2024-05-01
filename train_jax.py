@@ -19,6 +19,7 @@ from sh_representation import (rotvec_to_sh4_expm, rotvec_to_R3, rot6d_to_R3,
 from loss import (eikonal, align_sh4_explicit, align_sh4_functional,
                   align_basis_explicit, align_basis_functional)
 from eval_jax import eval
+from tensorboardX import SummaryWriter
 import copy
 from icecream import ic
 
@@ -33,6 +34,7 @@ def eval_iter(cfg: Config, model, latent, iter):
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
+    writer = SummaryWriter()
     optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
@@ -227,28 +229,15 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 loss_history[key] = np.zeros(cfg.training.n_steps)
             loss_history[key][iteration] = loss_dict[key]
 
-        loss_dict_log = jax.tree.map(lambda x: f"{x:.4}", loss_dict)
-        pbar.set_postfix({
-            "loss_total": loss_dict_log['loss_total'],
-            "loss_mse": loss_dict_log['loss_mse'],
-        })
+        writer.add_scalars(f'{cfg.name}', loss_dict, iteration)
+        pbar.set_postfix({"loss_total": loss_dict['loss_total']})
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot
         # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
-        if iteration % cfg.training.plot_every == 0:
-            plt.close(1)
-            plt.figure(1)
-            plt.semilogy(loss_history['loss_total'][:iteration])
-            plt.title('Reconstruction loss')
-            plt.grid()
-            plt.savefig(
-                os.path.join(cfg.checkpoints_dir,
-                             f"{cfg.name}_loss_history.jpg"))
-
-            if iteration % cfg.training.eval_every == 0 and iteration != 0:
-                eval_latent = jnp.empty((0,))
-                eval_iter(cfg, model, eval_latent, iteration)
+        if iteration % cfg.training.eval_every == 0 and iteration != 0:
+            eval_latent = jnp.empty((0,))
+            eval_iter(cfg, model, eval_latent, iteration)
 
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
