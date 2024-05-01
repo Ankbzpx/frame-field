@@ -301,15 +301,30 @@ def eval(cfg: Config,
     sdf_data = load_sdf(cfg.sdf_paths[0])
     sur_sample = sdf_data['samples_on_sur']
     pc_center, pc_scale, _ = aabb_compute(sur_sample)
+
+    save_name = f"{cfg.name}_{interp_tag}" if interp_tag != '' else f"{cfg.name}"
+
+    # Octahedral field
+    if len(cfg.mlp_cfgs) > 1:
+        aux = batch_call(infer, V)[:, 1:]
+        sh4 = param_func(aux)
+
+        if cfg.loss_cfg.xy_scale != 1:
+            sh4 = proj_sh4_sdp(sh4)
+
+        print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
+        Rs = proj_func(sh4)
+
+        timer.log('Infer octahedral frames')
+
+        V_vis_sup, F_vis_sup = vis_oct_field(Rs, V, 0.64 / grid_res)
+        V_vis_sup = V_vis_sup * pc_scale + pc_center
+        igl.write_triangle_mesh(
+            os.path.join(cfg.out_dir, f"{save_name}_octa.obj"), V_vis_sup,
+            F_vis_sup)
+
     V = V * pc_scale + pc_center
-
-    def scale_pc_aabb(pc):
-        return (pc - pc_center) / pc_scale
-
-    # Save raw MC mesh
-
-    mc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}.obj" if interp_tag == '' else f"{cfg.out_dir}/{cfg.name}.obj"
-    igl.write_triangle_mesh(mc_save_path, V, F)
+    igl.write_triangle_mesh(os.path.join(cfg.out_dir, f"{save_name}.obj"), V, F)
 
     # Quadratic edge collapsing reduces vertex count while preserves original appeal
     if edge_collapse:
@@ -354,33 +369,10 @@ def eval(cfg: Config,
         exit()
 
     if vis_mc:
-        # input_sample_size = jnp.minimum(len(sur_sample),
-        #                                 cfg.training.n_input_samples)
-        # sur_normal = sdf_data['normals_on_sur']
-        # # Match number of samples used for training
-        # sur_sample = sur_sample[:input_sample_size]
-        # sur_normal = sur_normal[:input_sample_size]
-
-        has_octa = False
-        if len(cfg.mlp_cfgs) > 1:
-            has_octa = True
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        if has_octa:
-            aux = batch_call(infer, scale_pc_aabb(sur_sample))[:, 1:]
-            sh4 = param_func(aux)
-
-            if cfg.loss_cfg.xy_scale != 1:
-                sh4 = proj_sh4_sdp(sh4)
-
-            print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
-
-            Rs = proj_func(sh4)
-
-            V_vis_sup, F_vis_sup = vis_oct_field(Rs, sur_sample,
-                                                 0.01 * pc_scale)
-
+        if len(cfg.mlp_cfgs) > 1:
             ps.register_surface_mesh('Oct frames supervise', V_vis_sup,
                                      F_vis_sup)
 
