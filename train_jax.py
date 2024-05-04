@@ -132,31 +132,21 @@ def train(cfg: Config, model: model_jax.MLP, data):
             def eval_align_loss(normal, aux):
                 if loss_cfg.explicit_basis or loss_cfg.rot6d:
                     basis_align = proj_func(aux)
-                    loss_align = align_basis_explicit(basis_align,
-                                                      normal).mean()
+                    loss_align = align_basis_explicit(basis_align, normal)
                 else:
                     sh4_align = vmap(param_func)(aux)
-                    loss_align = align_sh4_explicit_cosine(sh4_align,
-                                                           normal).mean()
+                    loss_align = align_sh4_explicit_cosine(sh4_align, normal)
 
                 return loss_align
 
-            samples_proj = samples_on_sur - pred_on_sur_sdf[:,
-                                                            None] * pred_normals_on_sur
-            out_proj = model.call_grad(jax.lax.stop_gradient(samples_proj),
-                                       latent)
-            (_, aux_proj), pred_normals_proj = out_proj
-
-            normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_proj
-                                                            ]))
-            aux_align = jnp.vstack([aux_proj])
-
-            # normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_on_sur
-            #                                                 ]))
-            # aux_align = jnp.vstack([aux_on])
-            loss_align = align_weight * jax.lax.cond(
-                align_weight > 0, eval_align_loss, lambda x, y: 0.,
-                *(normal_align, aux_align))
+            sample_weight = jax.lax.stop_gradient(
+                jnp.exp(-1e2 * jnp.abs(pred_on_sur_sdf)))
+            normal_align = jax.lax.stop_gradient(
+                jnp.vstack([pred_normals_on_sur]))
+            aux_align = jnp.vstack([aux_on])
+            loss_align = align_weight * (sample_weight * jax.lax.cond(
+                align_weight > 0, eval_align_loss, lambda x, y: jnp.zeros(
+                    len(sample_weight)), *(normal_align, aux_align))).mean()
             loss += loss_align
             loss_dict['loss_align'] = loss_align
 
