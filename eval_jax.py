@@ -166,6 +166,7 @@ def eval(cfg: Config,
          vis_mc=False,
          vis_smooth=False,
          vis_flowline=False,
+         save_octa=False,
          single_object=True,
          edge_collapse=False,
          trace_flowline=False,
@@ -305,7 +306,7 @@ def eval(cfg: Config,
     save_name = f"{cfg.name}_{interp_tag}" if interp_tag != '' else f"{cfg.name}"
 
     # Octahedral field
-    if len(cfg.mlp_cfgs) > 1:
+    if save_octa and len(cfg.mlp_cfgs) > 1:
         aux = batch_call(infer, V)[:, 1:]
         sh4 = param_func(aux)
 
