@@ -36,7 +36,7 @@ def eval_iter(cfg: Config, model, latent, iter):
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
-    writer = SummaryWriter()
+    writer = SummaryWriter(logdir=os.path.join(cfg.checkpoints_dir, 'runs'))
     optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
