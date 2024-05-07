@@ -100,7 +100,7 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
         sdf_np = np.array(sdf[..., 0])
 
     sdf_np = np.swapaxes(sdf_np, 0, 1)
-    spacing = 1. / (grid_res - 1)
+    spacing = 1. / grid_res
     # It outputs inverse VN, even with gradient_direction set to ascent
     V, F, VN_inv, _ = marching_cubes(sdf_np,
                                      0.,
