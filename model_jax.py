@@ -299,14 +299,15 @@ class LipSineLayer(SineLayer):
                  out_features: int,
                  key: jax.random.PRNGKey,
                  is_first: bool = False,
+                 is_last: bool = False,
                  omega_0: float = 1):
-        super().__init__(in_features, out_features, key, is_first, omega_0)
+        super().__init__(in_features, out_features, key, is_first, is_last,
+                         omega_0)
+        self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
         if is_first:
-            self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
             self.c_scale = 1.0
         else:
-            self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1)) * omega_0
-            self.c_scale = 1.0 / omega_0
+            self.c_scale = 1.0 * omega_0
 
     # L-infinity weight normalization
     def weight_normalization(self, W, softplus_c):
@@ -315,13 +316,13 @@ class LipSineLayer(SineLayer):
         return W * scale[:, None]
 
     def __call__(self, x):
-        return self.omega_0 * (self.weight_normalization(
-            self.W, self.c_scale * jax.nn.softplus(self.c)) @ x + self.b)
+        return self.omega_0 * (
+            self.weight_normalization(self.W, jax.nn.softplus(self.c)) @ x +
+            self.b)
 
     def lipschitz(self):
-        # TODO: Scale based on omega_0
-        #   otherwise the first layer has different regularization speed than the rest when omega_0 > 1
-        return jax.nn.softplus(self.c)
+        # Scale based on omega_0, otherwise the first layer has different regularization speed than the rest when omega_0 > 1
+        return self.c_scale * jax.nn.softplus(self.c)
 
 
 class LipMLP(MLP):

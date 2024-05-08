@@ -32,24 +32,24 @@ def eval_iter(cfg: Config, model, latent, iter):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{iter}"
     cfg.out_dir = os.path.join(cfg.out_dir, 'debug_iters')
-    eval(cfg, model, latent, grid_res=256)
+    eval(cfg, model, latent, grid_res=256, save_octa=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
-    writer = SummaryWriter(logdir=os.path.join(cfg.checkpoints_dir, 'runs'))
+    writer = SummaryWriter(logdir=os.path.join('checkpoints/runs'))
     optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     regularize_schedule = optax.polynomial_schedule(
         0, cfg.loss_cfg.regularize, 1, int(0.2 * cfg.training.n_steps),
-        int(0.2 * cfg.training.n_steps))
+        int(0.3 * cfg.training.n_steps))
     hessian_schedule = optax.polynomial_schedule(
         cfg.loss_cfg.hessian, 0, 1, int(0.2 * cfg.training.n_steps))
-    on_sur_schedule = optax.polynomial_schedule(cfg.loss_cfg.on_sur,
+    on_sur_schedule = optax.polynomial_schedule(0.5 * cfg.loss_cfg.on_sur,
                                                 0.75 * cfg.loss_cfg.on_sur, 1,
                                                 int(0.2 * cfg.training.n_steps),
-                                                int(0.2 * cfg.training.n_steps))
+                                                int(0.3 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
