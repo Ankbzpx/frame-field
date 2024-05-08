@@ -8,7 +8,8 @@
     {
       "input_scale": 100,
       "hidden_layers": 4,
-      "out_features": 9
+      "out_features": 9,
+      "activation": "sin"
     }
   ],
   "loss_cfg": {
