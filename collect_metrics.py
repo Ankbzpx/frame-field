@@ -7,11 +7,10 @@ from icecream import ic
 if __name__ == '__main__':
 
     dataset_list = ['abc', 'thingi10k']
-    # noise_level_list = ['1e-2', '2e-3']
-    noise_level_list = ['2e-3']
+    noise_level_list = ['1e-2', '2e-3']
     method_list = [
-        'digs', 'neural_singular_hessian', 'EAR', 'point_laplacian', 'SPR',
-        'nksr', 'line_processing', 'ours'
+        'digs', 'neural_singular_hessian', 'APSS', 'EAR', 'point_laplacian',
+        'SPR', 'nksr', 'line_processing', 'ours'
     ]
 
     metrics = ['chamfer', 'hausdorff', 'f1']
