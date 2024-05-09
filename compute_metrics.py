@@ -6,6 +6,9 @@ from scipy.spatial import cKDTree
 import pandas as pd
 from tqdm import tqdm
 
+from common import rm_unref_vertices
+import igl
+
 import polyscope as ps
 from icecream import ic
 
@@ -38,13 +41,14 @@ if __name__ == '__main__':
     dataset_list = ['abc', 'thingi10k']
     noise_level_list = ['1e-2', '2e-3']
     method_list = [
-        'digs', 'neural_singular_hessian', 'EAR', 'point_laplacian', 'SPR',
-        'nksr', 'line_processing', 'ours'
+        'digs', 'neural_singular_hessian', 'EAR', 'APSS', 'point_laplacian',
+        'SPR', 'nksr', 'line_processing', 'ours'
     ]
 
     seed = 0
     sample_size = 1000000
     f1_percent = 1e-2
+    filter_thr = 0.075
 
     np.random.seed(seed)
 
@@ -54,7 +58,7 @@ if __name__ == '__main__':
     for dataset in dataset_list:
         print(dataset)
         gt_folder = os.path.join(gt_root, dataset, 'gt')
-        model_list = os.listdir(gt_folder)
+        model_list = sorted(os.listdir(gt_folder))
         for model in tqdm(model_list):
             gt_mesh: trimesh.Trimesh = trimesh.load(
                 os.path.join(gt_folder, model))
@@ -64,6 +68,9 @@ if __name__ == '__main__':
             aabb = gt_mesh.bounding_box.bounds
             max_bound = np.max(aabb[1] - aabb[0])
             f1_thr = f1_percent * max_bound
+
+            # Sub kd tree for connected component test
+            gt_sub_kd_tree = cKDTree(gt_samples[:int(0.1 * sample_size)])
 
             model_name = model.split('.')[0]
             for noise_level in noise_level_list:
@@ -75,6 +82,35 @@ if __name__ == '__main__':
                                      f'{model_name}.*'))[0]
                     result_mesh: trimesh.Trimesh = trimesh.load(result_path)
                     if hasattr(result_mesh, 'faces'):
+
+                        if method == 'ours' or method == 'neural_singular_hessian':
+                            # Filter isolated components
+                            A = igl.adjacency_matrix(result_mesh.faces)
+                            n_c, C, K = igl.connected_components(A)
+
+                            if n_c > 1:
+                                V = result_mesh.vertices
+                                F = result_mesh.faces
+                                V_rm_mark = np.zeros(len(V)).astype(bool)
+                                for c_idx in range(n_c):
+                                    pick = C == c_idx
+                                    V_c = V[pick]
+                                    dists, _ = gt_sub_kd_tree.query(V_c,
+                                                                    workers=8)
+                                    if dists.mean() > filter_thr:
+                                        V_rm_mark = np.logical_or(
+                                            V_rm_mark, pick)
+
+                                F_mark = np.logical_not(V_rm_mark[F].sum(1) > 0)
+
+                                if F_mark.sum() > 0:
+                                    V, F = rm_unref_vertices(V, F[F_mark])
+                                    result_mesh = trimesh.Trimesh(V, F)
+                                else:
+                                    # Likely failure case
+                                    print(dataset, noise_level, model_name,
+                                          method)
+
                         result_samples, _ = trimesh.sample.sample_surface(
                             result_mesh, sample_size, seed=seed)
                     else:
