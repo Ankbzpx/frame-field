@@ -32,7 +32,7 @@ def eval_iter(cfg: Config, model, latent, iter):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{iter}"
     cfg.out_dir = os.path.join(cfg.out_dir, 'debug_iters')
-    eval(cfg, model, latent, grid_res=256, save_octa=True)
+    eval(cfg, model, latent, grid_res=256)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
@@ -40,16 +40,16 @@ def train(cfg: Config, model: model_jax.MLP, data):
     optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
-    regularize_schedule = optax.polynomial_schedule(
-        0, cfg.loss_cfg.regularize, 1, int(0.2 * cfg.training.n_steps),
-        int(0.3 * cfg.training.n_steps))
-    hessian_schedule = optax.polynomial_schedule(
-        cfg.loss_cfg.hessian, 0, 1, int(0.2 * cfg.training.n_steps))
-    on_sur_schedule = optax.polynomial_schedule(0.5 * cfg.loss_cfg.on_sur,
-                                                0.75 * cfg.loss_cfg.on_sur, 1,
+    align_schedule = optax.linear_schedule(0, cfg.loss_cfg.align, 1,
+                                           int(0.2 * cfg.training.n_steps))
+    lip_schedule = optax.linear_schedule(0, cfg.loss_cfg.lip, 1,
+                                         int(0.2 * cfg.training.n_steps))
+    regularize_schedule = optax.linear_schedule(0, cfg.loss_cfg.regularize,
                                                 int(0.2 * cfg.training.n_steps),
-                                                int(0.3 * cfg.training.n_steps))
+                                                int(0.4 * cfg.training.n_steps))
+    hessian_schedule = optax.linear_schedule(cfg.loss_cfg.hessian,
+                                             1e-3 * cfg.loss_cfg.hessian,
+                                             int(0.1 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
@@ -65,7 +65,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         align_weight = align_schedule(step_count)
         regularize_weight = regularize_schedule(step_count)
         hessian_weight = hessian_schedule(step_count)
-        on_sur_weight = on_sur_schedule(step_count)
+        lip_weight = lip_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -89,38 +89,31 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 return jnp.empty(
                     (len(samples), 9, 3)), model.call_grad(samples, latent)
 
-            jac_on, out_on = jax.lax.cond(smooth_weight > 0, eval_smooth,
-                                          eval_grad, samples_on_sur)
-            jac_off, out_off = jax.lax.cond(smooth_weight > 0, eval_smooth,
-                                            eval_grad, samples_off_sur)
+            jac_on, ((pred_on_sur_sdf, aux_on),
+                     pred_normals_on_sur) = jax.lax.cond(
+                         smooth_weight > 0, eval_smooth, eval_grad,
+                         samples_on_sur)
+            jac_off, ((pred_off_sur_sdf, _),
+                      _) = jax.lax.cond(smooth_weight > 0, eval_smooth,
+                                        eval_grad, samples_off_sur)
         else:
-            out_on = model.call_grad(samples_on_sur, latent)
-            out_off = model.call_grad(samples_off_sur, latent)
+            (pred_on_sur_sdf, aux_on), pred_normals_on_sur = model.call_grad(
+                samples_on_sur, latent)
+            pred_off_sur_sdf = model(samples_off_sur, latent)[:, 0]
 
         if loss_cfg.hessian > 0:
 
             def eval_hessian(samples):
-                return model.call_hessian_aux(samples, latent)
+                return model.call_hessian(samples, latent)
 
             def eval_grad(samples):
-                return jnp.empty(
-                    (len(samples), 3, 3)), model.call_grad(samples, latent)
+                return jnp.empty((len(samples), 3, 3))
 
-            hessian_close, out_close = jax.lax.cond(hessian_weight > 0,
-                                                    eval_hessian, eval_grad,
-                                                    samples_close_sur)
-        else:
-            out_close = model.call_grad(samples_close_sur, latent)
-
-        (pred_on_sur_sdf, aux_on), pred_normals_on_sur = out_on
-        (pred_off_sur_sdf, aux_off), pred_normals_off_sur = out_off
-        (pred_close_sur_sdf, aux_close), pred_normals_close_sur = out_close
-
-        # normal_pred = jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
-        # aux_pred = jnp.vstack([aux_on, aux_off])
+            hessian_close = jax.lax.cond(hessian_weight > 0, eval_hessian,
+                                         eval_grad, samples_close_sur)
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
-        loss_mse = on_sur_weight * jnp.abs(pred_on_sur_sdf).mean()
+        loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(
             -1e2 * jnp.abs(pred_off_sur_sdf)).mean()
         loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(
@@ -168,8 +161,8 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
                 return loss_reg
 
-            normal_reg = jnp.vstack([pred_normals_close_sur])
-            aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_close]))
+            normal_reg = jnp.vstack([pred_normals_on_sur])
+            aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_on]))
             loss_reg = regularize_weight * jax.lax.cond(
                 regularize_weight > 0, eval_reg_loss, lambda x, y: 0.,
                 *(normal_reg, aux_reg))
@@ -177,7 +170,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_dict['loss_reg'] = loss_reg
 
         if loss_cfg.lip > 0:
-            loss_lip = loss_cfg.lip * model.get_aux_loss()
+            loss_lip = lip_weight * model.get_aux_loss()
             loss += loss_lip
             loss_dict['loss_lip'] = loss_lip
 

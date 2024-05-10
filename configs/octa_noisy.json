@@ -12,9 +12,10 @@
     }
   ],
   "loss_cfg": {
+    "on_sur": 3.5e3,
     "hessian": 3,
     "align": 1e2,
-    "regularize": 2.5e1,
+    "regularize": 1e1,
     "lip": 1e-6
   }
 }
