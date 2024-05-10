@@ -76,6 +76,7 @@ class MLP(eqx.Module):
 
         return vmap(jacfwd(__single_call, has_aux=True))(x, z)
 
+    # WARNING: This is slower than call 'call_hessian' and 'call_grad' separately
     def call_hessian_aux(self, x, z):
 
         def __single_call(x, z):
