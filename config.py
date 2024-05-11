@@ -34,12 +34,15 @@ class LossConfig:
     eikonal: float = 5e1
 
     align: float = 0    # sh4
+    align_begin: float = 0
     unit_norm: float = 1    # sh4 norm
     lip: float = 0
     smooth: float = 0    # sh4 jac
     regularize: float = 0    # off surface
+    regularize_begin: float = 0
     xy_scale: float = 1    # actually sqrt(xy_scale)
     hessian: float = 0
+    hessian_annealing: float = 0
 
     rotvec: bool = False
     rot6d: bool = False
