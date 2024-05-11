@@ -40,16 +40,19 @@ def train(cfg: Config, model: model_jax.MLP, data):
     optim, opt_state = config_optim(cfg, model)
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    align_schedule = optax.linear_schedule(0, cfg.loss_cfg.align, 1,
-                                           int(0.2 * cfg.training.n_steps))
-    lip_schedule = optax.linear_schedule(0, cfg.loss_cfg.lip, 1,
-                                         int(0.2 * cfg.training.n_steps))
-    regularize_schedule = optax.linear_schedule(0, cfg.loss_cfg.regularize,
-                                                int(0.2 * cfg.training.n_steps),
-                                                int(0.4 * cfg.training.n_steps))
-    hessian_schedule = optax.linear_schedule(cfg.loss_cfg.hessian,
-                                             1e-3 * cfg.loss_cfg.hessian,
-                                             int(0.1 * cfg.training.n_steps))
+    align_schedule = optax.linear_schedule(
+        0, cfg.loss_cfg.align, 1,
+        int(cfg.loss_cfg.align_begin * cfg.training.n_steps))
+    lip_schedule = optax.linear_schedule(
+        0, cfg.loss_cfg.lip, 1,
+        int(cfg.loss_cfg.align_begin * cfg.training.n_steps))
+    regularize_schedule = optax.linear_schedule(
+        0, cfg.loss_cfg.regularize, int(0.2 * cfg.training.n_steps),
+        int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps))
+    hessian_schedule = optax.linear_schedule(
+        cfg.loss_cfg.hessian,
+        cfg.loss_cfg.hessian_annealing * cfg.loss_cfg.hessian,
+        int(0.1 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)

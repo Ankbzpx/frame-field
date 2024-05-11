@@ -13,8 +13,11 @@
   ],
   "loss_cfg": {
     "hessian": 3,
+    "hessian_annealing": 1e-4,
     "align": 1e2,
-    "regularize": 2.5e1,
+    "align_begin": 0.4,
+    "regularize": 1e1,
+    "regularize_begin": 0.6,
     "lip": 1e-6
   }
 }
