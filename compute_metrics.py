@@ -42,7 +42,7 @@ if __name__ == '__main__':
     noise_level_list = ['1e-2', '2e-3']
     method_list = [
         'digs', 'neural_singular_hessian', 'EAR', 'APSS', 'point_laplacian',
-        'SPR', 'nksr', 'line_processing', 'ours'
+        'SPR', 'nksr', 'nksr_p2s', 'line_processing', 'ours'
     ]
 
     seed = 0
