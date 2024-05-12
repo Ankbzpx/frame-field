@@ -53,6 +53,9 @@ def train(cfg: Config, model: model_jax.MLP, data):
         cfg.loss_cfg.hessian,
         cfg.loss_cfg.hessian_annealing * cfg.loss_cfg.hessian,
         int(0.1 * cfg.training.n_steps))
+    digs_schedule = optax.linear_schedule(cfg.loss_cfg.digs, 0,
+                                          int(0.2 * cfg.training.n_steps),
+                                          int(0.2 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
@@ -69,6 +72,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         regularize_weight = regularize_schedule(step_count)
         hessian_weight = hessian_schedule(step_count)
         lip_weight = lip_schedule(step_count)
+        digs_weight = digs_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -105,15 +109,14 @@ def train(cfg: Config, model: model_jax.MLP, data):
             pred_off_sur_sdf = model(samples_off_sur, latent)[:, 0]
 
         if loss_cfg.hessian > 0:
+            hessian_close = jax.lax.cond(hessian_weight > 0, model.call_hessian,
+                                         lambda x, y: jnp.empty((len(x), 3, 3)),
+                                         *(samples_close_sur, latent))
 
-            def eval_hessian(samples):
-                return model.call_hessian(samples, latent)
-
-            def eval_grad(samples):
-                return jnp.empty((len(samples), 3, 3))
-
-            hessian_close = jax.lax.cond(hessian_weight > 0, eval_hessian,
-                                         eval_grad, samples_close_sur)
+        if loss_cfg.digs > 0:
+            hessian_off = jax.lax.cond(digs_weight > 0, model.call_hessian,
+                                       lambda x, y: jnp.empty((len(x), 3, 3)),
+                                       *(samples_off_sur, latent))
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
@@ -199,6 +202,17 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss += loss_hessian
             loss_dict['loss_hessian'] = loss_hessian
 
+        if loss_cfg.digs > 0:
+
+            def eval_digs_loss(hessian):
+                return jnp.clip(jnp.abs(vmap(jnp.trace)(hessian)), 0.1,
+                                50).mean()
+
+            loss_digs = digs_weight * jax.lax.cond(
+                digs_weight > 0, eval_digs_loss, lambda x: 0., hessian_off)
+            loss += loss_digs
+            loss_dict['loss_digs'] = loss_digs
+
         loss_dict['loss_total'] = loss
 
         return loss, loss_dict
@@ -237,7 +251,10 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_history[key][iteration] = loss_dict[key]
 
         writer.add_scalars(f'{cfg.name}', loss_dict, iteration)
-        pbar.set_postfix({"loss_total": loss_dict['loss_total']})
+        pbar.set_postfix({
+            "loss_total": loss_dict['loss_total'],
+            "loss_digs": loss_dict['loss_digs']
+        })
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot
