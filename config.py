@@ -9,6 +9,7 @@ class MLPConfig:
     out_features: int = 1
     activation: str = 'elu'
     input_scale: float = 1    # spatial scaling
+    init_method: str = 'default'
 
 
 @dataclass
@@ -43,6 +44,7 @@ class LossConfig:
     xy_scale: float = 1    # actually sqrt(xy_scale)
     hessian: float = 0
     hessian_annealing: float = 0
+    digs: float = 0
 
     rotvec: bool = False
     rot6d: bool = False

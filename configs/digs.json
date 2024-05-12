@@ -1,0 +1,15 @@
+{
+  "mlp_types": ["Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1,
+      "init_method": "mfgi"
+    }
+  ],
+  "loss_cfg": {
+    "on_sur": 3e3,
+    "off_sur": 5e2,
+    "digs": 1e2
+  }
+}
