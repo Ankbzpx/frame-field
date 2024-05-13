@@ -53,9 +53,9 @@ def train(cfg: Config, model: model_jax.MLP, data):
         cfg.loss_cfg.hessian,
         cfg.loss_cfg.hessian_annealing * cfg.loss_cfg.hessian,
         int(0.1 * cfg.training.n_steps))
-    digs_schedule = optax.linear_schedule(cfg.loss_cfg.digs, 0,
-                                          int(0.2 * cfg.training.n_steps),
-                                          int(0.2 * cfg.training.n_steps))
+    digs_schedule = optax.linear_schedule(cfg.loss_cfg.digs,
+                                          cfg.loss_cfg.digs_annealing,
+                                          int(0.1 * cfg.training.n_steps))
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
@@ -251,10 +251,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_history[key][iteration] = loss_dict[key]
 
         writer.add_scalars(f'{cfg.name}', loss_dict, iteration)
-        pbar.set_postfix({
-            "loss_total": loss_dict['loss_total'],
-            "loss_digs": loss_dict['loss_digs']
-        })
+        pbar.set_postfix({"loss_total": loss_dict['loss_total']})
 
         # TODO: Use better plot such as tensorboardX
         # Loss plot

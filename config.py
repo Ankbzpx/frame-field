@@ -45,6 +45,7 @@ class LossConfig:
     hessian: float = 0
     hessian_annealing: float = 0
     digs: float = 0
+    digs_annealing: float = 0
 
     rotvec: bool = False
     rot6d: bool = False
