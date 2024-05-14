@@ -32,7 +32,7 @@ def eval_iter(cfg: Config, model, latent, iter):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{iter}"
     cfg.out_dir = os.path.join(cfg.out_dir, 'debug_iters')
-    eval(cfg, model, latent, grid_res=256)
+    eval(cfg, model, latent, grid_res=256, save_octa=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
@@ -254,9 +254,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
         writer.add_scalars(f'{cfg.name}', loss_dict, iteration)
         pbar.set_postfix({"loss_total": loss_dict['loss_total']})
 
-        # TODO: Use better plot such as tensorboardX
-        # Loss plot
-        # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/main/demos/lipschitz_mlp/main_lipmlp.py#L44
         if iteration % cfg.training.eval_every == 0 and iteration != 0:
             eval_latent = jnp.empty((0,))
             eval_iter(cfg, model, eval_latent, iteration)
