@@ -6,6 +6,8 @@ import os
 import time
 
 from mesh_helper import OBJMesh, write_obj
+import pymeshlab
+import math
 
 import polyscope as ps
 from icecream import ic
@@ -444,3 +446,63 @@ def write_triangle_mesh_VC(save_path, V, F, VC):
     mesh = OBJMesh(V, F)
     mesh.vertex_colors = VC
     write_obj(save_path, mesh)
+
+
+def color_map(color_scale):
+    colors = jnp.array([[255, 255, 255], [174, 216, 204], [205, 102, 136],
+                        [122, 49, 111], [70, 25, 89]]) / 255.0
+
+    @jit
+    def color_interp(val):
+        idx = jnp.int32(val // 0.25)
+        t = val % 0.25 / 0.25
+
+        c0 = colors[idx]
+        c1 = colors[idx + 1]
+
+        return (1 - t) * c0 + t * c1
+
+    return vmap(color_interp)(color_scale)
+
+
+def triangulation(V, VN=None, save_path='tmp/ball_pivoting.obj'):
+
+    save_folder = '/'.join(save_path.split('/')[:-1])
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+    if VN is None:
+        m = pymeshlab.Mesh(V)
+    else:
+        m = pymeshlab.Mesh(vertex_matrix=V, v_normals_matrix=VN)
+    ms = pymeshlab.MeshSet()
+    ms.add_mesh(m, "mesh")
+    if VN is None:
+        ms.generate_surface_reconstruction_ball_pivoting()
+    else:
+        ms.generate_surface_reconstruction_screened_poisson(threads=1)
+    ms.meshing_decimation_quadric_edge_collapse(targetfacenum=5000)
+    m = ms.current_mesh()
+    V = m.vertex_matrix()
+    F = m.face_matrix()
+    return V, F
+
+
+# Modified from: https://stackoverflow.com/questions/9600801/evenly-distributing-n-points-on-a-sphere
+def fibonacci_sphere(samples):
+    points = []
+    phi = math.pi * (3. - math.sqrt(5.))    # golden angle in radians
+
+    for i in range(samples):
+        y = 1 - (i / float(samples - 1)) * 2    # y goes from 1 to -1
+        radius = math.sqrt(1 - y * y)    # radius at y
+
+        theta = phi * i    # golden angle increment
+
+        x = math.cos(theta) * radius
+        z = math.sin(theta) * radius
+
+        points.append((x, y, z))
+
+    xyz = np.array(points)
+    return xyz
