@@ -174,6 +174,8 @@ class SDFDataset(Dataset):
 
     def __getitem__(self, index):
 
+        # VERY IMPORTANT: By default pytorch does not reset numpy seed for each __getitem__ call
+        #   It means even if I fix the batch index in training loop, the results will still be different
         def sample_data(samples_on_sur, normals_on_sur, sigmas, latent):
             idx_permute = np.random.permutation(len(samples_on_sur))
             idx = idx_permute[:self.n_samples]
