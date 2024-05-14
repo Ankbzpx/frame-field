@@ -29,6 +29,9 @@ if __name__ == '__main__':
                         help='Path to config file.')
     parser.add_argument('--eval', action='store_true', help='Evaluate only')
     parser.add_argument('--vis', action='store_true', help='Visualize')
+    parser.add_argument('--skip',
+                        action='store_true',
+                        help='Skip existing output')
     args = parser.parse_args()
 
     if args.model is not None:
@@ -53,6 +56,11 @@ if __name__ == '__main__':
         cfg.name = name
         cfg.out_dir = os.path.join(cfg.out_dir, cfg_name, tag)
         cfg.checkpoints_dir = os.path.join(cfg.checkpoints_dir, cfg_name, tag)
+
+        if args.skip:
+            out_file = os.path.join(cfg.out_dir, f"{model_name}.obj")
+            if os.path.exists(out_file):
+                continue
 
         model_key, data_key = jax.random.split(
             jax.random.PRNGKey(cfg.training.seed), 2)
