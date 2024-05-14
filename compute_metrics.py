@@ -41,13 +41,14 @@ if __name__ == '__main__':
     dataset_list = ['abc', 'thingi10k']
     noise_level_list = ['1e-2', '2e-3']
     method_list = [
-        'digs', 'neural_singular_hessian', 'EAR', 'APSS', 'point_laplacian',
-        'SPR', 'nksr', 'nksr_p2s', 'line_processing', 'ours'
+        'digs', 'EAR', 'APSS', 'point_laplacian', 'SPR', 'nksr',
+        'line_processing', 'siren', 'ours_hessian_5', 'ours_hessian_10',
+        'neural_singular_hessian'
     ]
 
     seed = 0
     sample_size = 1000000
-    f1_percent = 1e-2
+    f1_percent = 5e-3
     filter_thr = 0.075
 
     np.random.seed(seed)
@@ -69,6 +70,20 @@ if __name__ == '__main__':
             max_bound = np.max(aabb[1] - aabb[0])
             f1_thr = f1_percent * max_bound
 
+            def append_collection(tag, result_samples):
+                chamfer_dist, hausdorff_distance, f_1_score = compute_metrics(
+                    result_samples, gt_samples, f1_thr)
+
+                metrics_frame = pd.DataFrame(
+                    [[model_name, chamfer_dist, hausdorff_distance, f_1_score]],
+                    columns=metrics_column)
+
+                if tag not in collection:
+                    collection[tag] = metrics_frame
+                else:
+                    collection[tag] = pd.concat(
+                        [collection[tag], metrics_frame])
+
             # Sub kd tree for connected component test
             gt_sub_kd_tree = cKDTree(gt_samples[:int(0.1 * sample_size)])
 
@@ -82,8 +97,11 @@ if __name__ == '__main__':
                                      f'{model_name}.*'))[0]
                     result_mesh: trimesh.Trimesh = trimesh.load(result_path)
                     if hasattr(result_mesh, 'faces'):
+                        result_samples, _ = trimesh.sample.sample_surface(
+                            result_mesh, sample_size, seed=seed)
+                        append_collection(tag, result_samples)
 
-                        if method == 'ours' or method == 'neural_singular_hessian':
+                        if 'hessian' in method:
                             # Filter isolated components
                             A = igl.adjacency_matrix(result_mesh.faces)
                             n_c, C, K = igl.connected_components(A)
@@ -105,33 +123,23 @@ if __name__ == '__main__':
 
                                 if F_mark.sum() > 0:
                                     V, F = rm_unref_vertices(V, F[F_mark])
-                                    result_mesh = trimesh.Trimesh(V, F)
+                                    result_samples_filter, _ = trimesh.sample.sample_surface(
+                                        trimesh.Trimesh(V, F),
+                                        sample_size,
+                                        seed=seed)
+                                    append_collection(f"{tag}_filter",
+                                                      result_samples_filter)
                                 else:
                                     # Likely failure case
                                     print(dataset, noise_level, model_name,
                                           method)
 
-                        result_samples, _ = trimesh.sample.sample_surface(
-                            result_mesh, sample_size, seed=seed)
                     else:
                         idx_permute = np.random.permutation(
                             len(result_mesh.vertices))
                         idx = idx_permute[:sample_size]
                         result_samples = result_mesh.vertices[idx]
-
-                    chamfer_dist, hausdorff_distance, f_1_score = compute_metrics(
-                        result_samples, gt_samples, f1_thr)
-
-                    metrics_frame = pd.DataFrame([[
-                        model_name, chamfer_dist, hausdorff_distance, f_1_score
-                    ]],
-                                                 columns=metrics_column)
-
-                    if tag not in collection:
-                        collection[tag] = metrics_frame
-                    else:
-                        collection[tag] = pd.concat(
-                            [collection[tag], metrics_frame])
+                        append_collection(tag, result_samples)
 
     for tag, tag_frames in collection.items():
         tag_frames.to_csv(os.path.join('output', 'metrics', f"{tag}.csv"))
