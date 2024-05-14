@@ -233,8 +233,9 @@ def train(cfg: Config, model: model_jax.MLP, data):
     loss_history = {}
     pbar = tqdm(range(cfg.training.n_steps))
 
+    data_iter = iter(data)
     for iteration in pbar:
-        batch = next(iter(data))
+        batch = next(data_iter)
         batch = jax.tree.map(lambda x: x.numpy()[0], batch)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
                                                 cfg.loss_cfg)
