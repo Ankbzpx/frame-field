@@ -8,3 +8,5 @@ checkpoints
 output
 tmp
 plots
+*.blend1
+tmp.blend
