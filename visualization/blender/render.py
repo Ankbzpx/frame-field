@@ -84,6 +84,34 @@ def render_mesh(save_path,
     render_optix(save_path)
 
 
+def render_mesh_numpy(save_path,
+                      mesh_path,
+                      location,
+                      rotation,
+                      scale,
+                      face_normals=False):
+    load_template()
+    mesh_o3d = o3d.io.read_triangle_mesh(mesh_path)
+    V = np.asarray(mesh_o3d.vertices)
+    F = np.asarray(mesh_o3d.triangles)
+    mesh = bt.readNumpyMesh(V, F, location, rotation, scale)
+
+    if face_normals:
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        if bpy.ops.object.mode_set.poll():
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action='SELECT')
+            bpy.ops.mesh.set_normals_from_faces()
+            bpy.ops.mesh.faces_shade_flat()
+            bpy.ops.object.mode_set(mode="OBJECT")
+        mesh.select_set(False)
+        bpy.context.view_layer.objects.active = None
+
+    mesh.active_material = bpy.data.materials['MeshMaterial']
+    render_optix(save_path)
+
+
 if __name__ == '__main__':
     methods = [
         'APSS', 'digs', 'EAR_viz', 'line_processing_viz',
@@ -94,10 +122,12 @@ if __name__ == '__main__':
 
     root_folder = os.path.expandvars('$HOME/dataset')
 
-    re_render_model_list = [
-        '00010218_4769314c71814669ba5d3512', '00990546_db31ddca9d3585c330dcce3a'
-    ]
-    re_render_method_list = ['line_processing_viz', 'point_laplacian_viz']
+    # re_render_model_list = [
+    #     '00010218_4769314c71814669ba5d3512', '00990546_db31ddca9d3585c330dcce3a'
+    # ]
+    re_render_model_list = []
+    # re_render_method_list = ['line_processing_viz', 'point_laplacian_viz']
+    re_render_method_list = []
 
     failed_list = []
 
@@ -133,12 +163,12 @@ if __name__ == '__main__':
 
                 if render_model or not os.path.exists(gt_save_path):
                     try:
-                        render_mesh(gt_save_path,
-                                    gt_path,
-                                    location,
-                                    rotation,
-                                    scale,
-                                    face_normals=False)
+                        render_mesh_numpy(gt_save_path,
+                                          gt_path,
+                                          location,
+                                          rotation,
+                                          scale,
+                                          face_normals=False)
                     except:
                         failed_list.append(f'{model_name}_gt')
 
@@ -163,12 +193,12 @@ if __name__ == '__main__':
                     model_save_path = os.path.join(save_folder, f'{method}.png')
                     if render_method or not os.path.exists(model_save_path):
                         try:
-                            render_mesh(model_save_path,
-                                        model_path,
-                                        location,
-                                        rotation,
-                                        scale,
-                                        face_normals=True)
+                            render_mesh_numpy(model_save_path,
+                                              model_path,
+                                              location,
+                                              rotation,
+                                              scale,
+                                              face_normals=True)
                         except:
                             failed_list.append(f'{model_name}_{tag}_{method}')
 
