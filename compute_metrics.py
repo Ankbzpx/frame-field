@@ -43,7 +43,7 @@ if __name__ == '__main__':
     method_list = [
         'digs', 'EAR', 'APSS', 'point_laplacian', 'SPR', 'nksr',
         'line_processing', 'siren', 'ours_hessian_5', 'ours_hessian_10',
-        'neural_singular_hessian'
+        'ours_digs_5', 'ours_digs_10', 'neural_singular_hessian'
     ]
 
     seed = 0
@@ -100,40 +100,6 @@ if __name__ == '__main__':
                         result_samples, _ = trimesh.sample.sample_surface(
                             result_mesh, sample_size, seed=seed)
                         append_collection(tag, result_samples)
-
-                        if 'hessian' in method:
-                            # Filter isolated components
-                            A = igl.adjacency_matrix(result_mesh.faces)
-                            n_c, C, K = igl.connected_components(A)
-
-                            if n_c > 1:
-                                V = result_mesh.vertices
-                                F = result_mesh.faces
-                                V_rm_mark = np.zeros(len(V)).astype(bool)
-                                for c_idx in range(n_c):
-                                    pick = C == c_idx
-                                    V_c = V[pick]
-                                    dists, _ = gt_sub_kd_tree.query(V_c,
-                                                                    workers=8)
-                                    if dists.mean() > filter_thr:
-                                        V_rm_mark = np.logical_or(
-                                            V_rm_mark, pick)
-
-                                F_mark = np.logical_not(V_rm_mark[F].sum(1) > 0)
-
-                                if F_mark.sum() > 0:
-                                    V, F = rm_unref_vertices(V, F[F_mark])
-                                    result_samples_filter, _ = trimesh.sample.sample_surface(
-                                        trimesh.Trimesh(V, F),
-                                        sample_size,
-                                        seed=seed)
-                                    append_collection(f"{tag}_filter",
-                                                      result_samples_filter)
-                                else:
-                                    # Likely failure case
-                                    print(dataset, noise_level, model_name,
-                                          method)
-
                     else:
                         idx_permute = np.random.permutation(
                             len(result_mesh.vertices))
