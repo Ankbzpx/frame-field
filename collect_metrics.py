@@ -9,8 +9,9 @@ if __name__ == '__main__':
     dataset_list = ['abc', 'thingi10k']
     noise_level_list = ['1e-2', '2e-3']
     method_list = [
-        'digs', 'neural_singular_hessian', 'APSS', 'EAR', 'point_laplacian',
-        'SPR', 'nksr', 'nksr_p2s', 'line_processing', 'ours'
+        'digs', 'EAR', 'APSS', 'point_laplacian', 'SPR', 'nksr',
+        'line_processing', 'siren', 'ours_hessian_5', 'ours_hessian_10',
+        'ours_digs_5', 'ours_digs_10', 'neural_singular_hessian'
     ]
 
     metrics = ['chamfer', 'hausdorff', 'f1']
@@ -18,15 +19,17 @@ if __name__ == '__main__':
         'item', 'chamfer_mean', 'chamfer_std', 'hausdorff_mean',
         'hausdorff_std', 'f1_mean', 'f1_std'
     ]
-    collection = None
+
+    failure_cases = [
+        '00993917_4049b13b8ff84e59b2cfc43a',
+        '00992690_ed0f9f06ad21b92e7ffab606', 81762
+    ]
 
     for dataset in dataset_list:
         for noise_level in noise_level_list:
-            for method in method_list:
-                tag = f"{method}_{dataset}_{noise_level}"
-                csv_path = os.path.join('output', 'metrics', f"{tag}.csv")
-                data = pd.read_csv(csv_path)
+            collection = None
 
+            def append_collection(tag, data, collection):
                 metric_collect = [tag]
                 for metric in metrics:
                     metric_collect.append(data[metric].mean())
@@ -40,4 +43,24 @@ if __name__ == '__main__':
                 else:
                     collection = pd.concat([collection, metrics_frame])
 
-    collection.to_csv(os.path.join('output', 'metrics', f"collect.csv"))
+                return collection
+
+            for method in method_list:
+                tag = f"{method}_{dataset}_{noise_level}"
+                csv_path = os.path.join('output', 'metrics', f"{tag}.csv")
+                data = pd.read_csv(csv_path)
+
+                collection = append_collection(tag, data, collection)
+
+                if 'hessian' in method:
+
+                    for case in failure_cases:
+                        # case = int(case) if dataset == 'thingi10k' else case
+                        data = data[data['item'] != case]
+
+                    collection = append_collection(f"{tag}_filter", data,
+                                                   collection)
+
+            collection.to_csv(
+                os.path.join('output', 'metrics',
+                             f"collect_{dataset}_{noise_level}.csv"))
