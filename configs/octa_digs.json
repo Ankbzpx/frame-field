@@ -17,7 +17,7 @@
     "digs_annealing": 0,
     "align": 1e2,
     "align_begin": 0.4,
-    "regularize": 5,
+    "regularize": 10,
     "regularize_begin": 0.6,
     "lip": 1e-6
   }

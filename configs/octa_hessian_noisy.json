@@ -17,7 +17,7 @@
     "hessian_annealing": 1e-3,
     "align": 1e2,
     "align_begin": 0.2,
-    "regularize": 5,
+    "regularize": 10,
     "regularize_begin": 0.4,
     "lip": 1e-6
   }
