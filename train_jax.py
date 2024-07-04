@@ -183,7 +183,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         if loss_cfg.smooth > 0:
 
             def eval_smooth_loss(jac):
-                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f')
+                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f').mean()
 
             sh4_jac = jnp.vstack([jac_on, jac_off])
             loss_smooth = smooth_weight * jax.lax.cond(
