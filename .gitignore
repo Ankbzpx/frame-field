@@ -9,4 +9,5 @@ output
 tmp
 plots
 *.blend1
-tmp.blend
+*.blend
+visualization/blender/*.ply
