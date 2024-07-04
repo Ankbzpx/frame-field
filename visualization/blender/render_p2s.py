@@ -27,7 +27,12 @@ def render_optix(save_file_path):
     os.system('rm tmp.blend')
 
 
-def render_pointcloud(save_path, pc_path, location, rotation, scale):
+def render_pointcloud(save_path,
+                      pc_path,
+                      location,
+                      rotation,
+                      scale,
+                      radius=3e-3):
     load_template()
     pc_o3d = o3d.io.read_point_cloud(pc_path)
     V = np.array(pc_o3d.points)
@@ -46,7 +51,7 @@ def render_pointcloud(save_path, pc_path, location, rotation, scale):
     OUT = tree.nodes['Group Output']
     MESH2POINT = tree.nodes.new('GeometryNodeMeshToPoints')
     MESH2POINT.location.x -= 100
-    MESH2POINT.inputs['Radius'].default_value = 3e-3
+    MESH2POINT.inputs['Radius'].default_value = radius
     MATERIAL = tree.nodes.new('GeometryNodeSetMaterial')
 
     tree.links.new(IN.outputs['Geometry'], MESH2POINT.inputs['Mesh'])
@@ -129,7 +134,7 @@ if __name__ == '__main__':
     # re_render_method_list = ['line_processing_viz', 'point_laplacian_viz']
     re_render_method_list = []
 
-    failed_list = []
+    failure_case_list = []
 
     for dataset in ['abc', 'thingi10k']:
         pick_path = f'{dataset}_pick.txt'
@@ -170,7 +175,7 @@ if __name__ == '__main__':
                                           scale,
                                           face_normals=False)
                     except:
-                        failed_list.append(f'{model_name}_gt')
+                        failure_case_list.append(f'{model_name}_gt')
 
                 # input
                 input_path = os.path.join(root_folder, 'p2s', dataset,
@@ -181,7 +186,7 @@ if __name__ == '__main__':
                         render_pointcloud(input_save_path, input_path, location,
                                           rotation, scale)
                     except:
-                        failed_list.append(f'{model_name}_{tag}_input')
+                        failure_case_list.append(f'{model_name}_{tag}_input')
 
                 for method in methods:
                     render_method = render_model or (method
@@ -200,6 +205,7 @@ if __name__ == '__main__':
                                               scale,
                                               face_normals=True)
                         except:
-                            failed_list.append(f'{model_name}_{tag}_{method}')
+                            failure_case_list.append(
+                                f'{model_name}_{tag}_{method}')
 
-    print(failed_list)
+    print(failure_case_list)
