@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import igl
 import numpy as np
 from jax import vmap, jit, numpy as jnp
@@ -11,7 +16,6 @@ import scipy.sparse.linalg
 import scipy.optimize
 
 import argparse
-import os
 
 import frame_field_utils
 
@@ -30,7 +34,7 @@ if __name__ == '__main__':
     parser.add_argument('-w', type=float, default=1e-1, help='Boundary weight')
     parser.add_argument('--out_path',
                         type=str,
-                        default='results',
+                        default='../results',
                         help='Path to output folder.')
     args = parser.parse_args()
 
