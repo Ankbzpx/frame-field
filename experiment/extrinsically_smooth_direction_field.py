@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import igl
 import numpy as np
 import jax
@@ -11,7 +16,6 @@ from common import (normalize_aabb, normalize, rm_unref_vertices, Timer,
                     surface_vertex_topology, write_triangle_mesh_VC)
 
 import argparse
-import os
 
 import frame_field_utils
 
@@ -415,7 +419,7 @@ if __name__ == '__main__':
     parser.add_argument('input', type=str, help='Path to input file.')
     parser.add_argument('--out_path',
                         type=str,
-                        default='results',
+                        default='../results',
                         help='Path to output folder.')
     args = parser.parse_args()
 

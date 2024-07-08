@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 import igl
 import numpy as np
 import jax
@@ -16,7 +21,6 @@ from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
                                rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
 
 import argparse
-import os
 
 import frame_field_utils
 
@@ -222,7 +226,7 @@ if __name__ == '__main__':
     parser.add_argument('-w', type=float, default=100, help='Boundary weight')
     parser.add_argument('--out_path',
                         type=str,
-                        default='results',
+                        default='../results',
                         help='Path to output folder.')
     parser.add_argument('--sharp',
                         action='store_true',
