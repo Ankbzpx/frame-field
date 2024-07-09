@@ -22,6 +22,34 @@ import frame_field_utils
 import polyscope as ps
 from icecream import ic
 
+
+def solve_least_square(A, b, C, d, soft_weight=0.):
+
+    if isinstance(soft_weight, float) or isinstance(soft_weight, int):
+        soft_weight = soft_weight * np.ones(C.shape[0])
+
+    if soft_weight.sum() > 0:
+        W = scipy.sparse.diags(soft_weight)
+        M = scipy.sparse.vstack([A, W @ C])
+        n = np.concatenate([b, W @ d])
+
+        x, info = scipy.sparse.linalg.cg(M.T @ M, M.T @ n)
+        assert info == 0
+
+        return x
+    else:
+        M = scipy.sparse.vstack([
+            scipy.sparse.hstack([A, C.T]),
+            scipy.sparse.hstack(
+                [C, scipy.sparse.csc_matrix((C.shape[0], C.shape[0]))])
+        ]).tocsc()
+        n = np.concatenate([b, d])
+
+        x = scipy.sparse.linalg.spsolve(M, n)[:len(b)]
+
+        return x
+
+
 if __name__ == '__main__':
     # enable 64 bit precision
     # from jax.config import config
@@ -31,7 +59,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
     parser.add_argument('-p', type=str, default='2', help='Lp norm.')
-    parser.add_argument('-w', type=float, default=1e-1, help='Boundary weight')
+    parser.add_argument(
+        '-w',
+        type=float,
+        default=0.,
+        help='Boundary weight. If bigger than 0 then treat soft constraints')
     parser.add_argument('--out_path',
                         type=str,
                         default='../results',
@@ -100,6 +132,7 @@ if __name__ == '__main__':
             edge_energy = jnp.linalg.norm(x[E_i] - x[E_j], ord=2, axis=1)
             loss_smooth = jnp.linalg.norm(E_weight * edge_energy,
                                           ord=p) / len(edge_energy)**(1 / p)
+            # Inherently soft constraints...
             loss_align = jnp.linalg.norm(jnp.einsum('bji,bi->bj', As, x) -
                                          b[None, :],
                                          ord=2,
@@ -112,21 +145,21 @@ if __name__ == '__main__':
         lbfgs = LBFGS(loss_func)
         x = lbfgs.run(x).params
     else:
-        # FIXME Use Lagrange multiplier rather than simple least square
         A = scipy.sparse.block_diag(As).tocsc()
         b = np.tile(b, NV)
         L_unroll = unroll_identity_block(-L, 9)
 
-        # Linear system
-        Q = scipy.sparse.vstack([L_unroll, boundary_weight * A])
-        c = np.concatenate([np.zeros(9 * NV), boundary_weight * b])
-
         timer.log('Build sparse system')
 
+        # Cache for further concatenation
+        B = A
+        bc = b
+
         while True:
-            x, info = scipy.sparse.linalg.cg(Q.T @ Q, Q.T @ c)
-            assert info == 0
+            x = solve_least_square(L_unroll, np.zeros(9 * NV), B, bc,
+                                   boundary_weight)
             x = x.reshape(NV, 9)
+
             # Project back to octahedral variety.
             # Not exactly sure whether the paper refers to SDP or the closest normal aligned projection. Use SDP for now.
             x_proj = proj_sh4_sdp(x)
@@ -134,7 +167,6 @@ if __name__ == '__main__':
 
             # Follow Sec 5.5 Non-Triviality Constraint
             rerun_mask = d_norm > 0.665
-            rerun_weight = 1.0
             N_rerun = rerun_mask.sum()
 
             if N_rerun == 0:
@@ -155,10 +187,8 @@ if __name__ == '__main__':
             ])
             r = x_proj[rerun_mask].reshape(9 * N_rerun)
 
-            Q = scipy.sparse.vstack(
-                [L_unroll, boundary_weight * A, rerun_weight * R])
-            c = np.concatenate(
-                [np.zeros(9 * NV), boundary_weight * b, rerun_weight * r])
+            B = scipy.sparse.vstack([A, R])
+            bc = np.concatenate([b, r])
 
         timer.log('Solve (Linear)')
 
