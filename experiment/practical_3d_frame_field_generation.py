@@ -13,7 +13,6 @@ from jaxopt import LBFGS
 # Facilitate vscode intellisense
 import scipy.sparse
 import scipy.sparse.linalg
-from sksparse.cholmod import cholesky
 from common import (unroll_identity_block, normalize_aabb, vis_oct_field,
                     ps_register_curve_network, Timer, write_triangle_mesh_VC)
 from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
@@ -220,10 +219,36 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     return Vid_sharp, Rs_sharp
 
 
+def solve_least_square(A, b, C, d, soft_weight=0.):
+
+    if isinstance(soft_weight, float) or isinstance(soft_weight, int):
+        soft_weight = soft_weight * np.ones(C.shape[0])
+
+    if soft_weight.sum() > 0:
+        W = scipy.sparse.diags(soft_weight)
+        M = scipy.sparse.vstack([A, W @ C])
+        n = np.concatenate([b, W @ d])
+
+        x, info = scipy.sparse.linalg.cg(M.T @ M, M.T @ n)
+        assert info == 0
+
+        return x
+    else:
+        M = scipy.sparse.vstack([
+            scipy.sparse.hstack([A, C.T]),
+            scipy.sparse.hstack(
+                [C, scipy.sparse.csc_matrix((C.shape[0], C.shape[0]))])
+        ]).tocsc()
+        n = np.concatenate([b, d])
+
+        x = scipy.sparse.linalg.spsolve(M, n)[:len(b)]
+
+        return x
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('input', type=str, help='Path to input file.')
-    parser.add_argument('-w', type=float, default=100, help='Boundary weight')
     parser.add_argument('--out_path',
                         type=str,
                         default='../results',
@@ -237,7 +262,6 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Large alignment weight to ensure boundary align
-    boundary_weight = args.w
     model_path = args.input
     model_name = model_path.split('/')[-1].split('.')[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
@@ -286,48 +310,64 @@ if __name__ == '__main__':
 
     timer.log('Build stiffness and RHS')
 
-    # FIXME Use Lagrange multiplier rather than simple least square
     # Build system
     # NV x 9 + NB x 2, have to unroll...
     # Assume x is like [9, 9, 9, 9, 9 ... 2, 2, 2]
-    A_tl = unroll_identity_block(L, 9)
-    A_tr = scipy.sparse.csr_matrix((NV * 9, NB * 2))
+    L_unroll = unroll_identity_block(L, 9)
     # Pick boundary vertex
-    A_bl = scipy.sparse.coo_array(
-        (boundary_weight * np.ones(9 * NB),
-         (np.arange(9 * NB), ((9 * boundary_vid)[..., None] +
-                              np.arange(9)[None, ...]).reshape(-1))),
+    A_x = scipy.sparse.coo_array(
+        (np.ones(9 * NB), (np.arange(9 * NB),
+                           ((9 * boundary_vid)[..., None] +
+                            np.arange(9)[None, ...]).reshape(-1))),
         shape=(9 * NB, 9 * NV)).tocsc()
-    A_br = scipy.sparse.block_diag(boundary_weight *
-                                   np.stack([sh4_0_n, sh4_8_n], -1))
-    A = scipy.sparse.vstack(
-        [scipy.sparse.hstack([A_tl, A_tr]),
-         scipy.sparse.hstack([A_bl, A_br])])
-    b = np.concatenate(
-        [np.zeros((NV * 9,)), boundary_weight * sh4_4_n.reshape(-1,)])
+    A_y = scipy.sparse.block_diag(np.stack([sh4_0_n, sh4_8_n], -1))
+    b = np.concatenate([np.zeros((9 * NV + 2 * NB)), sh4_4_n.reshape(-1,)])
+
+    # [L    0   A_x.T]
+    # [0    0   A_y.T]
+    # [A_x  A_y   0  ]
+    M = scipy.sparse.vstack([
+        scipy.sparse.hstack(
+            [L_unroll,
+             scipy.sparse.csr_matrix((9 * NV, 2 * NB)), A_x.T]),
+        scipy.sparse.hstack(
+            [scipy.sparse.csr_matrix((2 * NB, 9 * NV + 2 * NB)), A_y.T]),
+        scipy.sparse.hstack(
+            [A_x, A_y, scipy.sparse.csr_matrix((9 * NB, 9 * NB))])
+    ]).tocsc()
 
     if args.sharp:
-        sharp_weight = boundary_weight
         # Pick sharp vertex
-        S_l = scipy.sparse.hstack([
+        C = scipy.sparse.hstack([
             scipy.sparse.coo_array(
-                (sharp_weight * np.ones(9 * NS),
-                 (np.arange(9 * NS), ((9 * sharp_vid)[..., None] +
-                                      np.arange(9)[None, ...]).reshape(-1))),
+                (np.ones(9 * NS), (np.arange(9 * NS),
+                                   ((9 * sharp_vid)[..., None] +
+                                    np.arange(9)[None, ...]).reshape(-1))),
                 shape=(9 * NS, 9 * NV)).tocsc(),
         ])
-        S_r = scipy.sparse.csr_matrix((NS * 9, NB * 2))
 
-        A = scipy.sparse.vstack([A, scipy.sparse.hstack([S_l, S_r])])
-        b = np.concatenate([b, sharp_weight * sh4_sharp.reshape(-1)])
+        # [L    0   A_x.T  C.T]
+        # [0    0   A_y.T   0 ]
+        # [A_x  A_y   0     0 ]
+        # [ C   0     0     0 ]
+        M = scipy.sparse.vstack([
+            scipy.sparse.hstack([
+                M,
+                scipy.sparse.vstack(
+                    [C.T,
+                     scipy.sparse.csr_matrix((2 * NB + 9 * NB, 9 * NS))])
+            ]),
+            scipy.sparse.hstack([
+                C,
+                scipy.sparse.csr_matrix((9 * NS, 2 * NB + 9 * NB + 9 * NS))
+            ])
+        ]).tocsc()
+        b = np.concatenate([b, sh4_sharp.reshape(-1)])
 
     timer.log('Build sparse system')
 
-    # A @ x = b
-    # => (A.T @ A) @ x = A.T @ b
-    factor = cholesky((A.T @ A).tocsc())
-    x = factor(A.T @ b)
-    sh4_opt = x[:NV * 9].reshape(NV, 9)
+    x = scipy.sparse.linalg.spsolve(M, b)[:NV * 9]
+    sh4_opt = x.reshape(NV, 9)
 
     timer.log('Solve alignment (Linear)')
 
