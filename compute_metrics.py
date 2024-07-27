@@ -6,7 +6,6 @@ from scipy.spatial import cKDTree
 import pandas as pd
 from tqdm import tqdm
 
-from common import rm_unref_vertices
 import igl
 
 import polyscope as ps
@@ -43,7 +42,8 @@ if __name__ == '__main__':
     method_list = [
         'digs', 'EAR', 'APSS', 'point_laplacian', 'SPR', 'nksr',
         'line_processing', 'siren', 'ours_hessian_5', 'ours_hessian_10',
-        'ours_digs_5', 'ours_digs_10', 'neural_singular_hessian'
+        'ours_digs_5', 'ours_digs_10', 'neural_singular_hessian', 'SALD',
+        'IterativePFN', 'RFEPS', 'NeurCAD'
     ]
 
     seed = 0
