@@ -14,7 +14,7 @@ import os
 import model_jax
 from common import normalize
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, config_training_data_pytorch
+from config_utils import config_latent, config_model, config_optim, config_training_data
 from sh_representation import (rotvec_to_sh4_expm, rotvec_to_R3, rot6d_to_R3,
                                rot6d_to_sh4_zonal, proj_sh4_to_R3)
 from loss import (eikonal, align_sh4_explicit, align_sh4_functional,
@@ -278,6 +278,6 @@ if __name__ == '__main__':
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    data = config_training_data_pytorch(cfg, latents)
+    data = config_training_data(cfg, latents)
 
     train(cfg, model, data)
