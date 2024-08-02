@@ -413,6 +413,9 @@ def eval(cfg: Config,
         timer.reset()
 
         Q = vmap(R3_to_repvec)(Rs, VN)
+
+        timer.log('Project to representation vectors')
+
         V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
         timer.log('Trace flowlines')

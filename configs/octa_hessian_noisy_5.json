@@ -1,0 +1,24 @@
+{
+  "mlp_types": ["Siren", "LipMLP"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
+    },
+    {
+      "input_scale": 100,
+      "hidden_layers": 4,
+      "out_features": 9
+    }
+  ],
+  "loss_cfg": {
+    "on_sur": 3.5e3,
+    "hessian": 3,
+    "hessian_annealing": 1e-3,
+    "align": 1e2,
+    "align_begin": 0.2,
+    "regularize": 5,
+    "regularize_begin": 0.4,
+    "lip": 1e-6
+  }
+}

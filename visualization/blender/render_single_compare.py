@@ -11,8 +11,8 @@ from render_p2s import render_mesh_numpy, load_template
 suffix = 500 * (1 + np.arange(20))
 methods = ['hessian', 'digs']
 
-root = '/home/ruichenzheng/dataset/octa_results/debug/'
-save_path = '/home/ruichenzheng/dataset/debug_render'
+root = os.path.expandvars('$HOME/dataset/octa_results/debug/')
+save_path = os.path.expandvars('$HOME/dataset/debug_render')
 model_name = '00010218_4769314c71814669ba5d3512'
 
 with open(f'abc_poses.json') as f:

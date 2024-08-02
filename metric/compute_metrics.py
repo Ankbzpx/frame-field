@@ -40,7 +40,7 @@ if __name__ == '__main__':
     dataset_list = ['abc', 'thingi10k']
     noise_level_list = ['1e-2', '2e-3']
     method_list = [
-        'digs', 'EAR', 'APSS', 'point_laplacian', 'SPR', 'nksr',
+        'digs', 'EAR', 'APSS', 'graph_laplacian', 'SPR', 'nksr',
         'line_processing', 'siren', 'ours_hessian_5', 'ours_hessian_10',
         'ours_digs_5', 'ours_digs_10', 'neural_singular_hessian', 'SALD',
         'IterativePFN', 'RFEPS', 'NeurCAD'
