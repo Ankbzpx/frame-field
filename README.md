@@ -1,3 +1,6 @@
+# Neural Octahedral Field
+
+The implementation of preprint [Neural Octahedral Field: Octahedral prior for simultaneous smoothing and sharp edge regularization](https://arxiv.org/abs/2408.00303)
 
 > **WARNING** This is a research repo with limited code quality. We have only tested it on Linux (Ubuntu 22.04 and EndeavorOS).
 
@@ -31,4 +34,4 @@ python run_recon.py --config configs/octa_hessian_noisy.json --model /path/to/ta
 ```
 based on noise level
 
-See `metric` folder for datasets and compared methods
+See [metric](./metric) folder for datasets and compared methods
