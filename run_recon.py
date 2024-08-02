@@ -7,7 +7,7 @@ import os
 
 import model_jax
 from config import Config
-from config_utils import config_model, config_latent, config_training_data_pytorch
+from config_utils import config_model, config_latent, config_training_data
 from train_jax import train
 from eval_jax import eval
 
@@ -72,7 +72,7 @@ if __name__ == '__main__':
             model: model_jax.MLP = eqx.tree_deserialise_leaves(
                 os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
         else:
-            data = config_training_data_pytorch(cfg, latents)
+            data = config_training_data(cfg, latents)
             model = train(cfg, model, data)
 
         tokens = '0_1_0'.split('_')

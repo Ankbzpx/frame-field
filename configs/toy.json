@@ -9,16 +9,19 @@
     {
       "hidden_features": 64,
       "hidden_layers": 4,
-      "out_features": 9,
-      "activation": "sin"
+      "out_features": 9
     }
   ],
   "loss_cfg": {
-    "align": 3e3,
+    "on_sur": 3e3,
+    "off_sur": 1e2,
     "unit_norm": 1e2,
-    "lip": 1e-6
+    "align": 3e3,
+    "regularize": 1e2,
+    "lip": 1e-4
   },
   "training": {
+    "lr": 5e-4,
     "n_samples": 1024,
     "n_steps": 5000
   }

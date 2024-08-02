@@ -57,6 +57,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     chain = [
         optax.scale_by_adam(),
         optax.scale_by_learning_rate(lr_scheduler),
+    # I am pretty sure this won't be necessary
         optax.clip_by_global_norm(10.)
     ]
 
@@ -215,7 +216,7 @@ class SDFDataset(Dataset):
         return sdf_data
 
 
-def config_training_data_pytorch(cfg: Config, latents):
+def config_training_data(cfg: Config, latents):
     np.random.seed(0)
     dataset = SDFDataset(cfg, latents)
 
@@ -238,59 +239,7 @@ def config_training_data_pytorch(cfg: Config, latents):
     return dataloader
 
 
-# preload data in memory to speedup training
-def config_training_data(cfg: Config, data_key, latents):
-    n_models = len(cfg.sdf_paths)
-    assert n_models > 0
-    sample_size = cfg.training.n_samples // n_models
-
-    def sample_sdf_data(sdf_path, latent):
-        sdf_data = load_sdf(sdf_path)
-        samples_on_sur = normalize_aabb(sdf_data['samples_on_sur'])
-        sdf_data['samples_on_sur'] = samples_on_sur
-
-        # Reference: https://github.com/bearprin/Neural-Singular-Hessian/blob/ca7da0ce5d0c680393f1091ac8a6eafbe32248b4/surface_reconstruction/recon_dataset.py#L49
-        # Use max distance among 51 closet points to approximate close neighbor
-        kd_tree = scipy.spatial.KDTree(samples_on_sur)
-        dists, _ = kd_tree.query(samples_on_sur, k=51, workers=-1)
-        sigmas = dists[:, -1:]
-        sdf_data['sigmas'] = sigmas
-
-        if cfg.training.n_input_samples != -1:
-            # Clamp num of input samples
-            input_sample_size = jnp.minimum(len(samples_on_sur),
-                                            cfg.training.n_input_samples)
-            sdf_data = jax.tree_map(lambda x: x[:input_sample_size], sdf_data)
-
-        # Share the index to preserve correspondence
-        idx = jax.random.choice(data_key, jnp.arange(len(samples_on_sur)),
-                                (cfg.training.n_steps, sample_size))
-        data = jax.tree_map(lambda x: x[idx], sdf_data)
-
-        data['samples_close_sur'] = data[
-            'samples_on_sur'] + data['sigmas'] * jax.random.normal(
-                data_key, (cfg.training.n_steps, cfg.training.n_samples, 3))
-        data['samples_off_sur'] = jax.random.uniform(
-            data_key, (cfg.training.n_steps, cfg.training.n_samples, 3),
-            minval=-1,
-            maxval=1)
-        data['latent'] = latent[None, None,
-                                ...].repeat(cfg.training.n_steps,
-                                            axis=0).repeat(sample_size, axis=1)
-        del data['sigmas']
-        return data
-
-    data_frags = [
-        sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
-    ]
-    data = {}
-    for key in data_frags[0].keys():
-        data[key] = jnp.hstack([frag[key] for frag in data_frags])
-
-    return data
-
-
-# preload data in memory to speedup training
+# FIXME: Use pytorch dataloader
 def config_training_data_param(cfg: Config, data_key, latents):
     n_models = len(cfg.sdf_paths)
     assert n_models > 0
@@ -338,26 +287,63 @@ def config_training_data_param(cfg: Config, data_key, latents):
     return data
 
 
-def config_toy_training_data(cfg: Config, data_key, sur_samples,
-                             sur_normal_samples, latents, gap):
-    sample_size = cfg.training.n_samples
-    idx = jax.random.choice(data_key, jnp.arange(len(sur_samples)),
-                            (cfg.training.n_steps, sample_size))
-    samples_on_sur = sur_samples[idx]
-    normals_on_sur = sur_normal_samples[idx]
-    samples_off_sur = jax.random.uniform(
-        data_key, (cfg.training.n_steps, cfg.training.n_samples, 3),
-        minval=-1.0,
-        maxval=1.0)
-    latent = latents[None, None, 0].repeat(cfg.training.n_steps,
-                                           axis=0).repeat(sample_size, axis=1)
+class ToyDataset(Dataset):
 
-    data = {
-        'samples_on_sur': samples_on_sur,
-        'normals_on_sur': normals_on_sur,
-        'samples_off_sur': samples_off_sur,
-        'samples_close_sur': None,
-        'latent': latent
-    }
+    def __init__(self, cfg: Config, samples_on_sur, normals_on_sur, latent):
+        super().__init__()
 
-    return data
+        self.n_samples = cfg.training.n_samples
+        self.n_steps = cfg.training.n_steps
+
+        # Working on numpy array
+        self.latent = np.array(latent[0])
+        self.samples_on_sur = samples_on_sur
+        self.normals_on_sur = normals_on_sur
+
+    def __len__(self):
+        return self.n_steps
+
+    def __getitem__(self, index):
+
+        idx = np.random.choice(np.arange(len(self.samples_on_sur)),
+                               self.n_samples)
+        samples_on_sur = self.samples_on_sur[idx]
+
+        if len(self.normals_on_sur) > 0:
+            normals_on_sur = self.normals_on_sur[idx]
+
+        samples_off_sur = np.random.uniform(-1,
+                                            1,
+                                            size=(len(samples_on_sur), 3))
+
+        latent = np.repeat(self.latent[None, ...], len(samples_on_sur), axis=0)
+
+        return {
+            'samples_on_sur': samples_on_sur,
+            'normals_on_sur': normals_on_sur,
+            'samples_off_sur': samples_off_sur,
+            'latent': latent
+        }
+
+
+def config_toy_training_data(cfg: Config, samples_on_sur, normals_on_sur,
+                             latents):
+    dataset = ToyDataset(cfg, samples_on_sur, normals_on_sur, latents)
+
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    g = torch.Generator()
+    g.manual_seed(0)
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=1,
+        num_workers=0,
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+
+    return dataloader
