@@ -57,8 +57,7 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     chain = [
         optax.scale_by_adam(),
         optax.scale_by_learning_rate(lr_scheduler),
-    # I am pretty sure this won't be necessary
-        optax.clip_by_global_norm(10.)
+        optax.clip_by_global_norm(10.)    # Gradient clipping is not necessary
     ]
 
     optim = optax.chain(*chain)

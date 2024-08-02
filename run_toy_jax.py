@@ -71,7 +71,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
             param_func = lambda x: x
             proj_func = proj_sh4_to_R3
 
-        # The python if is determined at tracing time. jax.lax.cond helps reduce computation when weight is scheduled to be 0
         if loss_cfg.smooth > 0:
             jac_on, ((pred_on_sur_sdf, aux_on),
                      pred_normals_on_sur) = model.call_jac_param(
@@ -184,7 +183,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
     pbar = tqdm(range(cfg.training.n_steps))
 
     data_iter = iter(data)
-    for iteration in pbar:
+    for _ in pbar:
         batch = next(data_iter)
         batch = jax.tree.map(lambda x: x.numpy()[0], batch)
         model, opt_state, loss_dict = make_step(model, opt_state, batch,
