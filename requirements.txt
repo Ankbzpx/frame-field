@@ -1,0 +1,13 @@
+scipy
+scikit-image
+equinox
+jaxtyping
+tensorboardX
+matplotlib
+optax
+joblib
+pymeshlab
+open3d
+polyscope
+icecream
+trimesh

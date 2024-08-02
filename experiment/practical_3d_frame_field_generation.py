@@ -436,6 +436,9 @@ if __name__ == '__main__':
                                            0.1 * igl.avg_edge_length(V, T))
 
     Q = vmap(R3_to_repvec)(Rs, VN)
+
+    timer.log('Project to representation vectors')
+
     V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
     timer.log('Trace flowlines')

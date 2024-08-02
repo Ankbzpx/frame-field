@@ -89,6 +89,7 @@ def render_mesh(save_path,
     render_optix(save_path)
 
 
+# Set face_normals to true for DiGS / NSH to avoid unlit faces
 def render_mesh_numpy(save_path,
                       mesh_path,
                       location,
@@ -122,7 +123,7 @@ if __name__ == '__main__':
         'APSS', 'digs', 'EAR_viz', 'line_processing_viz',
         'neural_singular_hessian', 'nksr', 'nksr_ks', 'ours_digs_5',
         'ours_digs_10', 'ours_hessian_5', 'ours_hessian_10',
-        'point_laplacian_viz', 'siren', 'SPR'
+        'graph_laplacian_viz', 'siren', 'SPR'
     ]
 
     root_folder = os.path.expandvars('$HOME/dataset')
@@ -131,7 +132,7 @@ if __name__ == '__main__':
     #     '00010218_4769314c71814669ba5d3512', '00990546_db31ddca9d3585c330dcce3a'
     # ]
     re_render_model_list = []
-    # re_render_method_list = ['line_processing_viz', 'point_laplacian_viz']
+    # re_render_method_list = ['line_processing_viz', 'graph_laplacian_viz']
     re_render_method_list = []
 
     failure_case_list = []

@@ -6,8 +6,8 @@ from icecream import ic
 
 from render_p2s import load_template
 
-input_path = '/home/ruichenzheng/frame-field/data/toy/'
-viz_path = '/home/ruichenzheng/frame-field/output/toy/'
+input_path = os.path.expandvars('$HOME/frame-field/data/toy/')
+viz_path = os.path.expandvars('$HOME/frame-field/output/toy/')
 
 location = (0, 0, 0)
 rotation = (0, 0, 0)
