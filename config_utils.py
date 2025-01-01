@@ -6,10 +6,6 @@ import equinox as eqx
 import torch
 from torch.utils.data import Dataset, DataLoader
 import random
-# https://github.com/google/jax/issues/3382
-import torch.multiprocessing as multiprocessing
-
-multiprocessing.set_start_method('spawn')
 
 import model_jax
 from config import Config
@@ -215,25 +211,38 @@ class SDFDataset(Dataset):
         return sdf_data
 
 
-def config_training_data(cfg: Config, latents):
+def config_training_data(cfg: Config, latents, with_jax=True):
     np.random.seed(0)
     dataset = SDFDataset(cfg, latents)
-
-    def seed_worker(worker_id):
-        worker_seed = torch.initial_seed() % 2**32
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
 
     g = torch.Generator()
     g.manual_seed(0)
 
-    dataloader = DataLoader(
-        dataset,
-        batch_size=1,
-        num_workers=0,
-        worker_init_fn=seed_worker,
-        generator=g,
-    )
+    if with_jax:
+        # https://github.com/google/jax/issues/3382
+        import torch.multiprocessing as multiprocessing
+
+        multiprocessing.set_start_method('spawn')
+
+        def seed_worker(worker_id):
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=1,
+            num_workers=0,
+            worker_init_fn=seed_worker,
+            generator=g,
+        )
+    else:
+        dataloader = DataLoader(
+            dataset,
+            batch_size=1,
+            num_workers=8,
+            generator=g,
+        )
 
     return dataloader
 

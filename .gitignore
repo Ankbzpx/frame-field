@@ -11,3 +11,4 @@ plots
 *.blend1
 *.blend
 visualization/blender/*.ply
+lightning_logs
