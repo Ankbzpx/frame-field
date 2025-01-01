@@ -92,31 +92,29 @@ def train(cfg: Config, model: model_jax.MLP, data):
             def eval_smooth(samples):
                 return model.call_jac_param(samples, latent, param_func)
 
-            def eval_grad(samples):
-                return jnp.empty(
-                    (len(samples), 9, 3)), model.call_grad(samples, latent)
-
             jac_on, ((pred_on_sur_sdf, aux_on),
-                     pred_normals_on_sur) = jax.lax.cond(
-                         smooth_weight > 0, eval_smooth, eval_grad,
-                         samples_on_sur)
-            jac_off, ((pred_off_sur_sdf, _),
-                      _) = jax.lax.cond(smooth_weight > 0, eval_smooth,
-                                        eval_grad, samples_off_sur)
+                     pred_normals_on_sur) = eval_smooth(samples_on_sur)
+
+            jac_off, ((pred_off_sur_sdf, _), _) = eval_smooth(samples_off_sur)
         else:
             (pred_on_sur_sdf, aux_on), pred_normals_on_sur = model.call_grad(
                 samples_on_sur, latent)
             pred_off_sur_sdf = model(samples_off_sur, latent)[:, 0]
 
+        # **IMPORTANT** This wrapper is necessary, as jax.lax.cond assumes all callables are python functions (which the equinox module functions are not)
+        # More see: https://github.com/patrick-kidger/equinox/issues/119
+        def eval_hessian(samples):
+            return model.call_hessian(samples, latent)
+
         if loss_cfg.hessian > 0:
-            hessian_close = jax.lax.cond(hessian_weight > 0, model.call_hessian,
-                                         lambda x, y: jnp.empty((len(x), 3, 3)),
-                                         *(samples_close_sur, latent))
+            hessian_close = jax.lax.cond(hessian_weight > 0, eval_hessian,
+                                         lambda x: jnp.empty(
+                                             (len(x), 3, 3)), samples_close_sur)
 
         if loss_cfg.digs > 0:
-            hessian_off = jax.lax.cond(digs_weight > 0, model.call_hessian,
-                                       lambda x, y: jnp.empty((len(x), 3, 3)),
-                                       *(samples_off_sur, latent))
+            hessian_off = jax.lax.cond(digs_weight > 0, eval_hessian,
+                                       lambda x: jnp.empty(
+                                           (len(x), 3, 3)), samples_off_sur)
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
