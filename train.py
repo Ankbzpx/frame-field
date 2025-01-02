@@ -80,37 +80,40 @@ class OctaGuidedSDF(L.LightningModule):
         }
 
         # Align
-        sample_weight = torch.exp(-1e2 * torch.abs(pred_on_sur_sdf.detach()))
-        normal_align = pred_normals_on_sur.detach()
-        aux_align = aux_on
-        loss_align = loss_cfg.align * (
-            sample_weight * align_torch(aux_align, normal_align)).mean()
-        loss += loss_align
-        loss_dict['loss_align'] = loss_align
+        if loss_cfg.align > 0:
+            sample_weight = torch.exp(-1e2 *
+                                      torch.abs(pred_on_sur_sdf.detach()))
+            normal_align = pred_normals_on_sur.detach()
+            aux_align = aux_on
+            loss_align = loss_cfg.align * (
+                sample_weight * align_torch(aux_align, normal_align)).mean()
+            loss += loss_align
+            loss_dict['loss_align'] = loss_align
 
         # Regularize
-        normal_reg = pred_normals_on_sur
-        aux_reg = aux_on.detach()
-        loss_reg = loss_cfg.regularize * reg_torch(aux_reg, normal_reg).mean()
-        loss += loss_reg
-        loss_dict['loss_reg'] = loss_reg
+        if loss_cfg.regularize > 0:
+            normal_reg = pred_normals_on_sur
+            aux_reg = aux_on.detach()
+            loss_reg = loss_cfg.regularize * reg_torch(aux_reg,
+                                                       normal_reg).mean()
+            loss += loss_reg
+            loss_dict['loss_reg'] = loss_reg
 
         # Lip
-        loss_lip = loss_cfg.lip * octa_mlp.get_lipschitz_loss()
-        loss += loss_lip
-        loss_dict['loss_lip'] = loss_lip
+        if loss_cfg.lip > 0:
+            loss_lip = loss_cfg.lip * octa_mlp.get_lipschitz_loss()
+            loss += loss_lip
+            loss_dict['loss_lip'] = loss_lip
 
         # Hessian
-        loss_hessian = loss_cfg.hessian * 0.5 * torch.abs(
-            torch.det(hessian_close)).mean()
-        loss += loss_hessian
-        loss_dict['loss_hessian'] = loss_hessian
+        if loss_cfg.hessian > 0:
+            loss_hessian = loss_cfg.hessian * 0.5 * torch.abs(
+                torch.det(hessian_close)).mean()
+            loss += loss_hessian
+            loss_dict['loss_hessian'] = loss_hessian
 
-        ic(loss_dict)
-
-        exit()
-
-        return 0
+        self.log("loss", loss, prog_bar=True)
+        return loss
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=5e-5)
@@ -118,6 +121,8 @@ class OctaGuidedSDF(L.LightningModule):
 
 
 if __name__ == '__main__':
+    torch.set_float32_matmul_precision('high')
+
     parser = argparse.ArgumentParser()
     parser.add_argument('config', type=str, help='Path to config file.')
     args = parser.parse_args()
@@ -132,5 +137,6 @@ if __name__ == '__main__':
 
     dataloader = config_training_data(cfg, np.empty(1,), with_jax=False)
 
-    trainer = L.Trainer()
+    trainer = L.Trainer(max_steps=cfg.training.n_steps,
+                        max_epochs=cfg.training.n_epochs)
     trainer.fit(model=model, train_dataloaders=dataloader)
