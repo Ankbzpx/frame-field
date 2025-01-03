@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import lightning as L
 
+import optax
 from jax import vmap, jit
 from jax2torch import jax2torch
 from config import Config, LossConfig
@@ -34,14 +35,43 @@ def reg_torch(sh4, normal):
 
 class OctaGuidedSDF(L.LightningModule):
 
-    def __init__(self, sdf_mlp, octa_mlp, cfg: Config):
+    def __init__(self, cfg: Config):
         super().__init__()
-        self.sdf_mlp: torch.nn.Module = sdf_mlp
-        self.octa_mlp: torch.nn.Module = octa_mlp
+
+        mlp_cfgs = cfg.mlp_cfgs
+        self.sdf_mlp = Siren(**mlp_cfgs[0])
+        self.octa_mlp = LipschitzMLP(**mlp_cfgs[1])
         self.cfg: Config = cfg
+
+        self.align_schedule = jax2torch(
+            jit(
+                optax.linear_schedule(
+                    0, cfg.loss_cfg.align, 1,
+                    int(cfg.loss_cfg.align_begin * cfg.training.n_steps))))
+        self.regularize_schedule = jax2torch(
+            jit(
+                optax.linear_schedule(
+                    0, cfg.loss_cfg.regularize, int(0.2 * cfg.training.n_steps),
+                    int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps))))
+        self.lip_schedule = jax2torch(
+            jit(
+                optax.linear_schedule(
+                    0, cfg.loss_cfg.lip, 1,
+                    int(cfg.loss_cfg.align_begin * cfg.training.n_steps))))
+        self.hessian_schedule = jax2torch(
+            jit(
+                optax.linear_schedule(
+                    cfg.loss_cfg.hessian,
+                    cfg.loss_cfg.hessian_annealing * cfg.loss_cfg.hessian,
+                    int(0.1 * cfg.training.n_steps))))
 
     def training_step(self, batch, batch_idx):
         loss_cfg = self.cfg.loss_cfg
+
+        align_weight = self.align_schedule(self.global_step)
+        regularize_weight = self.regularize_schedule(self.global_step)
+        lip_weight = self.lip_schedule(self.global_step)
+        hessian_weight = self.hessian_schedule(self.global_step)
 
         # On
         samples_on_sur: torch.Tensor = batch['samples_on_sur'][0]
@@ -80,34 +110,33 @@ class OctaGuidedSDF(L.LightningModule):
         }
 
         # Align
-        if loss_cfg.align > 0:
+        if align_weight > 0:
             sample_weight = torch.exp(-1e2 *
                                       torch.abs(pred_on_sur_sdf.detach()))
             normal_align = pred_normals_on_sur.detach()
             aux_align = aux_on
-            loss_align = loss_cfg.align * (
+            loss_align = align_weight * (
                 sample_weight * align_torch(aux_align, normal_align)).mean()
             loss += loss_align
             loss_dict['loss_align'] = loss_align
 
         # Regularize
-        if loss_cfg.regularize > 0:
+        if regularize_weight > 0:
             normal_reg = pred_normals_on_sur
             aux_reg = aux_on.detach()
-            loss_reg = loss_cfg.regularize * reg_torch(aux_reg,
-                                                       normal_reg).mean()
+            loss_reg = regularize_weight * reg_torch(aux_reg, normal_reg).mean()
             loss += loss_reg
             loss_dict['loss_reg'] = loss_reg
 
         # Lip
-        if loss_cfg.lip > 0:
-            loss_lip = loss_cfg.lip * octa_mlp.get_lipschitz_loss()
+        if lip_weight > 0:
+            loss_lip = lip_weight * self.octa_mlp.get_lipschitz_loss()
             loss += loss_lip
             loss_dict['loss_lip'] = loss_lip
 
         # Hessian
-        if loss_cfg.hessian > 0:
-            loss_hessian = loss_cfg.hessian * 0.5 * torch.abs(
+        if hessian_weight > 0:
+            loss_hessian = hessian_weight * 0.5 * torch.abs(
                 torch.det(hessian_close)).mean()
             loss += loss_hessian
             loss_dict['loss_hessian'] = loss_hessian
@@ -130,10 +159,7 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
 
-    mlp_cfgs = cfg.mlp_cfgs
-    sdf_mlp = Siren(**mlp_cfgs[0])
-    octa_mlp = LipschitzMLP(**mlp_cfgs[1])
-    model = OctaGuidedSDF(sdf_mlp, octa_mlp, cfg)
+    model = OctaGuidedSDF(cfg)
 
     dataloader = config_training_data(cfg, np.empty(1,), with_jax=False)
 

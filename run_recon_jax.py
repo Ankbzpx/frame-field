@@ -1,24 +1,19 @@
-import torch
-import numpy as np
-import lightning as L
-from lightning.pytorch.callbacks import ModelCheckpoint
-
+import equinox as eqx
 import jax
 import json
 import argparse
 from glob import glob
 import os
 
+import model_jax
 from config import Config
-from config_utils import config_training_data
-from train import OctaGuidedSDF
-from eval import eval
+from config_utils import config_model, config_latent, config_training_data
+from train_jax import train
+from eval_jax import eval
 
 from icecream import ic
 
 if __name__ == '__main__':
-    torch.set_float32_matmul_precision('high')
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         type=str,
@@ -67,24 +62,26 @@ if __name__ == '__main__':
             if os.path.exists(out_file):
                 continue
 
-        model = OctaGuidedSDF(cfg)
+        model_key, data_key = jax.random.split(
+            jax.random.PRNGKey(cfg.training.seed), 2)
+
+        latents, latent_dim = config_latent(cfg)
+        model = config_model(cfg, model_key, latent_dim)
 
         if args.eval:
-            checkpoint_path = os.path.join(cfg.checkpoints_dir,
-                                           f"{model_name}.ckpt")
-            checkpoint = torch.load(checkpoint_path, weights_only=True)
-            model.load_state_dict(checkpoint['state_dict'])
-            model.cuda()
-            model.eval()
+            model: model_jax.MLP = eqx.tree_deserialise_leaves(
+                os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
         else:
-            checkpoint_callback = ModelCheckpoint(dirpath=cfg.checkpoints_dir,
-                                                  filename=cfg.name)
-            dataloader = config_training_data(cfg, np.empty(1,), with_jax=False)
-            trainer = L.Trainer(max_steps=cfg.training.n_steps,
-                                max_epochs=cfg.training.n_epochs,
-                                callbacks=[checkpoint_callback])
-            trainer.fit(model=model, train_dataloaders=dataloader)
+            data = config_training_data(cfg, latents)
+            model = train(cfg, model, data)
 
-        eval(cfg, model, vis_mc=args.vis)
+        tokens = '0_1_0'.split('_')
+        # Interpolate latent
+        i = int(tokens[0])
+        j = int(tokens[1])
+        t = float(tokens[2])
+        latent = (1 - t) * latents[i] + t * latents[j]
+
+        eval(cfg, model, latent, vis_mc=args.vis)
 
         # exit()
