@@ -11,8 +11,8 @@ from pathlib import Path
 
 from config import Config
 from config_utils import load_sdf
-from train import OctaGuidedSDF
-from model import Siren, LipschitzMLP
+from train_pytorch import OctaGuidedSDF
+from model_pytorch import Siren, LipschitzMLP
 from common import Timer, vis_oct_field, aabb_compute
 from sh_representation import proj_sh4_to_R3
 

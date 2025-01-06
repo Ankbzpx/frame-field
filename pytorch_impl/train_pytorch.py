@@ -7,7 +7,7 @@ from jax import vmap, jit
 from jax2torch import jax2torch
 from config import Config, LossConfig
 from config_utils import config_training_data
-from model import Siren, LipschitzMLP, gradient, hessian
+from model_pytorch import Siren, LipschitzMLP, gradient, hessian
 from loss import eikonal, align_sh4_explicit_cosine, align_sh4_explicit
 
 import json
