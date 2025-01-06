@@ -11,14 +11,12 @@ import os
 
 from config import Config
 from config_utils import config_training_data
-from train import OctaGuidedSDF
-from eval import eval
+from train_pytorch import OctaGuidedSDF
+from eval_pytorch import eval
 
 from icecream import ic
 
 if __name__ == '__main__':
-    torch.set_float32_matmul_precision('high')
-
     parser = argparse.ArgumentParser()
     parser.add_argument('--model',
                         type=str,

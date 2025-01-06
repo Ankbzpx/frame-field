@@ -146,9 +146,8 @@ def batch_call(func,
             output_ = out_map_func(output_)
 
             for i in range(num_out_args):
-                output[
-                    i] = output_[i] if output[i] is None else jnp.concatenate(
-                        [output[i], output_[i]])
+                output[i] = output_[i] if output[
+                    i] is None else jnp.concatenate([output[i], output_[i]])
 
         output = list(output.values())
 
@@ -373,9 +372,9 @@ def eval(cfg: Config,
 
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
-        if len(cfg.mlp_cfgs) > 1:
-            ps.register_surface_mesh('Oct frames supervise', V_vis_sup,
-                                     F_vis_sup)
+        # if len(cfg.mlp_cfgs) > 1:
+        #     ps.register_surface_mesh('Oct frames supervise', V_vis_sup,
+        #                              F_vis_sup)
 
         # pc = ps.register_point_cloud('sur_sample', sur_sample, radius=1e-4)
         # pc.add_vector_quantity('sur_normal', sur_normal, enabled=True)
