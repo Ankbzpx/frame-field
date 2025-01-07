@@ -8,18 +8,19 @@ from eval_jax import voxel_infer, batch_call
 import json
 from glob import glob
 import argparse
-from common import fibonacci_sphere, normalize
+from common import fibonacci_sphere, normalize, Timer
 from config import Config
-from config_utils import config_model, config_latent, config_training_data
+from config_utils import config_model, config_latent
 import os
 import numpy as np
+from PIL import Image
 
 import torch
 from torch2jax import j2t, t2j
-from jax2torch import jax2torch
 import nerfacc
 
 from pyrr import Matrix44
+
 import polyscope as ps
 from icecream import ic
 
@@ -95,33 +96,6 @@ if __name__ == '__main__':
                         help='Skip existing output')
     args = parser.parse_args()
 
-    # For simplicity, let's assume the fov is 90 degree
-    camera_centers = 2 * fibonacci_sphere(10)[1:-1]
-    target = np.array([0., 0., 0.])
-    up = np.array([0, 1, 0])
-
-    # pyrr stores glMatrix, which is column order
-    eye = camera_centers[0]
-    view = np.array(Matrix44.look_at(eye, target, up)).T
-    R = view[:3, :3]
-    t = view[:3, 3]
-
-    res = 64
-    xx, yy = np.meshgrid(np.arange(res), np.arange(res))
-    xx = 2 * xx / (res - 1) - 1
-    yy = 2 * yy / (res - 1) - 1
-    zz = -np.ones_like(xx)
-    pts_view = np.stack([xx, yy, zz], -1).reshape(-1, 3)
-    pts_world = (pts_view - t[None, :]) @ R
-
-    rays_o = np.repeat(eye[None, ...], res**2, axis=0)
-    rays_d = pts_world - eye[None, ...]
-    rays_d /= np.linalg.norm(rays_d, axis=-1, keepdims=True)
-
-    # Apparently, I cannot j2t due to memory management
-    rays_o = torch.from_numpy(rays_o).float().cuda()
-    rays_d = torch.from_numpy(rays_d).float().cuda()
-
     if args.model is not None:
         tag = ''
         model_list = args.model
@@ -181,7 +155,7 @@ if __name__ == '__main__':
             return sdf_, VN_
 
         # TODO: debug density
-        grid_res = 64
+        # grid_res = 64
         # sdf, _ = voxel_infer(infer_sdf, grid_res=grid_res)
         # density = s_density(sdf)
         # ps.init()
@@ -191,25 +165,15 @@ if __name__ == '__main__':
         # ps.show()
         # exit()
 
-        infer_sdf_torch = jax2torch(infer_sdf)
-        infer_normal_torch = jax2torch(infer_normal)
-        s_density_torch = jax2torch(s_density)
-
-        def infer_sdf_batched(x):
-            return batch_call_pytorch(infer_sdf_torch, x)
-
-        def infer_normal_batched(x):
-            return batch_call_pytorch(infer_normal_torch, x)
-
         def sigma_fn(t_starts: torch.Tensor, t_ends: torch.Tensor,
                      ray_indices: torch.Tensor) -> torch.Tensor:
             """ Define how to query density for the estimator."""
             t_origins = rays_o[ray_indices]    # (n_samples, 3)
             t_dirs = rays_d[ray_indices]    # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
-            sdf = infer_sdf_batched(positions)
-            sigmas = s_density_torch(sdf)
-            return sigmas
+            sdf = batch_call(infer_sdf, t2j(positions))
+            sigmas = s_density(sdf)
+            return j2t(sigmas)
 
         def rgb_sigma_fn(
                 t_starts: torch.Tensor, t_ends: torch.Tensor,
@@ -220,27 +184,73 @@ if __name__ == '__main__':
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
             sdf, normal = batch_call(infer_normal, t2j(positions), 2,
                                      grad_out_map_func)
+            normal = vmap(normalize)(normal)
             sigmas = s_density(sdf)
             return j2t(normal), j2t(sigmas)    # (n_samples, 3), (n_samples,)
 
         def occ_fn(x: torch.Tensor):
-            sdf = infer_sdf_batched(x)
-            return sdf < 0
+            sdf = batch_call(infer_sdf, t2j(x))
+            return torch.abs(j2t(sdf)) < 0.1
 
+        res = 256
+        xx, yy = np.meshgrid(np.arange(res), np.arange(res))
+        xx = 2 * xx / (res - 1) - 1
+        yy = 2 * yy / (res - 1) - 1
+        zz = -np.ones_like(xx)
+        pts_view = np.stack([xx, yy, zz], -1).reshape(-1, 3)
+
+        num_view = 8
+        # For simplicity, let's assume the fov is 90 degree
+        camera_centers = 2 * fibonacci_sphere(num_view + 2)[1:-1]
+        target = np.array([0., 0., 0.])
+        up = np.array([0, 1, 0])
+
+        timer = Timer()
         roi_aabb = torch.tensor([-1., -1., -1., 1., 1., 1.]).cuda()
-        estimator = nerfacc.OccGridEstimator(roi_aabb, grid_res).cuda()
-
+        estimator = nerfacc.OccGridEstimator(roi_aabb, res).cuda()
+        estimator.eval()
         estimator._update(0, occ_fn)
-        ray_indices, t_starts, t_ends = estimator.sampling(rays_o=rays_o,
-                                                           rays_d=rays_d,
-                                                           sigma_fn=sigma_fn,
-                                                           near_plane=0.1,
-                                                           far_plane=4.0,
-                                                           early_stop_eps=1e-4,
-                                                           alpha_thre=1e-2)
-        color, opacity, depth, extras = nerfacc.rendering(
-            t_starts,
-            t_ends,
-            ray_indices,
-            n_rays=rays_o.shape[0],
-            rgb_sigma_fn=rgb_sigma_fn)
+
+        timer.log("Update occ")
+
+        for i in range(num_view):
+            # pyrr stores glMatrix, which is column order
+            eye = camera_centers[i]
+            view = np.array(Matrix44.look_at(eye, target, up)).T
+            R = view[:3, :3]
+            t = view[:3, 3]
+            pts_world = (pts_view - t[None, :]) @ R
+
+            rays_o = np.repeat(eye[None, ...], res**2, axis=0)
+            rays_d = pts_world - eye[None, ...]
+            rays_d /= np.linalg.norm(rays_d, axis=-1, keepdims=True)
+
+            with torch.no_grad():
+                # Apparently, I cannot j2t due to memory management
+                rays_o = torch.from_numpy(rays_o).float().cuda()
+                rays_d = torch.from_numpy(rays_d).float().cuda()
+
+                ray_indices, t_starts, t_ends = estimator.sampling(
+                    rays_o=rays_o,
+                    rays_d=rays_d,
+                    sigma_fn=sigma_fn,
+                    near_plane=0.1,
+                    far_plane=4.0,
+                    early_stop_eps=1e-4,
+                    alpha_thre=1e-2)
+
+                timer.log(f"Sample_{i}")
+
+                color, opacity, depth, extras = nerfacc.rendering(
+                    t_starts,
+                    t_ends,
+                    ray_indices,
+                    n_rays=rays_o.shape[0],
+                    rgb_sigma_fn=rgb_sigma_fn)
+
+                timer.log(f"Render_{i}")
+
+                color = 0.5 * (color + 1)
+                color_img = color.reshape(res, res, 3).detach().cpu().numpy()
+                color_img = np.uint8(color_img * 255)
+                Image.fromarray(color_img).save(f"test_{i}.png")
