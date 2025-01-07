@@ -208,11 +208,9 @@ class SineLayer(eqx.Module):
                  key: jax.random.PRNGKey,
                  is_first: bool = False,
                  is_last: bool = False,
-                 omega_0: float = 30):
+                 omega_0: float = 30.):
 
-        # Workaround " Results do not match the reference. This is likely a bug/unexpected loss of precision."
-        # FIXME This shouldn't be necessary
-        self.omega_0 = jnp.ones(1,) if is_last else jnp.asarray(omega_0)
+        self.omega_0 = 1. if is_last else omega_0
 
         if is_first:
             self.W = jax.random.uniform(key, (out_features, in_features),

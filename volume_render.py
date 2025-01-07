@@ -1,3 +1,4 @@
+from typing import Tuple
 import equinox as eqx
 import jax
 from jax import numpy as jnp, vmap, jit
@@ -14,7 +15,7 @@ import os
 import numpy as np
 
 import torch
-from torch2jax import j2t
+from torch2jax import j2t, t2j
 from jax2torch import jax2torch
 import nerfacc
 
@@ -28,6 +29,47 @@ from icecream import ic
 @jit
 def s_density(x, s=100):
     return s * jnp.exp(-s * x) / jnp.pow(1 + jnp.exp(-s * x), 2)
+
+
+def batch_call_pytorch(func,
+                       input,
+                       tmp_cpu=False,
+                       num_out_args=1,
+                       out_map_func=lambda x: [x],
+                       group_size=256**2):
+
+    n_iters = len(input) // group_size
+
+    if tmp_cpu:
+        device = input.device
+
+    if n_iters == 0:
+        output = func(input)
+        output = out_map_func(output)
+    else:
+        output = {}
+        for i in range(num_out_args):
+            output[i] = None
+
+        for input_batch in torch.split(input, group_size):
+            output_ = func(input_batch)
+            if tmp_cpu:
+                output_ = output_.detach().cpu()
+            output_ = out_map_func(output_)
+
+            for i in range(num_out_args):
+                output[i] = output_[i] if output[i] is None else torch.concat(
+                    [output[i], output_[i]])
+
+        output = list(output.values())
+
+    if num_out_args == 1:
+        output = output[0]
+
+    if tmp_cpu:
+        output = output.to(device)
+
+    return output
 
 
 if __name__ == '__main__':
@@ -128,9 +170,15 @@ if __name__ == '__main__':
             z = latent[None, ...].repeat(len(x), 0)
             return model(x, z)[:, 0]
 
-        # FIXME: Convert to cpu to save vram
-        def infer_sdf_batched(x):
-            return batch_call(infer_sdf, x)
+        # jit causes "Results do not match the reference. This is likely a bug/unexpected loss of precision.", but why?
+        # @jit
+        def infer_normal(x):
+            z = latent[None, ...].repeat(len(x), 0)
+            return model.call_grad(x, z)
+
+        def grad_out_map_func(out):
+            (sdf_, _), VN_ = out
+            return sdf_, VN_
 
         # TODO: debug density
         grid_res = 64
@@ -143,8 +191,15 @@ if __name__ == '__main__':
         # ps.show()
         # exit()
 
-        infer_sdf_torch = jax2torch(infer_sdf_batched)
+        infer_sdf_torch = jax2torch(infer_sdf)
+        infer_normal_torch = jax2torch(infer_normal)
         s_density_torch = jax2torch(s_density)
+
+        def infer_sdf_batched(x):
+            return batch_call_pytorch(infer_sdf_torch, x)
+
+        def infer_normal_batched(x):
+            return batch_call_pytorch(infer_normal_torch, x)
 
         def sigma_fn(t_starts: torch.Tensor, t_ends: torch.Tensor,
                      ray_indices: torch.Tensor) -> torch.Tensor:
@@ -152,12 +207,24 @@ if __name__ == '__main__':
             t_origins = rays_o[ray_indices]    # (n_samples, 3)
             t_dirs = rays_d[ray_indices]    # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
-            sdf = infer_sdf_torch(positions)
+            sdf = infer_sdf_batched(positions)
             sigmas = s_density_torch(sdf)
             return sigmas
 
+        def rgb_sigma_fn(
+                t_starts: torch.Tensor, t_ends: torch.Tensor,
+                ray_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+            """ Query rgb and density values from a user-defined radiance field. """
+            t_origins = rays_o[ray_indices]    # (n_samples, 3)
+            t_dirs = rays_d[ray_indices]    # (n_samples, 3)
+            positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
+            sdf, normal = batch_call(infer_normal, t2j(positions), 2,
+                                     grad_out_map_func)
+            sigmas = s_density(sdf)
+            return j2t(normal), j2t(sigmas)    # (n_samples, 3), (n_samples,)
+
         def occ_fn(x: torch.Tensor):
-            sdf = infer_sdf_torch(x)
+            sdf = infer_sdf_batched(x)
             return sdf < 0
 
         roi_aabb = torch.tensor([-1., -1., -1., 1., 1., 1.]).cuda()
@@ -171,6 +238,9 @@ if __name__ == '__main__':
                                                            far_plane=4.0,
                                                            early_stop_eps=1e-4,
                                                            alpha_thre=1e-2)
-        ic(ray_indices)
-        ic(t_starts)
-        ic(t_ends)
+        color, opacity, depth, extras = nerfacc.rendering(
+            t_starts,
+            t_ends,
+            ray_indices,
+            n_rays=rays_o.shape[0],
+            rgb_sigma_fn=rgb_sigma_fn)
