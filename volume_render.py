@@ -14,6 +14,7 @@ from config_utils import config_model, config_latent
 import os
 import numpy as np
 from PIL import Image
+from jax2torch import jax2torch
 
 import torch
 from torch2jax import j2t, t2j
@@ -54,21 +55,24 @@ def batch_call_pytorch(func,
 
         for input_batch in torch.split(input, group_size):
             output_ = func(input_batch)
-            if tmp_cpu:
-                output_ = output_.detach().cpu()
             output_ = out_map_func(output_)
 
             for i in range(num_out_args):
-                output[i] = output_[i] if output[i] is None else torch.concat(
-                    [output[i], output_[i]])
+                if tmp_cpu:
+                    output[i] = output_[i].detach().cpu(
+                    ) if output[i] is None else torch.concat(
+                        [output[i], output_[i].detach().cpu()])
+                else:
+                    output[i] = output_[i] if output[
+                        i] is None else torch.concat([output[i], output_[i]])
 
         output = list(output.values())
 
+    if tmp_cpu:
+        output = [output[i].to(device) for i in range(num_out_args)]
+
     if num_out_args == 1:
         output = output[0]
-
-    if tmp_cpu:
-        output = output.to(device)
 
     return output
 
@@ -165,15 +169,19 @@ if __name__ == '__main__':
         # ps.show()
         # exit()
 
+        infer_sdf_pytorch = jax2torch(infer_sdf)
+        infer_normal_pytorch = jax2torch(infer_normal)
+        s_density_pytorch = jax2torch(s_density)
+
         def sigma_fn(t_starts: torch.Tensor, t_ends: torch.Tensor,
                      ray_indices: torch.Tensor) -> torch.Tensor:
             """ Define how to query density for the estimator."""
             t_origins = rays_o[ray_indices]    # (n_samples, 3)
             t_dirs = rays_d[ray_indices]    # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
-            sdf = batch_call(infer_sdf, t2j(positions))
-            sigmas = s_density(sdf)
-            return j2t(sigmas)
+            sdf = batch_call_pytorch(infer_sdf_pytorch, positions, True)
+            sigmas = s_density_pytorch(sdf)
+            return sigmas
 
         def rgb_sigma_fn(
                 t_starts: torch.Tensor, t_ends: torch.Tensor,
@@ -182,11 +190,12 @@ if __name__ == '__main__':
             t_origins = rays_o[ray_indices]    # (n_samples, 3)
             t_dirs = rays_d[ray_indices]    # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
-            sdf, normal = batch_call(infer_normal, t2j(positions), 2,
-                                     grad_out_map_func)
-            normal = vmap(normalize)(normal)
-            sigmas = s_density(sdf)
-            return j2t(normal), j2t(sigmas)    # (n_samples, 3), (n_samples,)
+            sdf, normal = batch_call_pytorch(infer_normal_pytorch, positions,
+                                             True, 2, grad_out_map_func)
+            normal = normal / (torch.linalg.norm(normal, dim=-1, keepdim=True) +
+                               1e-8)
+            sigmas = s_density_pytorch(sdf)
+            return normal, sigmas    # (n_samples, 3), (n_samples,)
 
         def occ_fn(x: torch.Tensor):
             sdf = batch_call(infer_sdf, t2j(x))
