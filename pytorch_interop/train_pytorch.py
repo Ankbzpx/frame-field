@@ -1,14 +1,21 @@
+import sys
+import os
+
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 import torch
 import numpy as np
 import lightning as L
 
 import optax
+import jax
 from jax import vmap, jit
 from jax2torch import jax2torch
 from config import Config, LossConfig
 from config_utils import config_training_data
-from model_pytorch import Siren, LipschitzMLP, gradient, hessian
-from loss import eikonal, align_sh4_explicit_cosine, align_sh4_explicit
+from model_pytorch import Siren, LipschitzMLP, gradient, vector_gradient, HashMLP
+from loss import align_sh4_explicit_cosine, align_sh4_explicit
+from sh_torch import R3_to_sh4_zonal
 
 import json
 import argparse
@@ -16,13 +23,13 @@ import argparse
 from icecream import ic
 
 
-@jit
-def eikonal_vmapped(x):
-    return vmap(eikonal)(x)
+def eikonal(x):
+    return torch.abs(torch.linalg.norm(x) - 1)
 
 
-def eikonal_torch(normal):
-    return jax2torch(eikonal_vmapped)(normal)
+def cosine_similarity(x, y):
+    demo = torch.linalg.norm(x) * torch.linalg.norm(y)
+    return torch.dot(x, y) / torch.where(demo > 1e-8, demo, 1e-8)
 
 
 def align_torch(sh4, normal):
@@ -33,6 +40,42 @@ def reg_torch(sh4, normal):
     return jax2torch(align_sh4_explicit)(sh4, normal)
 
 
+def normalize(x):
+    return x / (torch.linalg.norm(x) + 1e-8)
+
+
+def rot6d_to_R3(rot6d):
+    a0 = rot6d[:3]
+    a1 = rot6d[3:]
+    b0 = normalize(a0)
+    b1 = normalize(a1 - torch.dot(b0, a1) * b0)
+    b2 = torch.linalg.cross(b0, b1)
+    return torch.stack([b0, b1, b2]).T
+
+
+def func_param(rot6d):
+    basis = torch.vmap(rot6d_to_R3)(rot6d)
+    sh4 = R3_to_sh4_zonal(basis)
+    return sh4
+
+
+def eval_param_jac(x, param_fun, eps=1e-3):
+    eps_x = torch.tensor([eps, 0., 0.], dtype=x.dtype, device=x.device)
+    eps_y = torch.tensor([0., eps, 0.], dtype=x.dtype, device=x.device)
+    eps_z = torch.tensor([0., 0., eps], dtype=x.dtype, device=x.device)
+    # Forward difference
+    param = param_fun(x)
+    param_x = param_fun(x + eps_x[None, :])
+    param_y = param_fun(x + eps_y[None, :])
+    param_z = param_fun(x + eps_z[None, :])
+
+    dx = (param_x - param) / eps
+    dy = (param_y - param) / eps
+    dz = (param_z - param) / eps
+    grad = torch.stack([dx, dy, dz], dim=-1)
+    return grad
+
+
 class OctaGuidedSDF(L.LightningModule):
 
     def __init__(self, cfg: Config):
@@ -40,38 +83,16 @@ class OctaGuidedSDF(L.LightningModule):
 
         mlp_cfgs = cfg.mlp_cfgs
         self.sdf_mlp = Siren(**mlp_cfgs[0])
-        self.octa_mlp = LipschitzMLP(**mlp_cfgs[1])
+        self.octa_mlp = HashMLP(3, 256, 1, 3, interpolation="Nearest")
         self.cfg: Config = cfg
 
-        self.align_schedule = jax2torch(
+        self.smooth_schedule = jax2torch(
             jit(
-                optax.linear_schedule(
-                    0, cfg.loss_cfg.align, 1,
-                    int(cfg.loss_cfg.align_begin * cfg.training.n_steps))))
-        self.regularize_schedule = jax2torch(
-            jit(
-                optax.linear_schedule(
-                    0, cfg.loss_cfg.regularize, int(0.2 * cfg.training.n_steps),
-                    int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps))))
-        self.lip_schedule = jax2torch(
-            jit(
-                optax.linear_schedule(
-                    0, cfg.loss_cfg.lip, 1,
-                    int(cfg.loss_cfg.align_begin * cfg.training.n_steps))))
-        self.hessian_schedule = jax2torch(
-            jit(
-                optax.linear_schedule(
-                    cfg.loss_cfg.hessian,
-                    cfg.loss_cfg.hessian_annealing * cfg.loss_cfg.hessian,
-                    int(0.1 * cfg.training.n_steps))))
+                optax.linear_schedule(0, 1, int(0.1 * cfg.training.n_steps),
+                                      int(0.4 * cfg.training.n_steps))))
 
     def training_step(self, batch, batch_idx):
         loss_cfg = self.cfg.loss_cfg
-
-        align_weight = self.align_schedule(self.global_step)
-        regularize_weight = self.regularize_schedule(self.global_step)
-        lip_weight = self.lip_schedule(self.global_step)
-        hessian_weight = self.hessian_schedule(self.global_step)
 
         # On
         samples_on_sur: torch.Tensor = batch['samples_on_sur'][0]
@@ -81,65 +102,35 @@ class OctaGuidedSDF(L.LightningModule):
         pred_on_sur_sdf: torch.Tensor = self.sdf_mlp(samples_on_sur)
         pred_normals_on_sur: torch.Tensor = gradient(pred_on_sur_sdf,
                                                      samples_on_sur)
-        aux_on: torch.Tensor = self.octa_mlp(samples_on_sur)
 
         # Off
         samples_off_sur: torch.Tensor = batch['samples_off_sur'][0]
-
         pred_off_sur_sdf: torch.Tensor = self.sdf_mlp(samples_off_sur)
-
-        # Close
-        samples_close_sur: torch.Tensor = batch['samples_close_sur'][0]
-        samples_close_sur.requires_grad_(True)
-
-        pred_close_sur_sdf: torch.Tensor = self.sdf_mlp(samples_close_sur)
-        hessian_close = hessian(pred_close_sur_sdf, samples_close_sur)
 
         # Siren
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * torch.abs(pred_on_sur_sdf).mean()
+        loss_normal = loss_cfg.normal * (1 - torch.vmap(cosine_similarity)(
+            pred_normals_on_sur, normals_on_sur)).mean()
         loss_off = loss_cfg.off_sur * torch.exp(
             -1e2 * torch.abs(pred_off_sur_sdf)).mean()
-        loss_eikonal = loss_cfg.eikonal * eikonal_torch(
+        loss_eikonal = loss_cfg.eikonal * torch.vmap(eikonal)(
             pred_normals_on_sur).mean()
-        loss = loss_mse + loss_off + loss_eikonal
-        loss_dict = {
-            'loss_mse': loss_mse,
-            'loss_off': loss_off,
-            'loss_eikonal': loss_eikonal
-        }
+        loss = loss_mse + loss_normal + loss_off + loss_eikonal
 
-        # Align
-        if align_weight > 0:
-            sample_weight = torch.exp(-1e2 *
-                                      torch.abs(pred_on_sur_sdf.detach()))
-            normal_align = pred_normals_on_sur.detach()
-            aux_align = aux_on
-            loss_align = align_weight * (
-                sample_weight * align_torch(aux_align, normal_align)).mean()
-            loss += loss_align
-            loss_dict['loss_align'] = loss_align
+        def param_func(x):
+            y: torch.Tensor = self.sdf_mlp(x)
+            dydx: torch.Tensor = gradient(y, x)
+            aux_on = self.octa_mlp(x)
+            rot6d = torch.hstack([dydx, aux_on])
+            sh4 = func_param(rot6d)
+            return sh4
 
-        # Regularize
-        if regularize_weight > 0:
-            normal_reg = pred_normals_on_sur
-            aux_reg = aux_on.detach()
-            loss_reg = regularize_weight * reg_torch(aux_reg, normal_reg).mean()
-            loss += loss_reg
-            loss_dict['loss_reg'] = loss_reg
+        smooth_weight = self.smooth_schedule(self.global_step)
 
-        # Lip
-        if lip_weight > 0:
-            loss_lip = lip_weight * self.octa_mlp.get_lipschitz_loss()
-            loss += loss_lip
-            loss_dict['loss_lip'] = loss_lip
-
-        # Hessian
-        if hessian_weight > 0:
-            loss_hessian = hessian_weight * 0.5 * torch.abs(
-                torch.det(hessian_close)).mean()
-            loss += loss_hessian
-            loss_dict['loss_hessian'] = loss_hessian
+        jac = eval_param_jac(samples_on_sur, param_func)
+        loss_smooth = torch.linalg.matrix_norm(jac).mean()
+        loss += smooth_weight * loss_smooth
 
         self.log("loss", loss, prog_bar=True)
         return loss
@@ -158,6 +149,7 @@ if __name__ == '__main__':
 
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
+    cfg.sdf_paths = [os.path.join('..', path) for path in cfg.sdf_paths]
 
     model = OctaGuidedSDF(cfg)
 

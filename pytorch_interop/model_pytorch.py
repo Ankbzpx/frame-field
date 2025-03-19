@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from collections import OrderedDict
 import math
+import tinycudann as tcnn
 
 
 def laplace(y, x):
@@ -38,6 +39,32 @@ def gradient(y, x, grad_outputs=None):
                                grad_outputs=grad_outputs,
                                create_graph=True)[0]
     return grad
+
+
+class VanillaMLP(nn.Module):
+
+    def __init__(self,
+                 in_features,
+                 hidden_features,
+                 hidden_layers,
+                 out_features,
+                 input_scale=1.,
+                 **kwargs):
+        super().__init__()
+
+        self.input_scale = input_scale
+        self.layers = nn.ModuleList(
+            [nn.Linear(in_features, hidden_features)] +
+            [nn.Linear(hidden_features, hidden_features)] * hidden_layers +
+            [nn.Linear(hidden_features, out_features)])
+
+    def forward(self, x):
+        x = self.input_scale * x
+        for i in range(len(self.layers)):
+            x = self.layers[i](x)
+            if i != len(self.layers) - 1:
+                x = F.relu(x)
+        return x
 
 
 # https://github.com/vsitzmann/siren
@@ -192,23 +219,80 @@ class LipschitzMLP(nn.Module):
         return loss_lip
 
 
+class HashMLP(nn.Module):
+
+    def __init__(
+            self,
+            in_features,
+            hidden_features,
+            hidden_layers,
+            out_features,
+            input_scale=1.,
+            interpolation="Nearest",    #"Linear"
+            **kwargs):
+        super().__init__()
+
+        self.input_scale = input_scale
+
+        hash_cfg = {
+            "otype": "HashGrid",
+            "n_levels": 16,
+            "n_features_per_level": 2,
+            "log2_hashmap_size": 15,
+            "base_resolution": 16,
+            "per_level_scale": 1.5,
+            "interpolation": interpolation
+        }
+        self.encoding = tcnn.Encoding(in_features, hash_cfg)
+
+        in_dim = hash_cfg["n_levels"] * hash_cfg["n_features_per_level"]
+        self.layers = nn.ModuleList([nn.Linear(in_dim, hidden_features)] + [
+            nn.Linear(hidden_features, hidden_features)
+            for _ in range(hidden_layers)
+        ] + [nn.Linear(hidden_features, out_features)])
+
+    def forward(self, x):
+        x = self.input_scale * x
+        x = self.encoding(x).float()
+        for i in range(len(self.layers)):
+            x = self.layers[i](x)
+            if i != len(self.layers) - 1:
+                x = F.relu(x)
+        return x
+
+    def val_and_grad(self, x, eps, func_param=lambda x: x):
+        eps_x = torch.tensor([eps, 0., 0.], dtype=x.dtype, device=x.device)
+        eps_y = torch.tensor([0., eps, 0.], dtype=x.dtype, device=x.device)
+        eps_z = torch.tensor([0., 0., eps], dtype=x.dtype, device=x.device)
+
+        # Forward difference
+        val = self.octa_mlp(x)
+        param = func_param(val)
+        param_x = func_param(self.octa_mlp(x + eps_x[None, :]))
+        param_y = func_param(self.octa_mlp(x + eps_y[None, :]))
+        param_z = func_param(self.octa_mlp(x + eps_z[None, :]))
+
+        dx = (param_x - param) / eps
+        dy = (param_y - param) / eps
+        dz = (param_z - param) / eps
+        grad = torch.stack([dx, dy, dz], dim=-1)
+
+        return val, grad
+
+
 if __name__ == '__main__':
     import os
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
     from icecream import ic
 
-    x = torch.rand(100, 3)
+    x = torch.rand(100, 3).cuda()
     x.requires_grad_(True)
+    mlp1 = HashMLP(3, 256, 1, 1).cuda()
+    mlp2 = HashMLP(3, 256, 1, 3).cuda()
 
-    mlp1 = LipschitzMLP(3, 256, 4, 9)
-    mlp2 = Siren(3, 256, 4, 1)
+    y = mlp1(x)
+    z = mlp2(x)
 
-    sh4 = mlp1(x)
-    y = mlp2(x)
-    ny = gradient(y, x)
-
-    ic(sh4[0])
-    ic(mlp1.get_lipschitz_loss())
-    ic(vector_gradient(ny, x)[0])
-    ic(hessian(y, x)[0])
+    ic(gradient(y, x).shape)
+    ic(z.shape)

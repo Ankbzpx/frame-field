@@ -1,3 +1,8 @@
+import sys
+import os
+
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 import torch
 import numpy as np
 import lightning as L
@@ -7,7 +12,6 @@ import jax
 import json
 import argparse
 from glob import glob
-import os
 
 from config import Config
 from config_utils import config_training_data

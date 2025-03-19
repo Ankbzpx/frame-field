@@ -1,6 +1,10 @@
+import sys
+import os
+
+sys.path.insert(1, os.path.join(sys.path[0], '..'))
+
 import argparse
 import json
-import os
 import igl
 from glob import glob
 
@@ -33,14 +37,11 @@ def eval(cfg: Config,
          grid_res=512,
          vis_mc=False,
          save_octa=False):
-    sdf_mlp_jax = t2j(model.sdf_mlp)
-    sdf_mlp_params = {k: t2j(v) for k, v in model.sdf_mlp.named_parameters()}
 
-    @jit
+    @torch.no_grad()
     def infer_sdf(x):
-        return sdf_mlp_jax(x, state_dict=sdf_mlp_params)
+        return t2j(model.sdf_mlp(j2t(x)))
 
-    # FIXME: I should probably t2j the module, but got struck at torch.sum and _div
     @torch.no_grad()
     def infer_octa(x):
         return t2j(model.octa_mlp(j2t(x)))
@@ -48,7 +49,8 @@ def eval(cfg: Config,
     timer = Timer()
     save_name = cfg.name
 
-    V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
+    with jax.disable_jit():
+        V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
 
     timer.log('Extract surface')
 
@@ -95,11 +97,13 @@ if __name__ == '__main__':
     cfg = Config(**json.load(open(args.config)))
     cfg.name = args.config.split('/')[-1].split('.')[0]
     cfg.out_dir = args.output
+    cfg.sdf_paths = [os.path.join('..', path) for path in cfg.sdf_paths]
 
     model_name = cfg.sdf_paths[0].split('/')[-1].split('.')[0]
 
     model = OctaGuidedSDF(cfg)
     checkpoint_path = os.path.join(cfg.checkpoints_dir, f"{cfg.name}.ckpt")
+    checkpoint_path = "lightning_logs/version_34/checkpoints/epoch=0-step=10000.ckpt"
     checkpoint = torch.load(checkpoint_path, weights_only=True)
     model.load_state_dict(checkpoint['state_dict'])
     model.cuda()
