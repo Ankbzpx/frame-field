@@ -1,0 +1,15 @@
+[tool.ruff.lint]
+select = ["E", "F", "I001"]
+ignore = ["E721", "E731", "F722", "F401", "E402", "E501", "E741", "F841"]
+
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+lines-after-imports = 2
+extra-standard-library = ["typing_extensions"]
+order-by-type = false
+force-sort-within-sections = true
+section-order = ["future", "standard-library", "first-party", "local-folder", "third-party", "debugging"]
+
+[tool.ruff.lint.isort.sections]
+debugging = ["icecream", "polyscope"]

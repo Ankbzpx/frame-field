@@ -1,12 +1,13 @@
+from common import normalize, Timer
+
+import jax
+from jax import grad, jit, numpy as jnp, value_and_grad, vmap
 import numpy as np
 import optax
 
-from common import normalize, Timer
-import jax
-from jax import numpy as jnp, vmap, grad, jit, value_and_grad
-
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
+
 
 # yapf: disable
 
@@ -94,10 +95,9 @@ def R_x(theta):
 
 # R_z(theta) @ sh4_canonical
 def sh4_z(theta):
-    return jnp.array([0, 0, 0, 0, jnp.sqrt(
-        7 / 12), 0, 0, 0, 0]) + jnp.sqrt(5 / 12) * jnp.array(
-            [jnp.sin(4 * theta), 0, 0, 0, 0, 0, 0, 0,
-             jnp.cos(4 * theta)])
+    return jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0]) + jnp.sqrt(
+        5 / 12
+    ) * jnp.array([jnp.sin(4 * theta), 0, 0, 0, 0, 0, 0, 0, jnp.cos(4 * theta)])
 
 
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
@@ -115,13 +115,18 @@ def rotvec_n_to_z(n):
 
 @jit
 def skew_symmetric3(rotvec):
-    return jnp.array([[0, -rotvec[2], rotvec[1]], [rotvec[2], 0, -rotvec[0]],
-                      [-rotvec[1], rotvec[0], 0]])
+    return jnp.array(
+        [
+            [0, -rotvec[2], rotvec[1]],
+            [rotvec[2], 0, -rotvec[0]],
+            [-rotvec[1], rotvec[0], 0],
+        ]
+    )
 
 
 @jit
 def R3_to_repvec(R, vn):
-    idx = jnp.argmin(jnp.abs(jnp.einsum('ji,j->i', R, vn)))
+    idx = jnp.argmin(jnp.abs(jnp.einsum("ji,j->i", R, vn)))
     return R[:, idx]
 
 
@@ -132,8 +137,7 @@ def R3_to_repvec(R, vn):
 def R3_to_rotvec(R):
     u = jnp.linalg.eigh(R)[1][:, 2]
     theta = jnp.arccos(0.5 * (jnp.trace(R) - 1))
-    u_test = jnp.array(
-        [R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
+    u_test = jnp.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
     dp = jnp.dot(u, u_test)
     return jnp.where(dp > 0, theta * u, -theta * u)
 
@@ -141,17 +145,14 @@ def R3_to_rotvec(R):
 # Note the phi, theta have different convention as in rendering
 @jit
 def cartesian_to_spherical(v):
-    return jnp.arctan2(jnp.sqrt((v[1]**2 + v[0]**2)),
-                       v[2]), jnp.arctan2(v[1], v[0])
+    return jnp.arctan2(jnp.sqrt((v[1] ** 2 + v[0] ** 2)), v[2]), jnp.arctan2(v[1], v[0])
 
 
 @jit
 def spherical_to_cartesian(phi, theta):
-    return jnp.array([
-        jnp.sin(phi) * jnp.cos(theta),
-        jnp.sin(phi) * jnp.sin(theta),
-        jnp.cos(phi)
-    ])
+    return jnp.array(
+        [jnp.sin(phi) * jnp.cos(theta), jnp.sin(phi) * jnp.sin(theta), jnp.cos(phi)]
+    )
 
 
 # First order approximation
@@ -173,7 +174,8 @@ def rotvec_to_R9_close_z(rotvec):
     rotvec_norm = jnp.linalg.norm(rotvec)
     # Jacobian matches expm, but why?
     R_zv = rotvec_to_R9_approx(
-        jnp.array([rotvec[1] / rotvec_norm, -rotvec[0] / rotvec_norm, 0]))
+        jnp.array([rotvec[1] / rotvec_norm, -rotvec[0] / rotvec_norm, 0])
+    )
     R9_z = R_z(jnp.sign(rotvec[2]) * rotvec_norm)
     return R_zv.T @ R9_z @ R_zv
 
@@ -181,10 +183,8 @@ def rotvec_to_R9_close_z(rotvec):
 @jit
 def rotvec_to_R9_exact(rotvec):
     # Handle singularities at (0, 0, z)
-    close_z = jnp.abs(jnp.dot(normalize(rotvec), jnp.array([0., 0., 1.
-                                                           ]))) > 0.999
-    return jax.lax.cond(close_z, rotvec_to_R9_close_z, rotvec_to_R9_spherical,
-                        rotvec)
+    close_z = jnp.abs(jnp.dot(normalize(rotvec), jnp.array([0.0, 0.0, 1.0]))) > 0.999
+    return jax.lax.cond(close_z, rotvec_to_R9_close_z, rotvec_to_R9_spherical, rotvec)
 
 
 # Once differentiable, should be enough for gradient descent
@@ -196,8 +196,7 @@ def rotvec_to_R9(rotvec):
 
     # Handle singularities at (0, 0, 0)
     close_zero = jnp.linalg.norm(rotvec) < 1e-8
-    return jax.lax.cond(close_zero, rotvec_to_R9_approx, rotvec_to_R9_exact,
-                        rotvec)
+    return jax.lax.cond(close_zero, rotvec_to_R9_approx, rotvec_to_R9_exact, rotvec)
 
 
 @jit
@@ -210,8 +209,7 @@ def rotvec_to_sh4(rotvec):
 def rotvec_to_R3_Rodrigues(rotvec):
     rotvec_norm = jnp.linalg.norm(rotvec)
     A = skew_symmetric3(rotvec / rotvec_norm)
-    return jnp.eye(
-        3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
+    return jnp.eye(3) + jnp.sin(rotvec_norm) * A + (1 - jnp.cos(rotvec_norm)) * A @ A
 
 
 # First order approximation
@@ -223,8 +221,11 @@ def rotvec_to_R3_approx(rotvec):
 @jit
 def rotvec_to_R3(rotvec):
     return jax.lax.cond(
-        jnp.linalg.norm(rotvec) < 1e-8, rotvec_to_R3_approx,
-        rotvec_to_R3_Rodrigues, rotvec)
+        jnp.linalg.norm(rotvec) < 1e-8,
+        rotvec_to_R3_approx,
+        rotvec_to_R3_Rodrigues,
+        rotvec,
+    )
 
 
 # rotvec_to_R9(rotvec) @ sh4_canonical
@@ -247,14 +248,17 @@ def rotvec_to_sh4_expm(rotvec):
 # https://en.wikipedia.org/wiki/Rotation_matrix
 @jit
 def eulerXYZ_to_R3(a, b, c):
-    Rx = jnp.array([[1, 0, 0], [0, jnp.cos(a), -jnp.sin(a)],
-                    [0, jnp.sin(a), jnp.cos(a)]])
+    Rx = jnp.array(
+        [[1, 0, 0], [0, jnp.cos(a), -jnp.sin(a)], [0, jnp.sin(a), jnp.cos(a)]]
+    )
 
-    Ry = jnp.array([[jnp.cos(b), 0, jnp.sin(b)], [0, 1, 0],
-                    [-jnp.sin(b), 0, jnp.cos(b)]])
+    Ry = jnp.array(
+        [[jnp.cos(b), 0, jnp.sin(b)], [0, 1, 0], [-jnp.sin(b), 0, jnp.cos(b)]]
+    )
 
-    Rz = jnp.array([[jnp.cos(c), -jnp.sin(c), 0], [jnp.sin(c),
-                                                   jnp.cos(c), 0], [0, 0, 1]])
+    Rz = jnp.array(
+        [[jnp.cos(c), -jnp.sin(c), 0], [jnp.sin(c), jnp.cos(c), 0], [0, 0, 1]]
+    )
 
     return Rz @ Ry @ Rx
 
@@ -268,11 +272,17 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     # This is still necessary as SO(9) induced by SO(3) cannot cover the full rotation space
     @jit
     def initialize(sh4):
-        init_rotvecs = jnp.array([[0, 0, 0], [jnp.pi / 4, 0, 0],
-                                  [0, jnp.pi / 4, 0], [0, 0, jnp.pi / 4],
-                                  jnp.pi / 4 * normalize(jnp.array([1, 1, 0]))])
+        init_rotvecs = jnp.array(
+            [
+                [0, 0, 0],
+                [jnp.pi / 4, 0, 0],
+                [0, jnp.pi / 4, 0],
+                [0, 0, jnp.pi / 4],
+                jnp.pi / 4 * normalize(jnp.array([1, 1, 0])),
+            ]
+        )
         init_sh4s = vmap(rotvec_to_sh4)(init_rotvecs)
-        init_idx = jnp.argmax(jnp.einsum('ni,i->n', init_sh4s, sh4))
+        init_idx = jnp.argmax(jnp.einsum("ni,i->n", init_sh4s, sh4))
         return init_rotvecs[init_idx]
 
     rotvec = vmap(initialize)(sh4s_target)
@@ -292,23 +302,25 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     # Here we leverage autograd to directly optimize over so3
 
     optimizer = optax.adam(lr)
-    params = {'rotvec': rotvec}
+    params = {"rotvec": rotvec}
     opt_state = optimizer.init(params)
 
     state = {
-        "loss": 100.,
-        "loss_diff": 100.,
+        "loss": 100.0,
+        "loss_diff": 100.0,
         "iter": 0,
         "opt_state": opt_state,
-        "params": params
+        "params": params,
     }
 
     @jit
     @value_and_grad
     def loss_func(params):
-        return jnp.power(
-            vmap(rotvec_to_sh4)(params['rotvec']) - sh4s_target,
-            2).sum(axis=1).mean()
+        return (
+            jnp.power(vmap(rotvec_to_sh4)(params["rotvec"]) - sh4s_target, 2)
+            .sum(axis=1)
+            .mean()
+        )
 
     @jit
     def condition_func(state):
@@ -317,8 +329,7 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
     @jit
     def body_func(state):
         loss, grads = loss_func(state["params"])
-        updates, state["opt_state"] = optimizer.update(grads,
-                                                       state["opt_state"])
+        updates, state["opt_state"] = optimizer.update(grads, state["opt_state"])
         state["params"] = optax.apply_updates(state["params"], updates)
 
         state["loss_diff"] = jnp.abs(loss - state["loss"])
@@ -333,8 +344,9 @@ def proj_sh4_to_rotvec(sh4s_target, lr=1e-2, min_loss_diff=1e-5, max_iter=1000):
 # Adapted from Section 5.1 of https://dl.acm.org/doi/abs/10.1145/3366786
 sh4_z_4 = jnp.array([0, 0, 0, 0, jnp.sqrt(7 / 12), 0, 0, 0, 0])
 
-Bz = jnp.sqrt(5 / 12) * jnp.array([[1, 0, 0, 0, 0, 0, 0, 0, 0],
-                                   [0, 0, 0, 0, 0, 0, 0, 0, 1]])
+Bz = jnp.sqrt(5 / 12) * jnp.array(
+    [[1, 0, 0, 0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 0, 0, 0, 1]]
+)
 
 
 # exp(t L_z) @ sh4_canonical = sh4_z_4 + Bz.T [cos(4t), sin(4t)].T
@@ -370,7 +382,7 @@ def r_2(x, y, z):
 
 @jit
 def r_4(x, y, z):
-    return r_2(x, y, z)**2
+    return r_2(x, y, z) ** 2
 
 
 @jit
@@ -390,8 +402,7 @@ def y_2_1(x, y, z):
 
 @jit
 def y_20(x, y, z):
-    return (1 / 4) * jnp.sqrt(
-        5 / jnp.pi) * (3 * z**2 * r_2(x, y, z) - r_4(x, y, z))
+    return (1 / 4) * jnp.sqrt(5 / jnp.pi) * (3 * z**2 * r_2(x, y, z) - r_4(x, y, z))
 
 
 @jit
@@ -421,26 +432,26 @@ def y_4_2(x, y, z):
 
 @jit
 def y_4_1(x, y, z):
-    return (3 / 4) * jnp.sqrt(
-        5 / (2 * jnp.pi)) * y * (7 * z**3 - 3 * z * r_2(x, y, z))
+    return (3 / 4) * jnp.sqrt(5 / (2 * jnp.pi)) * y * (7 * z**3 - 3 * z * r_2(x, y, z))
 
 
 @jit
 def y_40(x, y, z):
-    return (3 / 16) * jnp.sqrt(
-        1 / jnp.pi) * (35 * z**4 - 30 * z**2 * r_2(x, y, z) + 3 * r_4(x, y, z))
+    return (
+        (3 / 16)
+        * jnp.sqrt(1 / jnp.pi)
+        * (35 * z**4 - 30 * z**2 * r_2(x, y, z) + 3 * r_4(x, y, z))
+    )
 
 
 @jit
 def y_41(x, y, z):
-    return (3 / 4) * jnp.sqrt(
-        5 / (2 * jnp.pi)) * x * (7 * z**3 - 3 * z * r_2(x, y, z))
+    return (3 / 4) * jnp.sqrt(5 / (2 * jnp.pi)) * x * (7 * z**3 - 3 * z * r_2(x, y, z))
 
 
 @jit
 def y_42(x, y, z):
-    return (3 / 8) * jnp.sqrt(
-        5 / jnp.pi) * (x**2 - y**2) * (7 * z**2 - r_2(x, y, z))
+    return (3 / 8) * jnp.sqrt(5 / jnp.pi) * (x**2 - y**2) * (7 * z**2 - r_2(x, y, z))
 
 
 @jit
@@ -450,8 +461,11 @@ def y_43(x, y, z):
 
 @jit
 def y_44(x, y, z):
-    return (3 / 16) * jnp.sqrt(35 / jnp.pi) * (x**2 * (x**2 - 3 * y**2) - y**2 *
-                                               (3 * x**2 - y**2))
+    return (
+        (3 / 16)
+        * jnp.sqrt(35 / jnp.pi)
+        * (x**2 * (x**2 - 3 * y**2) - y**2 * (3 * x**2 - y**2))
+    )
 
 
 sh0_basis = [y_00]
@@ -502,7 +516,8 @@ def eval_non_orth_basis(v):
     y = v[1]
     z = v[2]
     return jnp.array(
-        jax.tree.map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis))
+        jax.tree.map(lambda f: f(x, y, z), sh0_basis + sh2_basis + sh4_basis)
+    )
 
 
 # x^4 + y^4 + z^4
@@ -520,8 +535,7 @@ def oct_polynomial_sh4(v, sh4):
 @jit
 def oct_polynomial_sh4_unit_norm(v, sh4):
     sh = jnp.hstack([oct_00, sh4])
-    return jnp.dot(sh,
-                   eval_oct_basis(v) / oct_poly_scale) / r_4(v[0], v[1], v[2])
+    return jnp.dot(sh, eval_oct_basis(v) / oct_poly_scale) / r_4(v[0], v[1], v[2])
 
 
 @jit
@@ -562,7 +576,7 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 
     v1 = jax.random.normal(key1, (n_elem, 3))
     v2 = jax.random.normal(key2, (n_elem, 3))
-    state = {"loss": 100., "iter": 0, "v1": v1, "v2": v2}
+    state = {"loss": 100.0, "iter": 0, "v1": v1, "v2": v2}
 
     # sqrt(n_elem * eps**2)
     min_loss = jnp.sqrt(n_elem) * 1e-8
@@ -578,13 +592,13 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
     @jit
     def body_func(state):
         # Power iteration
-        v1 = vmap(grad(oct_polynomial_sh4))(state['v1'], sh4s_target)
+        v1 = vmap(grad(oct_polynomial_sh4))(state["v1"], sh4s_target)
         v1 = vmap(normalize)(v1)
-        v2 = vmap(grad(oct_polynomial_sh4))(state['v2'], sh4s_target)
+        v2 = vmap(grad(oct_polynomial_sh4))(state["v2"], sh4s_target)
         v2 = vmap(project_orth)(v1, v2)
         v2 = vmap(normalize)(v2)
 
-        loss = jnp.linalg.norm(v1 - state['v1'], 'f')
+        loss = jnp.linalg.norm(v1 - state["v1"], "f")
 
         state["v1"] = v1
         state["v2"] = v2
@@ -594,8 +608,8 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 
     state = jax.lax.while_loop(condition_func, body_func, state)
 
-    v1 = state['v1']
-    v2 = state['v2']
+    v1 = state["v1"]
+    v2 = state["v2"]
     v3 = jnp.cross(v1, v2, axis=-1)
 
     return jnp.stack([v1, v2, v3], -1)
@@ -608,7 +622,7 @@ def proj_sh4_to_R3(sh4s_target, max_iter=1000):
 # zonal_z_poly_scale * z**4 = zonal_z_00 * y_00 + zonal_z_20 * y_20 + zonal_z_40 * y_40
 zonal_z_poly_scale = (3 * 35) / (16 * jnp.sqrt(jnp.pi))
 zonal_z_00 = 21 / 8
-zonal_z_20 = (3 * jnp.sqrt(5) / 2)
+zonal_z_20 = 3 * jnp.sqrt(5) / 2
 zonal_z_40 = 1
 
 zonal_to_octa_scale = oct_poly_scale / zonal_z_poly_scale
@@ -621,8 +635,11 @@ def zonal_z_polynomial(z):
 
 @jit
 def zonal_z_polynomial_sh(z):
-    sum = zonal_z_00 * y_00(0, 0, z) + zonal_z_20 * y_20(
-        0, 0, z) + zonal_z_40 * y_40(0, 0, z)
+    sum = (
+        zonal_z_00 * y_00(0, 0, z)
+        + zonal_z_20 * y_20(0, 0, z)
+        + zonal_z_40 * y_40(0, 0, z)
+    )
     return sum / zonal_z_poly_scale
 
 
@@ -655,10 +672,7 @@ def zonal_oct_coeffs(u):
 @jit
 # Rotate to direction u
 def zonal_non_orth_coeffs(u):
-    return jnp.hstack(
-        [zonal_sh0_coeffs(u),
-         zonal_sh2_coeffs(u),
-         zonal_sh4_coeffs(u)])
+    return jnp.hstack([zonal_sh0_coeffs(u), zonal_sh2_coeffs(u), zonal_sh4_coeffs(u)])
 
 
 @jit
@@ -681,23 +695,28 @@ def rot6d_to_sh4_zonal(rot6d):
 # x^4 + y^4 + z^4
 @jit
 def oct_polynomial_zonal(v, R3):
-    return vmap(zonal_oct_coeffs)(
-        R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale
+    return vmap(zonal_oct_coeffs)(R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale
 
 
 # (x^4 + y^4 + z^4) / r^4
 # It is equivalent to oct_polynomial_zonal(normalize(v), sh4)
 @jit
 def oct_polynomial_zonal_unit_norm(v, R3):
-    return vmap(zonal_oct_coeffs)(
-        R3.T).sum(0) @ eval_oct_basis(v) / zonal_z_poly_scale / r_4(
-            v[0], v[1], v[2])
+    return (
+        vmap(zonal_oct_coeffs)(R3.T).sum(0)
+        @ eval_oct_basis(v)
+        / zonal_z_poly_scale
+        / r_4(v[0], v[1], v[2])
+    )
 
 
 @jit
 def non_orth_polynomial_zonal(v, basis):
-    return vmap(zonal_non_orth_coeffs)(
-        basis.T).sum(0) @ eval_non_orth_basis(v) / zonal_z_poly_scale
+    return (
+        vmap(zonal_non_orth_coeffs)(basis.T).sum(0)
+        @ eval_non_orth_basis(v)
+        / zonal_z_poly_scale
+    )
 
 
 # symmetric & column unit norm
@@ -711,8 +730,11 @@ def vec3_to_symmetric3(vec3):
     # |a| < 1
     a = jnp.tanh(a)
     # sqrt(1 - a^2) / sqrt(2) < |b| < sqrt(1 - a^2)
-    b = jnp.sign(b) * (jax.nn.sigmoid(b) * (1 - jnp.sqrt(2) / 2) +
-                       (jnp.sqrt(2) / 2)) * jnp.sqrt(1 - a**2)
+    b = (
+        jnp.sign(b)
+        * (jax.nn.sigmoid(b) * (1 - jnp.sqrt(2) / 2) + (jnp.sqrt(2) / 2))
+        * jnp.sqrt(1 - a**2)
+    )
     # |c| < sqrt(1 - b^2)
     c = jnp.tanh(c) * jnp.sqrt(1 - b**2)
     d = jnp.sqrt(1 - a**2 - b**2)
@@ -743,6 +765,7 @@ def vec9_to_non_orth_zonal(vec9):
 # Reference: Section 4.2 of "Algebraic Representations for Volumetric Frame Fields" by PALMER et al.
 def proj_sh4_sdp(sh4s_target):
     import frame_field_utils
+
     _sdp_helper = frame_field_utils.SH4SDPProjectHelper()
 
     if len(sh4s_target.shape) < 2:
@@ -758,7 +781,7 @@ def distance_SO3(R1, R2):
     return jnp.arccos(cos)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     np.random.seed(0)
     rotvec = np.random.randn(3)
     sh4 = rotvec_to_sh4(rotvec)
@@ -767,43 +790,70 @@ if __name__ == '__main__':
 
     s = normalize(np.random.randn(3))
     print("L2 sh4 ≈ zonal: ", jnp.allclose(sh4, sh4_zonal, atol=1e-6))
-    print("L2 poly ≈ zonal oct: ",
-          jnp.allclose(oct_polynomial(s, R3), oct_polynomial_zonal(s, R3)))
-    print("L2 sh4 oct ≈ zonal oct: ",
-          jnp.allclose(oct_polynomial(s, R3), oct_polynomial_sh4(s, sh4)))
+    print(
+        "L2 poly ≈ zonal oct: ",
+        jnp.allclose(oct_polynomial(s, R3), oct_polynomial_zonal(s, R3)),
+    )
+    print(
+        "L2 sh4 oct ≈ zonal oct: ",
+        jnp.allclose(oct_polynomial(s, R3), oct_polynomial_sh4(s, sh4)),
+    )
     print(
         "Rotational invariance: ",
         jnp.allclose(
             rotvec_to_R9_expm(rotvec) @ sh4_canonical @ eval_sh4_basis(s),
-            sh4_canonical @ eval_sh4_basis(R3.T @ s)))
+            sh4_canonical @ eval_sh4_basis(R3.T @ s),
+        ),
+    )
 
     v = vmap(normalize)(np.random.randn(1000, 3))
 
     ps.init()
-    ps.register_point_cloud('pc', v, radius=2e-3)
+    ps.register_point_cloud("pc", v, radius=2e-3)
 
     R3 = rotvec_to_R3(rotvec)
-    V_cube = np.array([[-1, -1, 1], [1, -1, 1], [-1, 1, 1], [1, 1, 1],
-                       [-1, -1, -1], [1, -1, -1], [-1, 1, -1], [1, 1, -1]])
+    V_cube = np.array(
+        [
+            [-1, -1, 1],
+            [1, -1, 1],
+            [-1, 1, 1],
+            [1, 1, 1],
+            [-1, -1, -1],
+            [1, -1, -1],
+            [-1, 1, -1],
+            [1, 1, -1],
+        ]
+    )
 
-    F_cube = np.array([[7, 6, 2], [2, 3, 7], [0, 4, 5], [5, 1, 0], [0, 2, 6],
-                       [6, 4, 0], [7, 3, 1], [1, 5, 7], [3, 2, 0], [0, 1, 3],
-                       [4, 6, 7], [7, 5, 4]])
-    ps.register_surface_mesh('cube', (V_cube / np.sqrt(3)) @ R3.T, F_cube)
+    F_cube = np.array(
+        [
+            [7, 6, 2],
+            [2, 3, 7],
+            [0, 4, 5],
+            [5, 1, 0],
+            [0, 2, 6],
+            [6, 4, 0],
+            [7, 3, 1],
+            [1, 5, 7],
+            [3, 2, 0],
+            [0, 1, 3],
+            [4, 6, 7],
+            [7, 5, 4],
+        ]
+    )
+    ps.register_surface_mesh("cube", (V_cube / np.sqrt(3)) @ R3.T, F_cube)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(oct_polynomial_sh4),
-                                 in_axes=(0, None))(v, sh4))
+        v = vmap(normalize)(vmap(grad(oct_polynomial_sh4), in_axes=(0, None))(v, sh4))
 
     dps = vmap(oct_polynomial_sh4, in_axes=(0, None))(v, sh4)
     print(f"Dot product ≈ 1: {jnp.allclose(dps, 1)}")
 
-    ps.register_point_cloud('pc_converge', v)
+    ps.register_point_cloud("pc_converge", v)
 
     for _ in range(1000):
-        v = vmap(normalize)(vmap(grad(oct_polynomial), in_axes=(0, None))(v,
-                                                                          R3))
+        v = vmap(normalize)(vmap(grad(oct_polynomial), in_axes=(0, None))(v, R3))
 
-    ps.register_point_cloud('pc_converge_origin', v)
+    ps.register_point_cloud("pc_converge_origin", v)
 
     ps.show()

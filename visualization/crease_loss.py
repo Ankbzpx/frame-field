@@ -1,21 +1,37 @@
-import numpy as np
-import jax
-from jax import vmap, numpy as jnp, jit
-from sh_representation import rotvec_to_R3, R3_to_sh4_zonal, R3_to_rotvec, rotvec_n_to_z, rotvec_to_R9, rotvec_to_sh4
-import matplotlib.pyplot as plt
-import matplotlib as mpl
+from sh_representation import (
+    R3_to_rotvec,
+    R3_to_sh4_zonal,
+    rotvec_n_to_z,
+    rotvec_to_R3,
+    rotvec_to_R9,
+    rotvec_to_sh4,
+)
 
-import polyscope as ps
+import jax
+from jax import jit, numpy as jnp, vmap
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+import numpy as np
+
 from icecream import ic
+import polyscope as ps
 
 
 @jit
 def sh4_tangential_twist(theta, xy_scale):
-    return jnp.array([
-        jnp.sqrt(5 / 12 * xy_scale) * jnp.cos(4 * theta), 0, 0, 0,
-        jnp.sqrt(7 / 12), 0, 0, 0,
-        jnp.sqrt(5 / 12 * xy_scale) * jnp.sin(4 * theta)
-    ])
+    return jnp.array(
+        [
+            jnp.sqrt(5 / 12 * xy_scale) * jnp.cos(4 * theta),
+            0,
+            0,
+            0,
+            jnp.sqrt(7 / 12),
+            0,
+            0,
+            0,
+            jnp.sqrt(5 / 12 * xy_scale) * jnp.sin(4 * theta),
+        ]
+    )
 
 
 # Both `sh_param` are equivalent in terms of loss manifold, but `rotvec_to_R9` introduces `normal` depend initial tangential twist
@@ -65,46 +81,43 @@ def eval_loss(angle, xy_scale, pi_multi=0.5, dim=10):
     return loss
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     pi_multi = 0.5
     dim = 10
 
-    cmap = mpl.colors.LinearSegmentedColormap.from_list('octa',
-                                                        [(0, '#461959'),
-                                                         (0.25, '#7A316F'),
-                                                         (0.75, '#CD6688'),
-                                                         (1, '#AED8CC')],
-                                                        N=256)
+    cmap = mpl.colors.LinearSegmentedColormap.from_list(
+        "octa",
+        [(0, "#461959"), (0.25, "#7A316F"), (0.75, "#CD6688"), (1, "#AED8CC")],
+        N=256,
+    )
 
     for xy_scale in [0.5, 0.75, 1.0, 1.5, 2.0]:
         for angle in [10, 30, 60, 90, 120, 150, 170]:
-
             loss = eval_loss(angle, xy_scale)
 
             if angle == 90:
                 loss_max = loss.max()
                 loss_min = loss.min()
                 jax.debug.print(
-                    'Z scale: {xy_scale}, Loss min: {loss_min}, Loss max: {loss_max}, Loss gap: {loss_gap}',
+                    "Z scale: {xy_scale}, Loss min: {loss_min}, Loss max: {loss_max}, Loss gap: {loss_gap}",
                     xy_scale=xy_scale,
                     loss_min=loss_min,
                     loss_max=loss_max,
-                    loss_gap=loss_max - loss_min)
+                    loss_gap=loss_max - loss_min,
+                )
 
-            X, Y = np.meshgrid(np.linspace(0, pi_multi, dim**2),
-                               np.linspace(0, pi_multi, dim**2))
+            X, Y = np.meshgrid(
+                np.linspace(0, pi_multi, dim**2), np.linspace(0, pi_multi, dim**2)
+            )
 
             fig = plt.figure(figsize=(dim, dim))
-            plt.contourf(X,
-                         Y,
-                         loss.reshape(dim**2, dim**2),
-                         levels=21,
-                         cmap=cmap)
+            plt.contourf(X, Y, loss.reshape(dim**2, dim**2), levels=21, cmap=cmap)
             tag = f"{angle}".zfill(3)
-            xy_scale_tag = f'{xy_scale}'.replace('.', '_')
-            plt.axis('off')
-            plt.savefig(f'plots/loss_l2_{xy_scale_tag}_{tag}.png',
-                        bbox_inches='tight',
-                        pad_inches=0)
+            xy_scale_tag = f"{xy_scale}".replace(".", "_")
+            plt.axis("off")
+            plt.savefig(
+                f"plots/loss_l2_{xy_scale_tag}_{tag}.png",
+                bbox_inches="tight",
+                pad_inches=0,
+            )
             plt.close()

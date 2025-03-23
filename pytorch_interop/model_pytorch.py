@@ -1,9 +1,10 @@
+from collections import OrderedDict
+import math
+
+import tinycudann as tcnn
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from collections import OrderedDict
-import math
-import tinycudann as tcnn
 
 
 def laplace(y, x):
@@ -12,12 +13,11 @@ def laplace(y, x):
 
 
 def divergence(y, x):
-    div = 0.
+    div = 0.0
     for i in range(y.shape[-1]):
-        div += torch.autograd.grad(y[..., i],
-                                   x,
-                                   torch.ones_like(y[..., i]),
-                                   create_graph=True)[0][..., i:i + 1]
+        div += torch.autograd.grad(
+            y[..., i], x, torch.ones_like(y[..., i]), create_graph=True
+        )[0][..., i : i + 1]
     return div
 
 
@@ -27,36 +27,34 @@ def hessian(y, x):
 
 
 def vector_gradient(grad, x):
-    return torch.stack([gradient(grad[:, i], x) for i in range(grad.shape[-1])],
-                       -1)
+    return torch.stack([gradient(grad[:, i], x) for i in range(grad.shape[-1])], -1)
 
 
 def gradient(y, x, grad_outputs=None):
-
     if grad_outputs is None:
         grad_outputs = torch.ones_like(y)
-    grad = torch.autograd.grad(y, [x],
-                               grad_outputs=grad_outputs,
-                               create_graph=True)[0]
+    grad = torch.autograd.grad(y, [x], grad_outputs=grad_outputs, create_graph=True)[0]
     return grad
 
 
 class VanillaMLP(nn.Module):
-
-    def __init__(self,
-                 in_features,
-                 hidden_features,
-                 hidden_layers,
-                 out_features,
-                 input_scale=1.,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features,
+        hidden_features,
+        hidden_layers,
+        out_features,
+        input_scale=1.0,
+        **kwargs,
+    ):
         super().__init__()
 
         self.input_scale = input_scale
         self.layers = nn.ModuleList(
-            [nn.Linear(in_features, hidden_features)] +
-            [nn.Linear(hidden_features, hidden_features)] * hidden_layers +
-            [nn.Linear(hidden_features, out_features)])
+            [nn.Linear(in_features, hidden_features)]
+            + [nn.Linear(hidden_features, hidden_features)] * hidden_layers
+            + [nn.Linear(hidden_features, out_features)]
+        )
 
     def forward(self, x):
         x = self.input_scale * x
@@ -78,12 +76,9 @@ class SineLayer(nn.Module):
     # If is_first=False, then the weights will be divided by omega_0 so as to keep the magnitude of
     # activations constant, but boost gradients to the weight matrix (see supplement Sec. 1.5)
 
-    def __init__(self,
-                 in_features,
-                 out_features,
-                 bias=True,
-                 is_first=False,
-                 omega_0=30):
+    def __init__(
+        self, in_features, out_features, bias=True, is_first=False, omega_0=30
+    ):
         super().__init__()
         self.omega_0 = omega_0
         self.is_first = is_first
@@ -96,45 +91,49 @@ class SineLayer(nn.Module):
     def init_weights(self):
         with torch.no_grad():
             if self.is_first:
-                self.linear.weight.uniform_(-1 / self.in_features,
-                                            1 / self.in_features)
+                self.linear.weight.uniform_(-1 / self.in_features, 1 / self.in_features)
             else:
                 self.linear.weight.uniform_(
                     -math.sqrt(6 / self.in_features) / self.omega_0,
-                    math.sqrt(6 / self.in_features) / self.omega_0)
+                    math.sqrt(6 / self.in_features) / self.omega_0,
+                )
 
     def forward(self, input):
         return torch.sin(self.omega_0 * self.linear(input))
 
 
 class Siren(nn.Module):
-
-    def __init__(self,
-                 in_features,
-                 hidden_features,
-                 hidden_layers,
-                 out_features,
-                 input_scale=1.,
-                 outermost_linear=True,
-                 first_omega_0=30.,
-                 hidden_omega_0=30.,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features,
+        hidden_features,
+        hidden_layers,
+        out_features,
+        input_scale=1.0,
+        outermost_linear=True,
+        first_omega_0=30.0,
+        hidden_omega_0=30.0,
+        **kwargs,
+    ):
         super().__init__()
 
         self.input_scale = input_scale
         self.net = []
         self.net.append(
-            SineLayer(in_features,
-                      hidden_features,
-                      is_first=True,
-                      omega_0=first_omega_0))
+            SineLayer(
+                in_features, hidden_features, is_first=True, omega_0=first_omega_0
+            )
+        )
 
         for i in range(hidden_layers):
             self.net.append(
-                SineLayer(hidden_features,
-                          hidden_features,
-                          is_first=False,
-                          omega_0=hidden_omega_0))
+                SineLayer(
+                    hidden_features,
+                    hidden_features,
+                    is_first=False,
+                    omega_0=hidden_omega_0,
+                )
+            )
 
         if outermost_linear:
             final_linear = nn.Linear(hidden_features, out_features)
@@ -142,15 +141,19 @@ class Siren(nn.Module):
             with torch.no_grad():
                 final_linear.weight.uniform_(
                     -math.sqrt(6 / hidden_features) / hidden_omega_0,
-                    math.sqrt(6 / hidden_features) / hidden_omega_0)
+                    math.sqrt(6 / hidden_features) / hidden_omega_0,
+                )
 
             self.net.append(final_linear)
         else:
             self.net.append(
-                SineLayer(hidden_features,
-                          out_features,
-                          is_first=False,
-                          omega_0=hidden_omega_0))
+                SineLayer(
+                    hidden_features,
+                    out_features,
+                    is_first=False,
+                    omega_0=hidden_omega_0,
+                )
+            )
 
         self.net = nn.Sequential(*self.net)
 
@@ -161,7 +164,6 @@ class Siren(nn.Module):
 
 # https://github.com/HTDerekLiu/LipschitzMLP_SIGGRAPH_Demo/blob/main/model_lipmlp.py
 class LipschitzLinear(nn.Module):
-
     def __init__(self, in_features: int, out_features: int) -> None:
         super().__init__()
 
@@ -174,35 +176,42 @@ class LipschitzLinear(nn.Module):
 
     def normalization(self, W: torch.Tensor, softplus_c) -> torch.Tensor:
         absrowsum = W.abs().sum(dim=1)
-        scale = torch.minimum(torch.ones_like(absrowsum),
-                              softplus_c / absrowsum)
+        scale = torch.minimum(torch.ones_like(absrowsum), softplus_c / absrowsum)
         return W * scale[:, None]
 
     # https://pytorch.org/docs/master/generated/torch.nn.functional.linear.html?highlight=linear#torch.nn.functional.linear
     def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return torch.einsum(
-            'bc,mc->bm', input,
-            self.normalization(self.linear.weight, F.softplus(
-                self.c))) + self.linear.bias[None, :]
+        return (
+            torch.einsum(
+                "bc,mc->bm",
+                input,
+                self.normalization(self.linear.weight, F.softplus(self.c)),
+            )
+            + self.linear.bias[None, :]
+        )
 
 
 class LipschitzMLP(nn.Module):
-
-    def __init__(self,
-                 in_features,
-                 hidden_features,
-                 hidden_layers,
-                 out_features,
-                 input_scale=1.,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features,
+        hidden_features,
+        hidden_layers,
+        out_features,
+        input_scale=1.0,
+        **kwargs,
+    ):
         super().__init__()
 
         self.input_scale = input_scale
         self.layers = nn.ModuleList(
-            [LipschitzLinear(in_features, hidden_features)] + [
+            [LipschitzLinear(in_features, hidden_features)]
+            + [
                 LipschitzLinear(hidden_features, hidden_features)
                 for _ in range(hidden_layers)
-            ] + [LipschitzLinear(hidden_features, out_features)])
+            ]
+            + [LipschitzLinear(hidden_features, out_features)]
+        )
 
     def forward(self, x):
         x = self.input_scale * x
@@ -220,16 +229,16 @@ class LipschitzMLP(nn.Module):
 
 
 class HashMLP(nn.Module):
-
     def __init__(
-            self,
-            in_features,
-            hidden_features,
-            hidden_layers,
-            out_features,
-            input_scale=1.,
-            interpolation="Nearest",    #"Linear"
-            **kwargs):
+        self,
+        in_features,
+        hidden_features,
+        hidden_layers,
+        out_features,
+        input_scale=1.0,
+        interpolation="Nearest",  # "Linear"
+        **kwargs,
+    ):
         super().__init__()
 
         self.input_scale = input_scale
@@ -241,15 +250,19 @@ class HashMLP(nn.Module):
             "log2_hashmap_size": 15,
             "base_resolution": 16,
             "per_level_scale": 1.5,
-            "interpolation": interpolation
+            "interpolation": interpolation,
         }
         self.encoding = tcnn.Encoding(in_features, hash_cfg)
 
         in_dim = hash_cfg["n_levels"] * hash_cfg["n_features_per_level"]
-        self.layers = nn.ModuleList([nn.Linear(in_dim, hidden_features)] + [
-            nn.Linear(hidden_features, hidden_features)
-            for _ in range(hidden_layers)
-        ] + [nn.Linear(hidden_features, out_features)])
+        self.layers = nn.ModuleList(
+            [nn.Linear(in_dim, hidden_features)]
+            + [
+                nn.Linear(hidden_features, hidden_features)
+                for _ in range(hidden_layers)
+            ]
+            + [nn.Linear(hidden_features, out_features)]
+        )
 
     def forward(self, x):
         x = self.input_scale * x
@@ -261,9 +274,9 @@ class HashMLP(nn.Module):
         return x
 
     def val_and_grad(self, x, eps, func_param=lambda x: x):
-        eps_x = torch.tensor([eps, 0., 0.], dtype=x.dtype, device=x.device)
-        eps_y = torch.tensor([0., eps, 0.], dtype=x.dtype, device=x.device)
-        eps_z = torch.tensor([0., 0., eps], dtype=x.dtype, device=x.device)
+        eps_x = torch.tensor([eps, 0.0, 0.0], dtype=x.dtype, device=x.device)
+        eps_y = torch.tensor([0.0, eps, 0.0], dtype=x.dtype, device=x.device)
+        eps_z = torch.tensor([0.0, 0.0, eps], dtype=x.dtype, device=x.device)
 
         # Forward difference
         val = self.octa_mlp(x)
@@ -280,8 +293,9 @@ class HashMLP(nn.Module):
         return val, grad
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import os
+
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
     from icecream import ic

@@ -1,29 +1,28 @@
-from typing import Tuple
-import equinox as eqx
-import jax
-from jax import numpy as jnp, vmap, jit
-import model_jax
-from eval_jax import voxel_infer, batch_call
-
-import json
-from glob import glob
 import argparse
+from glob import glob
+import json
+import os
+from typing import Tuple
+
 from common import fibonacci_sphere, normalize, Timer
 from config import Config
-from config_utils import config_model, config_latent
-import os
+from config_utils import config_latent, config_model
+from eval_jax import batch_call, voxel_infer
+import model_jax
+
+import equinox as eqx
+import jax
+from jax import jit, numpy as jnp, vmap
+from jax2torch import jax2torch
+import nerfacc
 import numpy as np
 from PIL import Image
-from jax2torch import jax2torch
-
+from pyrr import Matrix44
 import torch
 from torch2jax import j2t, t2j
-import nerfacc
 
-from pyrr import Matrix44
-
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
 
 
 # S-Density in NeuS, biased
@@ -33,13 +32,14 @@ def s_density(x, s=100):
     return s * jnp.exp(-s * x) / jnp.pow(1 + jnp.exp(-s * x), 2)
 
 
-def batch_call_pytorch(func,
-                       input,
-                       tmp_cpu=False,
-                       num_out_args=1,
-                       out_map_func=lambda x: [x],
-                       group_size=256**2):
-
+def batch_call_pytorch(
+    func,
+    input,
+    tmp_cpu=False,
+    num_out_args=1,
+    out_map_func=lambda x: [x],
+    group_size=256**2,
+):
     n_iters = len(input) // group_size
 
     if tmp_cpu:
@@ -59,12 +59,17 @@ def batch_call_pytorch(func,
 
             for i in range(num_out_args):
                 if tmp_cpu:
-                    output[i] = output_[i].detach().cpu(
-                    ) if output[i] is None else torch.concat(
-                        [output[i], output_[i].detach().cpu()])
+                    output[i] = (
+                        output_[i].detach().cpu()
+                        if output[i] is None
+                        else torch.concat([output[i], output_[i].detach().cpu()])
+                    )
                 else:
-                    output[i] = output_[i] if output[
-                        i] is None else torch.concat([output[i], output_[i]])
+                    output[i] = (
+                        output_[i]
+                        if output[i] is None
+                        else torch.concat([output[i], output_[i]])
+                    )
 
         output = list(output.values())
 
@@ -77,44 +82,42 @@ def batch_call_pytorch(func,
     return output
 
 
-if __name__ == '__main__':
-    os.environ['XLA_PYTHON_CLIENT_PREALLOCATE'] = '0'
+if __name__ == "__main__":
+    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "0"
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model',
-                        type=str,
-                        nargs='*',
-                        help='Path to pointcloud files.')
-    parser.add_argument('--model_folder',
-                        type=str,
-                        default='data/sdf',
-                        help='Path to pointcloud folder.')
-    parser.add_argument('--config',
-                        type=str,
-                        default='configs/octa.json',
-                        help='Path to config file.')
-    parser.add_argument('--eval', action='store_true', help='Evaluate only')
-    parser.add_argument('--vis', action='store_true', help='Visualize')
-    parser.add_argument('--skip',
-                        action='store_true',
-                        help='Skip existing output')
+    parser.add_argument(
+        "--model", type=str, nargs="*", help="Path to pointcloud files."
+    )
+    parser.add_argument(
+        "--model_folder",
+        type=str,
+        default="data/sdf",
+        help="Path to pointcloud folder.",
+    )
+    parser.add_argument(
+        "--config", type=str, default="configs/octa.json", help="Path to config file."
+    )
+    parser.add_argument("--eval", action="store_true", help="Evaluate only")
+    parser.add_argument("--vis", action="store_true", help="Visualize")
+    parser.add_argument("--skip", action="store_true", help="Skip existing output")
     args = parser.parse_args()
 
     if args.model is not None:
-        tag = ''
+        tag = ""
         model_list = args.model
     else:
         # TODO; Maybe not hard coded
-        tag = '_'.join(args.model_folder.split('/')[-2:])
-        model_list = sorted(glob(os.path.join(args.model_folder, '*.ply')))
+        tag = "_".join(args.model_folder.split("/")[-2:])
+        model_list = sorted(glob(os.path.join(args.model_folder, "*.ply")))
 
     for model in model_list:
         sdf_paths = [model]
         config = json.load(open(args.config))
-        config['sdf_paths'] = sdf_paths
+        config["sdf_paths"] = sdf_paths
 
-        cfg_name = args.config.split('/')[-1].split('.')[0]
-        model_name = model.split('/')[-1].split('.')[0]
+        cfg_name = args.config.split("/")[-1].split(".")[0]
+        model_name = model.split("/")[-1].split(".")[0]
         name = model_name
         print(name)
 
@@ -128,15 +131,15 @@ if __name__ == '__main__':
             if os.path.exists(out_file):
                 continue
 
-        model_key, data_key = jax.random.split(
-            jax.random.PRNGKey(cfg.training.seed), 2)
+        model_key, data_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed), 2)
 
         latents, latent_dim = config_latent(cfg)
         model = config_model(cfg, model_key, latent_dim)
         model: model_jax.MLP = eqx.tree_deserialise_leaves(
-            os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
+            os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
+        )
 
-        tokens = '0_1_0'.split('_')
+        tokens = "0_1_0".split("_")
         # Interpolate latent
         i = int(tokens[0])
         j = int(tokens[1])
@@ -173,29 +176,30 @@ if __name__ == '__main__':
         infer_normal_pytorch = jax2torch(infer_normal)
         s_density_pytorch = jax2torch(s_density)
 
-        def sigma_fn(t_starts: torch.Tensor, t_ends: torch.Tensor,
-                     ray_indices: torch.Tensor) -> torch.Tensor:
-            """ Define how to query density for the estimator."""
-            t_origins = rays_o[ray_indices]    # (n_samples, 3)
-            t_dirs = rays_d[ray_indices]    # (n_samples, 3)
+        def sigma_fn(
+            t_starts: torch.Tensor, t_ends: torch.Tensor, ray_indices: torch.Tensor
+        ) -> torch.Tensor:
+            """Define how to query density for the estimator."""
+            t_origins = rays_o[ray_indices]  # (n_samples, 3)
+            t_dirs = rays_d[ray_indices]  # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
             sdf = batch_call_pytorch(infer_sdf_pytorch, positions, True)
             sigmas = s_density_pytorch(sdf)
             return sigmas
 
         def rgb_sigma_fn(
-                t_starts: torch.Tensor, t_ends: torch.Tensor,
-                ray_indices: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-            """ Query rgb and density values from a user-defined radiance field. """
-            t_origins = rays_o[ray_indices]    # (n_samples, 3)
-            t_dirs = rays_d[ray_indices]    # (n_samples, 3)
+            t_starts: torch.Tensor, t_ends: torch.Tensor, ray_indices: torch.Tensor
+        ) -> Tuple[torch.Tensor, torch.Tensor]:
+            """Query rgb and density values from a user-defined radiance field."""
+            t_origins = rays_o[ray_indices]  # (n_samples, 3)
+            t_dirs = rays_d[ray_indices]  # (n_samples, 3)
             positions = t_origins + t_dirs * (t_starts + t_ends)[:, None] / 2.0
-            sdf, normal = batch_call_pytorch(infer_normal_pytorch, positions,
-                                             True, 2, grad_out_map_func)
-            normal = normal / (torch.linalg.norm(normal, dim=-1, keepdim=True) +
-                               1e-8)
+            sdf, normal = batch_call_pytorch(
+                infer_normal_pytorch, positions, True, 2, grad_out_map_func
+            )
+            normal = normal / (torch.linalg.norm(normal, dim=-1, keepdim=True) + 1e-8)
             sigmas = s_density_pytorch(sdf)
-            return normal, sigmas    # (n_samples, 3), (n_samples,)
+            return normal, sigmas  # (n_samples, 3), (n_samples,)
 
         def occ_fn(x: torch.Tensor):
             sdf = batch_call(infer_sdf, t2j(x))
@@ -211,11 +215,11 @@ if __name__ == '__main__':
         num_view = 8
         # For simplicity, let's assume the fov is 90 degree
         camera_centers = 2 * fibonacci_sphere(num_view + 2)[1:-1]
-        target = np.array([0., 0., 0.])
+        target = np.array([0.0, 0.0, 0.0])
         up = np.array([0, 1, 0])
 
         timer = Timer()
-        roi_aabb = torch.tensor([-1., -1., -1., 1., 1., 1.]).cuda()
+        roi_aabb = torch.tensor([-1.0, -1.0, -1.0, 1.0, 1.0, 1.0]).cuda()
         estimator = nerfacc.OccGridEstimator(roi_aabb, res).cuda()
         estimator.eval()
         estimator._update(0, occ_fn)
@@ -246,7 +250,8 @@ if __name__ == '__main__':
                     near_plane=0.1,
                     far_plane=4.0,
                     early_stop_eps=1e-4,
-                    alpha_thre=1e-2)
+                    alpha_thre=1e-2,
+                )
 
                 timer.log(f"Sample_{i}")
 
@@ -255,7 +260,8 @@ if __name__ == '__main__':
                     t_ends,
                     ray_indices,
                     n_rays=rays_o.shape[0],
-                    rgb_sigma_fn=rgb_sigma_fn)
+                    rgb_sigma_fn=rgb_sigma_fn,
+                )
 
                 timer.log(f"Render_{i}")
 

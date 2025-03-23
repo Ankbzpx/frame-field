@@ -1,8 +1,8 @@
-import jax
-from jax import numpy as jnp, jacfwd
-import numpy as np
-
 from sh_representation import Lx, Ly, Lz, sh4_canonical
+
+import jax
+from jax import jacfwd, numpy as jnp
+import numpy as np
 
 from icecream import ic
 
@@ -11,7 +11,7 @@ def commutativity(X, Y):
     return jnp.linalg.norm(X @ Y - Y @ X)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     np.random.seed(0)
     rotvec = np.random.randn(3)
 
@@ -29,7 +29,7 @@ if __name__ == '__main__':
     ic(jnp.linalg.norm(jac_auto - jac_analytical))
 
     # The rest only hold for [0, 0, 0], i.e. multiplication with zero matrix always commute
-    rotvec = np.array([0., 0., 0.])
+    rotvec = np.array([0.0, 0.0, 0.0])
 
     # Case 2 (4.1 equation 3)
     g = lambda v: v[0] * Lx + v[1] * Ly + v[2] * Lz
@@ -46,8 +46,10 @@ if __name__ == '__main__':
     ic(commutativity(rotvec[0] * Lx, rotvec[1] * Ly))
 
     # exp(X)exp(Y) = exp(X + Y) does not hold if X, Y do not commute
-    sh_src = jax.scipy.linalg.expm(rotvec[0] * Lx +
-                                   rotvec[1] * Ly) @ sh4_canonical
-    sh_tar = jax.scipy.linalg.expm(rotvec[0] * Lx) @ jax.scipy.linalg.expm(
-        rotvec[1] * Ly) @ sh4_canonical
+    sh_src = jax.scipy.linalg.expm(rotvec[0] * Lx + rotvec[1] * Ly) @ sh4_canonical
+    sh_tar = (
+        jax.scipy.linalg.expm(rotvec[0] * Lx)
+        @ jax.scipy.linalg.expm(rotvec[1] * Ly)
+        @ sh4_canonical
+    )
     ic(jnp.linalg.norm(sh_src - sh_tar))

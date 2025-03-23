@@ -1,30 +1,44 @@
-import sys
 import os
+import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+import argparse
+
+from common import (
+    normalize_aabb,
+    ps_register_curve_network,
+    Timer,
+    unroll_identity_block,
+    vis_oct_field,
+    write_triangle_mesh_VC,
+)
+from sh_representation import (
+    proj_sh4_to_rotvec,
+    R3_to_repvec,
+    R3_to_sh4_zonal,
+    rotvec_n_to_z,
+    rotvec_to_R3,
+    rotvec_to_R9,
+    rotvec_to_sh4_expm,
+    sh4_z,
+)
+
+import frame_field_utils
 import igl
-import numpy as np
 import jax
-from jax import vmap, jit, numpy as jnp
+from jax import jit, numpy as jnp, vmap
 from jax.experimental import sparse
 from jaxopt import LBFGS
+import numpy as np
 
 # Facilitate vscode intellisense
 import scipy.sparse
 import scipy.sparse.linalg
-from common import (unroll_identity_block, normalize_aabb, vis_oct_field,
-                    ps_register_curve_network, Timer, write_triangle_mesh_VC)
-from sh_representation import (proj_sh4_to_rotvec, R3_to_repvec,
-                               rotvec_to_sh4_expm, rotvec_n_to_z, rotvec_to_R3,
-                               rotvec_to_R9, sh4_z, R3_to_sh4_zonal)
 
-import argparse
-
-import frame_field_utils
-
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
 
 
 def handle_sharp_vertices(V, F, sharp_angle=45):
@@ -35,9 +49,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     E_sort_idx = np.argsort(SDE[:, 0])
     uV, uV_count = np.unique(SDE[:, 0][E_sort_idx], return_counts=True)
     Vid_joint = uV[np.where(uV_count > 2)[0]]
-    V2V = dict(
-        zip(uV, np.split(SDE[:, 1][E_sort_idx],
-                         np.cumsum(uV_count)[:-1])))
+    V2V = dict(zip(uV, np.split(SDE[:, 1][E_sort_idx], np.cumsum(uV_count)[:-1])))
 
     # For directed edges, force them to be consistent along the path
     Vid_start = uV[np.where(uV_count != 2)[0]]
@@ -48,7 +60,6 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
         V_mask[v] = True
         for vi in V2V[v]:
             if not V_mask[vi]:
-
                 # It could be double?!
                 v = np.int64(v)
                 vi = np.int64(vi)
@@ -82,7 +93,6 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     for vi in Vid_start:
         if vi in V2V_ordered:
             for vj in V2V_ordered[vi]:
-
                 # For whatever reason, it could be double?!
                 vi = np.int64(vi)
                 vj = np.int64(vj)
@@ -121,7 +131,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     V2Ti_joint = {}
 
     TT, TTi = igl.triangle_triangle_adjacency(F)
-    FN = igl.per_face_normals(V, F, np.array([0., 0., 0.])[None, :])
+    FN = igl.per_face_normals(V, F, np.array([0.0, 0.0, 0.0])[None, :])
 
     for i in range(len(F)):
         for j in range(3):
@@ -131,7 +141,6 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
             # If the directed edge lies on this triangle
             # Edge direction matters because we want consistent normal
             if v0 in V2V_ordered and v1 in V2V_ordered[v0]:
-
                 # **IMPORTANT** Match the vertex order of V2V_ordered
                 idx = np.argwhere(V2V_ordered[v0] == v1)[0][0]
 
@@ -149,7 +158,6 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
             # So it's always from joint to neighbor (order doesn't matter here)
             if v0 in Vid_joint:
                 if v0 in V2V and v1 in V2V[v0]:
-
                     # Index of current triangle
                     if v0 not in V2T_joint:
                         V2T_joint[v0] = [i]
@@ -166,7 +174,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     # I don't think there is a better approach, unless I can trace a path that has at least one consistent normal?
     def compatible_oct_joint(v0):
         fns = np.vstack([FN[V2T_joint[v0]], FN[V2Ti_joint[v0]]])
-        dps = np.abs(np.einsum('ni,mi->nm', fns, fns))
+        dps = np.abs(np.einsum("ni,mi->nm", fns, fns))
 
         xx, yy = np.where(dps == np.min(dps))
 
@@ -189,10 +197,10 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
         fid = V2T[v0][np.where(V2V_ordered[v0] == v1)[0][0]]
 
         n0 = V[v1] - V[v0]
-        n0 /= (np.linalg.norm(n0) + 1e-8)
+        n0 /= np.linalg.norm(n0) + 1e-8
         # Face normal is always orthogonal to one of its edge
         n1 = FN[fid]
-        n1 /= (np.linalg.norm(n1) + 1e-8)
+        n1 /= np.linalg.norm(n1) + 1e-8
 
         return np.stack([n0, n1, np.cross(n0, n1)], -1)
 
@@ -219,8 +227,7 @@ def handle_sharp_vertices(V, F, sharp_angle=45):
     return Vid_sharp, Rs_sharp
 
 
-def solve_least_square(A, b, C, d, soft_weight=0.):
-
+def solve_least_square(A, b, C, d, soft_weight=0.0):
     if isinstance(soft_weight, float) or isinstance(soft_weight, int):
         soft_weight = soft_weight * np.ones(C.shape[0])
 
@@ -234,36 +241,36 @@ def solve_least_square(A, b, C, d, soft_weight=0.):
 
         return x
     else:
-        M = scipy.sparse.vstack([
-            scipy.sparse.hstack([A, C.T]),
-            scipy.sparse.hstack(
-                [C, scipy.sparse.csc_matrix((C.shape[0], C.shape[0]))])
-        ]).tocsc()
+        M = scipy.sparse.vstack(
+            [
+                scipy.sparse.hstack([A, C.T]),
+                scipy.sparse.hstack(
+                    [C, scipy.sparse.csc_matrix((C.shape[0], C.shape[0]))]
+                ),
+            ]
+        ).tocsc()
         n = np.concatenate([b, d])
 
-        x = scipy.sparse.linalg.spsolve(M, n)[:len(b)]
+        x = scipy.sparse.linalg.spsolve(M, n)[: len(b)]
 
         return x
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', type=str, help='Path to input file.')
-    parser.add_argument('--out_path',
-                        type=str,
-                        default='../results',
-                        help='Path to output folder.')
-    parser.add_argument('--sharp',
-                        action='store_true',
-                        help='Handle sharp edge')
-    parser.add_argument('--save',
-                        action='store_true',
-                        help='Save for seamless parameterization')
+    parser.add_argument("input", type=str, help="Path to input file.")
+    parser.add_argument(
+        "--out_path", type=str, default="../results", help="Path to output folder."
+    )
+    parser.add_argument("--sharp", action="store_true", help="Handle sharp edge")
+    parser.add_argument(
+        "--save", action="store_true", help="Save for seamless parameterization"
+    )
     args = parser.parse_args()
 
     # Large alignment weight to ensure boundary align
     model_path = args.input
-    model_name = model_path.split('/')[-1].split('.')[0]
+    model_name = model_path.split("/")[-1].split(".")[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_prac.obj")
 
     timer = Timer()
@@ -279,17 +286,16 @@ if __name__ == '__main__':
 
     VN = igl.per_vertex_normals(V, F)
 
-    timer.log('Load and preprocess tetrahedral mesh')
+    timer.log("Load and preprocess tetrahedral mesh")
 
     if args.sharp:
         # Handle non-smooth vertices (paper precomputes and fixes those SH coefficients)
         sharp_vid, Rs_sharp = handle_sharp_vertices(V, F)
         sh4_sharp = vmap(R3_to_sh4_zonal)(Rs_sharp)
         NS = len(sharp_vid)
-        boundary_vid = boundary_vid[np.logical_not(
-            np.in1d(boundary_vid, sharp_vid))]
+        boundary_vid = boundary_vid[np.logical_not(np.in1d(boundary_vid, sharp_vid))]
 
-        timer.log('Handle sharp features')
+        timer.log("Handle sharp features")
 
     NB = len(boundary_vid)
 
@@ -304,11 +310,11 @@ if __name__ == '__main__':
 
     # R9_zn @ sh4 = sh4_4 + c0 sh4_0 + c1 sh4_8
     # => sh4 = R9_zn.T @ sh4_4 + c0 R9_zn.T @ sh4_0 + c1 R9_zn.T @ sh4_8
-    sh4_0_n = jnp.einsum('bji,j->bi', R9_zn, sh4_0)
-    sh4_4_n = jnp.einsum('bji,j->bi', R9_zn, sh4_4)
-    sh4_8_n = jnp.einsum('bji,j->bi', R9_zn, sh4_8)
+    sh4_0_n = jnp.einsum("bji,j->bi", R9_zn, sh4_0)
+    sh4_4_n = jnp.einsum("bji,j->bi", R9_zn, sh4_4)
+    sh4_8_n = jnp.einsum("bji,j->bi", R9_zn, sh4_8)
 
-    timer.log('Build stiffness and RHS')
+    timer.log("Build stiffness and RHS")
 
     # Build system
     # NV x 9 + NB x 2, have to unroll...
@@ -316,65 +322,91 @@ if __name__ == '__main__':
     L_unroll = unroll_identity_block(L, 9)
     # Pick boundary vertex
     A_x = scipy.sparse.coo_array(
-        (np.ones(9 * NB), (np.arange(9 * NB),
-                           ((9 * boundary_vid)[..., None] +
-                            np.arange(9)[None, ...]).reshape(-1))),
-        shape=(9 * NB, 9 * NV)).tocsc()
+        (
+            np.ones(9 * NB),
+            (
+                np.arange(9 * NB),
+                ((9 * boundary_vid)[..., None] + np.arange(9)[None, ...]).reshape(-1),
+            ),
+        ),
+        shape=(9 * NB, 9 * NV),
+    ).tocsc()
     A_y = scipy.sparse.block_diag(np.stack([sh4_0_n, sh4_8_n], -1))
-    b = np.concatenate([np.zeros((9 * NV + 2 * NB)), sh4_4_n.reshape(-1,)])
+    b = np.concatenate(
+        [
+            np.zeros((9 * NV + 2 * NB)),
+            sh4_4_n.reshape(
+                -1,
+            ),
+        ]
+    )
 
     # [L    0   A_x.T]
     # [0    0   A_y.T]
     # [A_x  A_y   0  ]
-    M = scipy.sparse.vstack([
-        scipy.sparse.hstack(
-            [L_unroll,
-             scipy.sparse.csr_matrix((9 * NV, 2 * NB)), A_x.T]),
-        scipy.sparse.hstack(
-            [scipy.sparse.csr_matrix((2 * NB, 9 * NV + 2 * NB)), A_y.T]),
-        scipy.sparse.hstack(
-            [A_x, A_y, scipy.sparse.csr_matrix((9 * NB, 9 * NB))])
-    ]).tocsc()
+    M = scipy.sparse.vstack(
+        [
+            scipy.sparse.hstack(
+                [L_unroll, scipy.sparse.csr_matrix((9 * NV, 2 * NB)), A_x.T]
+            ),
+            scipy.sparse.hstack(
+                [scipy.sparse.csr_matrix((2 * NB, 9 * NV + 2 * NB)), A_y.T]
+            ),
+            scipy.sparse.hstack([A_x, A_y, scipy.sparse.csr_matrix((9 * NB, 9 * NB))]),
+        ]
+    ).tocsc()
 
     if args.sharp:
         # Pick sharp vertex
-        C = scipy.sparse.hstack([
-            scipy.sparse.coo_array(
-                (np.ones(9 * NS), (np.arange(9 * NS),
-                                   ((9 * sharp_vid)[..., None] +
-                                    np.arange(9)[None, ...]).reshape(-1))),
-                shape=(9 * NS, 9 * NV)).tocsc(),
-        ])
+        C = scipy.sparse.hstack(
+            [
+                scipy.sparse.coo_array(
+                    (
+                        np.ones(9 * NS),
+                        (
+                            np.arange(9 * NS),
+                            (
+                                (9 * sharp_vid)[..., None] + np.arange(9)[None, ...]
+                            ).reshape(-1),
+                        ),
+                    ),
+                    shape=(9 * NS, 9 * NV),
+                ).tocsc(),
+            ]
+        )
 
         # [L    0   A_x.T  C.T]
         # [0    0   A_y.T   0 ]
         # [A_x  A_y   0     0 ]
         # [ C   0     0     0 ]
-        M = scipy.sparse.vstack([
-            scipy.sparse.hstack([
-                M,
-                scipy.sparse.vstack(
-                    [C.T,
-                     scipy.sparse.csr_matrix((2 * NB + 9 * NB, 9 * NS))])
-            ]),
-            scipy.sparse.hstack([
-                C,
-                scipy.sparse.csr_matrix((9 * NS, 2 * NB + 9 * NB + 9 * NS))
-            ])
-        ]).tocsc()
+        M = scipy.sparse.vstack(
+            [
+                scipy.sparse.hstack(
+                    [
+                        M,
+                        scipy.sparse.vstack(
+                            [C.T, scipy.sparse.csr_matrix((2 * NB + 9 * NB, 9 * NS))]
+                        ),
+                    ]
+                ),
+                scipy.sparse.hstack(
+                    [C, scipy.sparse.csr_matrix((9 * NS, 2 * NB + 9 * NB + 9 * NS))]
+                ),
+            ]
+        ).tocsc()
         b = np.concatenate([b, sh4_sharp.reshape(-1)])
 
-    timer.log('Build sparse system')
+    timer.log("Build sparse system")
 
-    x = scipy.sparse.linalg.spsolve(M, b)[:NV * 9]
+    x = scipy.sparse.linalg.spsolve(M, b)[: NV * 9]
     sh4_opt = x.reshape(NV, 9)
 
-    timer.log('Solve alignment (Linear)')
+    timer.log("Solve alignment (Linear)")
 
     # Project to acquire initialize
     rotvecs = proj_sh4_to_rotvec(sh4_opt)
 
-    timer.log('Project se(3)')
+    timer.log("Project se(3)")
 
     # Optimize field via non-linear objective function
     R9_zn_pad = jnp.repeat(jnp.eye(9)[None, ...], NV, axis=0)
@@ -384,18 +416,18 @@ if __name__ == '__main__':
 
     key = jax.random.PRNGKey(0)
     theta = jax.random.normal(key, (len(boundary_vid),))
-    params = {'rotvec': rotvecs, 'theta': theta}
+    params = {"rotvec": rotvecs, "theta": theta}
 
     @jit
     def loss_func(params):
-        rotvec = params['rotvec']
-        theta = params['theta']
+        rotvec = params["rotvec"]
+        theta = params["theta"]
 
         # LBFGS is second-order optimization method, has to use expm implementation here
         sh4 = vmap(rotvec_to_sh4_expm)(rotvec)
 
         # sh4_n = R9_zn.T @ sh4_z
-        sh4_n = jnp.einsum('bji,bj->bi', R9_zn, vmap(sh4_z)(theta))
+        sh4_n = jnp.einsum("bji,bj->bi", R9_zn, vmap(sh4_z)(theta))
         # Use tangential twist parameterization for boundary frames
         sh4 = sh4.at[boundary_vid].set(sh4_n)
 
@@ -410,18 +442,18 @@ if __name__ == '__main__':
     lbfgs = LBFGS(loss_func)
     params = lbfgs.run(params).params
 
-    timer.log('Solve smoothness (L-BFGS)')
+    timer.log("Solve smoothness (L-BFGS)")
 
-    rotvecs_opt = params['rotvec']
+    rotvecs_opt = params["rotvec"]
     Rs = vmap(rotvec_to_R3)(rotvecs_opt)
 
     # Recovery boundary rotation
-    theta = params['theta']
+    theta = params["theta"]
     rotvec_z = theta[..., None] * jnp.array([0, 0, 1])[None, ...]
     Rz = vmap(rotvec_to_R3)(rotvec_z)
     R3_zn = vmap(rotvec_to_R3)(rotvec_zn)
     # R_n = R3_zn.T @ Rz
-    Rs = Rs.at[boundary_vid].set(jnp.einsum('bjk,bji->bki', R3_zn, Rz))
+    Rs = Rs.at[boundary_vid].set(jnp.einsum("bjk,bji->bki", R3_zn, Rz))
 
     if args.save:
         print("Save for parameterization")
@@ -432,16 +464,15 @@ if __name__ == '__main__':
         param_path = os.path.join(args.out_path, f"{model_name}_prac.npz")
         np.savez(param_path, V=V, T=T, Rs=Rs, sh4=sh4)
 
-    V_vis_cube, F_vis_cube = vis_oct_field(Rs, V,
-                                           0.1 * igl.avg_edge_length(V, T))
+    V_vis_cube, F_vis_cube = vis_oct_field(Rs, V, 0.1 * igl.avg_edge_length(V, T))
 
     Q = vmap(R3_to_repvec)(Rs, VN)
 
-    timer.log('Project to representation vectors')
+    timer.log("Project to representation vectors")
 
     V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
-    timer.log('Trace flowlines')
+    timer.log("Trace flowlines")
 
     ps.init()
     tet = ps.register_volume_mesh("tet", V, T)

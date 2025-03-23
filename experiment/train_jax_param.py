@@ -1,27 +1,38 @@
-import equinox as eqx
-import numpy as np
-import jax
-from jax import numpy as jnp, vmap, jit
-import model_jax
-from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_training_data_param, config_optim
-from jaxtyping import PyTree, Array
-from common import normalize
-from sh_representation import (rotvec_to_sh4_expm, rot6d_to_sh4_zonal,
-                               R3_to_sh4_zonal, rot6d_to_R3, rotvec_to_R3,
-                               proj_sh4_to_R3)
-from loss import cosine_similarity, double_well_potential
-
-from tqdm import tqdm
-import matplotlib.pyplot as plt
 import argparse
-import optax
-
-import os
 import json
+import os
 
-import polyscope as ps
+from common import normalize
+from config import Config, LossConfig
+from config_utils import (
+    config_latent,
+    config_model,
+    config_optim,
+    config_training_data_param,
+)
+from loss import cosine_similarity, double_well_potential
+import model_jax
+from sh_representation import (
+    proj_sh4_to_R3,
+    R3_to_sh4_zonal,
+    rot6d_to_R3,
+    rot6d_to_sh4_zonal,
+    rotvec_to_R3,
+    rotvec_to_sh4_expm,
+)
+
+import equinox as eqx
+import jax
+from jax import jit, numpy as jnp, vmap
+from jaxtyping import Array, PyTree
+import matplotlib.pyplot as plt
+import numpy as np
+import optax
+from tqdm import tqdm
+
 from icecream import ic
+import polyscope as ps
+
 
 ParamMLP: model_jax.MLP = model_jax.Siren
 
@@ -51,14 +62,23 @@ def fit_jac_rot6d(J):
 
     J_fit = jnp.array([b0, b1, b2]).T
 
-    loss_fit = (1 - cosine_similarity(a1, jax.lax.stop_gradient(b1))) + (
-        1 - cosine_similarity(a2, jax.lax.stop_gradient(b2))) + orthogonality(J)
+    loss_fit = (
+        (1 - cosine_similarity(a1, jax.lax.stop_gradient(b1)))
+        + (1 - cosine_similarity(a2, jax.lax.stop_gradient(b2)))
+        + orthogonality(J)
+    )
 
     return J_fit, loss_fit
 
 
-def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
-          checkpoints_folder, inverse: bool):
+def train(
+    cfg: Config,
+    model: model_jax.MLP,
+    model_octa: model_jax.MLP,
+    data,
+    checkpoints_folder,
+    inverse: bool,
+):
     optim, opt_state = config_optim(cfg, model)
 
     total_steps = cfg.training.n_epochs * cfg.training.n_steps
@@ -83,19 +103,27 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     orth_schedule = optax.constant_schedule(orth_weight_init)
 
     normal_weight_init = 1e2
-    normal_schedule = optax.polynomial_schedule(1e-2 * normal_weight_init,
-                                                normal_weight_init, 0.5,
-                                                total_steps,
-                                                cfg.training.warmup_steps)
+    normal_schedule = optax.polynomial_schedule(
+        1e-2 * normal_weight_init,
+        normal_weight_init,
+        0.5,
+        total_steps,
+        cfg.training.warmup_steps,
+    )
     # normal_schedule = optax.constant_schedule(normal_weight_init)
 
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
-    def loss_func(model: model_jax.MLP, model_octa: model_jax.MLP,
-                  samples_on_sur: Array, close_samples_mask: Array,
-                  samples_off_sur: Array, latent: Array, loss_cfg: LossConfig,
-                  step_count: int):
-
+    def loss_func(
+        model: model_jax.MLP,
+        model_octa: model_jax.MLP,
+        samples_on_sur: Array,
+        close_samples_mask: Array,
+        samples_off_sur: Array,
+        latent: Array,
+        loss_cfg: LossConfig,
+        step_count: int,
+    ):
         align_weight = align_schedule(step_count)
         orth_weight = orth_schedule(step_count)
         normal_weight = normal_schedule(step_count)
@@ -127,7 +155,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         # Fix (0, 0, 0)
         boundary_pt = jnp.zeros(3)
         loss_boundary = jnp.abs(
-            model.single_call(boundary_pt, latent[0]) - boundary_pt).mean()
+            model.single_call(boundary_pt, latent[0]) - boundary_pt
+        ).mean()
 
         @jit
         def param_infer(sample, latent):
@@ -138,8 +167,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
             return sdf, (aux, J)
 
         (_, (aux, J)), normal_param = vmap(
-            eqx.filter_value_and_grad(param_infer, has_aux=True))(samples,
-                                                                  latent)
+            eqx.filter_value_and_grad(param_infer, has_aux=True)
+        )(samples, latent)
         aux = jax.lax.stop_gradient(aux)
 
         if loss_cfg.rot6d:
@@ -160,42 +189,44 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
             sh4 = vmap(param_func)(aux)
 
             sh4_align = vmap(R3_to_sh4_zonal)(J)
-            loss_align = align_weight * vmap(
-                jnp.linalg.norm)(sh4 - sh4_align).mean()
+            loss_align = align_weight * vmap(jnp.linalg.norm)(sh4 - sh4_align).mean()
 
             loss_orth = orth_weight * loss_fit.mean()
 
         loss = loss_boundary + loss_orth + loss_align
 
         loss_dict = {
-            'loss_boundary': loss_boundary,
-            'loss_orth': loss_orth,
-            'loss_align': loss_align
+            "loss_boundary": loss_boundary,
+            "loss_orth": loss_orth,
+            "loss_align": loss_align,
         }
 
         if inverse:
             # Normal in parameterization space should match canonical basis
-            dps = jnp.einsum('ij,bi->bj', jnp.eye(3),
-                             vmap(normalize)(normal_param))
-            loss_normal = normal_weight * double_well_potential(
-                jnp.abs(dps)).sum(-1).mean()
+            dps = jnp.einsum("ij,bi->bj", jnp.eye(3), vmap(normalize)(normal_param))
+            loss_normal = (
+                normal_weight * double_well_potential(jnp.abs(dps)).sum(-1).mean()
+            )
 
             loss += loss_normal
-            loss_dict['loss_normal'] = loss_normal
+            loss_dict["loss_normal"] = loss_normal
 
-        loss_dict['loss_total'] = loss
+        loss_dict["loss_total"] = loss
 
         return loss, loss_dict
 
     @eqx.filter_jit
-    def make_step(model: model_jax.MLP, model_octa: model_jax.MLP,
-                  opt_state: PyTree, batch: PyTree, loss_cfg: LossConfig):
-        step_count = opt_state.inner_states['standard'].inner_state[-1].count
-        grads, loss_dict = loss_func(model,
-                                     model_octa,
-                                     **batch,
-                                     loss_cfg=loss_cfg,
-                                     step_count=step_count)
+    def make_step(
+        model: model_jax.MLP,
+        model_octa: model_jax.MLP,
+        opt_state: PyTree,
+        batch: PyTree,
+        loss_cfg: LossConfig,
+    ):
+        step_count = opt_state.inner_states["standard"].inner_state[-1].count
+        grads, loss_dict = loss_func(
+            model, model_octa, **batch, loss_cfg=loss_cfg, step_count=step_count
+        )
         updates, opt_state = optim.update([grads], opt_state, [model])
         model = eqx.apply_updates([model], updates)[0]
         return model, opt_state, loss_dict
@@ -205,10 +236,11 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     for epoch in pbar:
         batch_id = epoch % cfg.training.n_steps
         batch = jax.tree_map(lambda x: x[batch_id], data)
-        model, opt_state, loss_dict = make_step(model, model_octa, opt_state,
-                                                batch, cfg.loss_cfg)
+        model, opt_state, loss_dict = make_step(
+            model, model_octa, opt_state, batch, cfg.loss_cfg
+        )
 
-        if np.isnan(loss_dict['loss_total']):
+        if np.isnan(loss_dict["loss_total"]):
             print("NaN occurred!")
             print(loss_dict)
             exit()
@@ -227,8 +259,8 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
         if epoch % cfg.training.plot_every == 0:
             plt.close(1)
             plt.figure(1)
-            plt.semilogy(loss_history['loss_total'][:epoch])
-            plt.title('Reconstruction loss')
+            plt.semilogy(loss_history["loss_total"][:epoch])
+            plt.title("Reconstruction loss")
             plt.grid()
             plt.savefig(f"{checkpoints_folder}/{cfg.name}_loss_history.jpg")
 
@@ -237,33 +269,33 @@ def train(cfg: Config, model: model_jax.MLP, model_octa: model_jax.MLP, data,
     return model
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--inverse',
-                        action='store_true',
-                        help='Inverse parameterization')
+    parser.add_argument("config", type=str, help="Path to config file.")
+    parser.add_argument(
+        "--inverse", action="store_true", help="Inverse parameterization"
+    )
     args = parser.parse_args()
 
-    name = args.config.split('/')[-1].split('.')[0]
+    name = args.config.split("/")[-1].split(".")[0]
     suffix = "param_inv" if args.inverse else "param"
 
     cfg = Config(**json.load(open(args.config)))
-    cfg.name = f'{name}_{suffix}'
+    cfg.name = f"{name}_{suffix}"
 
-    model_key, data_key = jax.random.split(
-        jax.random.PRNGKey(cfg.training.seed), 2)
+    model_key, data_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed), 2)
 
     latents, latent_dim = config_latent(cfg)
     model_octa = config_model(cfg, jax.random.PRNGKey(0), latent_dim)
     model_octa: model_jax.MLP = eqx.tree_deserialise_leaves(
-        f"checkpoints/{name}.eqx", model_octa)
+        f"checkpoints/{name}.eqx", model_octa
+    )
 
     mlp_cfg = cfg.mlp_cfgs[0]
     mlp_type = cfg.mlp_types[0]
 
     # 1 general vector field
-    mlp_cfg['out_features'] = 3
+    mlp_cfg["out_features"] = 3
     model = ParamMLP(**mlp_cfg, key=model_key)
 
     # 3 scalar fields
@@ -276,4 +308,4 @@ if __name__ == '__main__':
 
     data = config_training_data_param(cfg, data_key, latents)
 
-    train(cfg, model, model_octa, data, 'checkpoints', args.inverse)
+    train(cfg, model, model_octa, data, "checkpoints", args.inverse)

@@ -1,17 +1,22 @@
-import numpy as np
-from jax import numpy as jnp, vmap, jit
-
 from common import normalize
-from sh_representation import rotvec_to_sh4, proj_sh4_sdp, proj_sh4_to_R3, rotvec_to_R3, distance_SO3
 from experiment.tet_parameterization import make_compatible
+from sh_representation import (
+    distance_SO3,
+    proj_sh4_sdp,
+    proj_sh4_to_R3,
+    rotvec_to_R3,
+    rotvec_to_sh4,
+)
 
+from jax import jit, numpy as jnp, vmap
+import numpy as np
 import seaborn as sns
 
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
 
-if __name__ == '__main__':
 
+if __name__ == "__main__":
     sample_size = 1000000
     np.random.seed(0)
 
@@ -35,4 +40,4 @@ if __name__ == '__main__':
     ic(angle_dist_degree.max(), angle_dist_degree.min())
 
     plt = sns.kdeplot(angle_dist_degree, bw_method=0.5, cut=0)
-    plt.figure.savefig('plots/density_plot.png')
+    plt.figure.savefig("plots/density_plot.png")

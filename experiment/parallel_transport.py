@@ -1,12 +1,14 @@
-import igl
-import numpy as np
-import polyscope as ps
-from icecream import ic
-
 from common import normalize
 from experiment.extrinsically_smooth_direction_field import per_face_basis
 
-V, F = igl.read_triangle_mesh('data/mesh/sphere.obj')
+import igl
+import numpy as np
+
+from icecream import ic
+import polyscope as ps
+
+
+V, F = igl.read_triangle_mesh("data/mesh/sphere.obj")
 
 one_ring = [57, 7, 25, 59, 9, 86]
 two_ring = [66, 50, 31, 91, 8, 69, 36, 90, 99, 62, 77, 82, 60, 1, 78, 79, 34]
@@ -19,8 +21,7 @@ FN, Tf = per_face_basis(V[F])
 
 
 def R2(theta):
-    return np.array([[np.cos(theta), -np.sin(theta)],
-                     [np.sin(theta), np.cos(theta)]])
+    return np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
 
 
 # https://stackoverflow.com/questions/14066933/direct-way-of-computing-the-clockwise-angle-between-two-vectors
@@ -87,14 +88,8 @@ for i in range(len(two_ring) - 1):
 
 ps.init()
 vis_mesh = ps.register_surface_mesh("sphere", V, F)
-vis_mesh.add_scalar_quantity("vis_scalar",
-                             vis_scalar,
-                             defined_on='faces',
-                             enabled=True)
-vis_mesh.add_vector_quantity("x", Tf[:, 0], defined_on='faces')
-vis_mesh.add_vector_quantity("y", Tf[:, 1], defined_on='faces')
-vis_mesh.add_vector_quantity("tangent",
-                             tangents,
-                             defined_on='faces',
-                             enabled=True)
+vis_mesh.add_scalar_quantity("vis_scalar", vis_scalar, defined_on="faces", enabled=True)
+vis_mesh.add_vector_quantity("x", Tf[:, 0], defined_on="faces")
+vis_mesh.add_vector_quantity("y", Tf[:, 1], defined_on="faces")
+vis_mesh.add_vector_quantity("tangent", tangents, defined_on="faces", enabled=True)
 ps.show()

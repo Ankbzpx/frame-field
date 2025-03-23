@@ -1,6 +1,6 @@
-import numpy as np
-
 from sh_representation import eulerXYZ_to_R3, rotvec_to_R3
+
+import numpy as np
 
 from icecream import ic
 import polyscope as ps
@@ -21,11 +21,8 @@ def gen_toy_sample(gap, theta, offset=4, grid_size=10):
     sub_samples2_vn[:, 0] = -1
 
     R = np.float64(eulerXYZ_to_R3(0, 0, -np.pi / 4))
-    S = np.diag(np.array([np.cos(theta / 2),
-                          np.sin(theta / 2),
-                          np.sqrt(2) / 2]))
-    A = np.float64(rotvec_to_R3(np.array([0, 0, np.pi / 4 - theta / 2
-                                         ]))) @ R @ S @ R.T
+    S = np.diag(np.array([np.cos(theta / 2), np.sin(theta / 2), np.sqrt(2) / 2]))
+    A = np.float64(rotvec_to_R3(np.array([0, 0, np.pi / 4 - theta / 2]))) @ R @ S @ R.T
 
     grid_samples = grid_samples.reshape(-1, 3) @ A.T
     a = grid_samples[0]
@@ -33,17 +30,25 @@ def gen_toy_sample(gap, theta, offset=4, grid_size=10):
     c = grid_samples[14**2 - 1]
     assert np.isclose(np.linalg.norm(a - b), np.linalg.norm(b - c))
 
-    return np.vstack([sub_samples, sub_samples2]) @ A.T, np.vstack([
-        sub_samples_vn, sub_samples2_vn @ np.float64(
-            rotvec_to_R3(np.array([0, 0, -np.pi / 2 + theta])))
-    ]), grid_samples
+    return (
+        np.vstack([sub_samples, sub_samples2]) @ A.T,
+        np.vstack(
+            [
+                sub_samples_vn,
+                sub_samples2_vn
+                @ np.float64(rotvec_to_R3(np.array([0, 0, -np.pi / 2 + theta]))),
+            ]
+        ),
+        grid_samples,
+    )
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     for gap in [1, 2, 3, 4]:
         for theta in [150, 135, 120, 90, 60, 45, 30]:
             samples_sup, samples_vn_sup, samples_interp = gen_toy_sample(
-                gap, np.deg2rad(theta))
+                gap, np.deg2rad(theta)
+            )
 
             # Add small rotation to avoid axis aligned bias
             R = eulerXYZ_to_R3(np.pi / 6, np.pi / 3, np.pi / 4)
@@ -67,7 +72,9 @@ if __name__ == '__main__':
             samples_interp -= 0.5
             samples_interp *= 1.9
 
-            np.savez(f"data/toy/crease_{gap}_{theta}.npz",
-                     samples_sup=samples_sup,
-                     samples_vn_sup=samples_vn_sup,
-                     samples_interp=samples_interp)
+            np.savez(
+                f"data/toy/crease_{gap}_{theta}.npz",
+                samples_sup=samples_sup,
+                samples_vn_sup=samples_vn_sup,
+                samples_interp=samples_interp,
+            )

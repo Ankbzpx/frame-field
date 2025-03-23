@@ -1,26 +1,32 @@
-import sys
 import os
+import sys
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-import igl
-import numpy as np
-import jax
-from jax import Array, vmap, jit, numpy as jnp
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+import argparse
 from functools import partial
 from typing import Callable
+
+from common import (
+    normalize,
+    normalize_aabb,
+    rm_unref_vertices,
+    surface_vertex_topology,
+    Timer,
+    write_triangle_mesh_VC,
+)
+
+import frame_field_utils
+import igl
+import jax
+from jax import Array, jit, numpy as jnp, vmap
+import numpy as np
 import scipy
 import scipy.sparse.linalg
 
-from common import (normalize_aabb, normalize, rm_unref_vertices, Timer,
-                    surface_vertex_topology, write_triangle_mesh_VC)
-
-import argparse
-
-import frame_field_utils
-
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
 
 
 @jit
@@ -68,9 +74,9 @@ def build_traversal_graph(V, F):
 
     split_indices = np.cumsum(e_count)[:-1]
     V2E_list = np.split(E_id_sorted, split_indices)
-    V2E = np.array([
-        np.concatenate([el, -np.ones(pad_width - len(el))]) for el in V2E_list
-    ]).astype(np.int64)
+    V2E = np.array(
+        [np.concatenate([el, -np.ones(pad_width - len(el))]) for el in V2E_list]
+    ).astype(np.int64)
 
     return V, F, E, V2E, E2E, V_boundary, V_nonmanifold
 
@@ -107,8 +113,7 @@ def angle_weighted_face_normal(e_id, V, E, FN):
     d_0 = V[cur_edge[1]] - V[cur_edge[0]]
     d_1 = V[prev_edge[0]] - V[prev_edge[1]]
 
-    angle = jnp.arccos(
-        jnp.dot(d_0, d_1) / jnp.linalg.norm(d_0) / jnp.linalg.norm(d_1))
+    angle = jnp.arccos(jnp.dot(d_0, d_1) / jnp.linalg.norm(d_0) / jnp.linalg.norm(d_1))
 
     angle = jnp.where(jnp.isnan(angle), 0, angle)
 
@@ -118,8 +123,10 @@ def angle_weighted_face_normal(e_id, V, E, FN):
 @jit
 def per_vertex_normal(V, E, V2E, FN):
     vn = one_ring_traversal(
-        V2E, jax.tree_util.Partial(angle_weighted_face_normal, V=V, E=E, FN=FN),
-        jnp.zeros((3,)))
+        V2E,
+        jax.tree_util.Partial(angle_weighted_face_normal, V=V, E=E, FN=FN),
+        jnp.zeros((3,)),
+    )
     vn = vmap(normalize)(jnp.sum(vn, 1))
     return vn
 
@@ -182,17 +189,27 @@ def face_curvature_tensor(verts, vert_normals, T_f):
     a_2u = jnp.dot(e2, u)
     a_2v = jnp.dot(e2, v)
 
-    A = jnp.array([[a_0u, a_0v, 0], [0, a_0u, a_0v], [a_1u, a_1v, 0],
-                   [0, a_1u, a_1v], [a_2u, a_2v, 0], [0, a_2u, a_2v]])
+    A = jnp.array(
+        [
+            [a_0u, a_0v, 0],
+            [0, a_0u, a_0v],
+            [a_1u, a_1v, 0],
+            [0, a_1u, a_1v],
+            [a_2u, a_2v, 0],
+            [0, a_2u, a_2v],
+        ]
+    )
 
-    b = jnp.array([
-        jnp.dot(vn2 - vn1, u),
-        jnp.dot(vn2 - vn1, v),
-        jnp.dot(vn0 - vn2, u),
-        jnp.dot(vn0 - vn2, v),
-        jnp.dot(vn1 - vn0, u),
-        jnp.dot(vn1 - vn0, v)
-    ])
+    b = jnp.array(
+        [
+            jnp.dot(vn2 - vn1, u),
+            jnp.dot(vn2 - vn1, v),
+            jnp.dot(vn0 - vn2, u),
+            jnp.dot(vn0 - vn2, v),
+            jnp.dot(vn1 - vn0, u),
+            jnp.dot(vn1 - vn0, v),
+        ]
+    )
 
     X = jnp.linalg.inv(A.T @ A) @ A.T @ b
 
@@ -210,7 +227,7 @@ def transform_face_metric(e_id, T_v, E, VN, FN, T_f, TfM):
     # rotate from face normal to vertex normal
     R = rotate_coplanar(FN[f_id], VN[v_id])
 
-    T_coplanar = jnp.einsum('ij,bj->bi', R, T_f[f_id])
+    T_coplanar = jnp.einsum("ij,bj->bi", R, T_f[f_id])
     uf = T_coplanar[0]
     vf = T_coplanar[1]
 
@@ -254,18 +271,17 @@ def hybrid_area(a, b, c):
     e1_norm = jnp.linalg.norm(e1)
     e2_norm = jnp.linalg.norm(e2)
 
-    cos_a = jnp.einsum('i,i', e0, e1) / e0_norm / e1_norm
-    cos_b = jnp.einsum('i,i', -e0, e2) / e0_norm / e2_norm
-    cos_c = jnp.einsum('i,i', -e1, -e2) / e1_norm / e2_norm
+    cos_a = jnp.einsum("i,i", e0, e1) / e0_norm / e1_norm
+    cos_b = jnp.einsum("i,i", -e0, e2) / e0_norm / e2_norm
+    cos_c = jnp.einsum("i,i", -e1, -e2) / e1_norm / e2_norm
     cos_sum = cos_a + cos_b + cos_c
 
     area = 0.5 * jnp.linalg.norm(jnp.cross(e0, e1))
 
-    is_obtuse = (cos_a < 0.) | (cos_b < 0.) | (cos_c < 0.)
-    is_obtuse_angle = cos_a < 0.
+    is_obtuse = (cos_a < 0.0) | (cos_b < 0.0) | (cos_c < 0.0)
+    is_obtuse_angle = cos_a < 0.0
 
-    area = jnp.where(is_obtuse, 0.25 * area,
-                     0.5 * area * (cos_c + cos_b) / cos_sum)
+    area = jnp.where(is_obtuse, 0.25 * area, 0.5 * area * (cos_c + cos_b) / cos_sum)
     area = jnp.where(is_obtuse_angle, 2 * area, area)
 
     return area
@@ -285,7 +301,7 @@ def cotangent(ei, ej, E, V, FA):
     C = V[E[ei][1]]
     area = FA[ei // 3]
 
-    len2 = lambda x: jnp.einsum('i,i', x, x)
+    len2 = lambda x: jnp.einsum("i,i", x, x)
 
     a = len2(B - C)
     b = len2(A - C)
@@ -311,19 +327,22 @@ def boundary_auxillary_edge(eids, E2E):
 def cotangent_edge_weight(e_id, E, E2E, V, FA):
     cot_a = cotangent(e_id, prev_edge_id(e_id), E, V, FA)
     e_id_op = E2E[e_id]
-    cot_b = jnp.where(e_id_op == -1, 0.,
-                      cotangent(e_id_op, prev_edge_id(e_id_op), E, V, FA))
+    cot_b = jnp.where(
+        e_id_op == -1, 0.0, cotangent(e_id_op, prev_edge_id(e_id_op), E, V, FA)
+    )
     return 0.5 * (cot_a + cot_b)
 
 
 def cotangent_weight(V, E, FA, V2E, E2E, V_boundary):
     V2E_aux = np.copy(V2E)
-    V2E_aux[V_boundary] = vmap(boundary_auxillary_edge,
-                               in_axes=(0, None))(V2E[V_boundary], E2E)
+    V2E_aux[V_boundary] = vmap(boundary_auxillary_edge, in_axes=(0, None))(
+        V2E[V_boundary], E2E
+    )
     return one_ring_traversal(
         V2E_aux,
         jax.tree_util.Partial(cotangent_edge_weight, E=E, E2E=E2E, V=V, FA=FA),
-        0.)
+        0.0,
+    )
 
 
 # "Estimating Curvatures and Their Derivatives on Triangle Meshes" by Szymon Rusinkiewicz
@@ -333,26 +352,22 @@ def fit_curvature_tensor(V, F, E, V2E, FN, T_f, VN, T_v):
 
     TvM = one_ring_traversal(
         V2E,
-        jax.tree_util.Partial(transform_face_metric,
-                              T_v=T_v,
-                              E=E,
-                              VN=VN,
-                              FN=FN,
-                              T_f=T_f,
-                              TfM=TfM), jnp.zeros((2, 2)))
+        jax.tree_util.Partial(
+            transform_face_metric, T_v=T_v, E=E, VN=VN, FN=FN, T_f=T_f, TfM=TfM
+        ),
+        jnp.zeros((2, 2)),
+    )
 
-    Ws = one_ring_traversal(V2E, jax.tree_util.Partial(vertex_area, E=E, V=V),
-                            0.)
+    Ws = one_ring_traversal(V2E, jax.tree_util.Partial(vertex_area, E=E, V=V), 0.0)
 
-    TvM = jnp.sum(Ws[..., None, None] * TvM, axis=1) / jnp.sum(Ws, 1)[:, None,
-                                                                      None]
+    TvM = jnp.sum(Ws[..., None, None] * TvM, axis=1) / jnp.sum(Ws, 1)[:, None, None]
     return TfM, TvM
 
 
 @jit
 def principal_curvature(T, TM):
     eigvals, eigvecs = vmap(jnp.linalg.eigh)(TM)
-    eigvecs = jnp.einsum('bij,bni->bnj', T, eigvecs)
+    eigvecs = jnp.einsum("bij,bni->bnj", T, eigvecs)
     return eigvals, eigvecs
 
 
@@ -379,26 +394,38 @@ def smooth(ws, e_ids, E, E2E, FA, alpha, beta, NV):
     beta_i = beta[vid_i]
     beta_j = beta[vid_j]
 
-    inner_ii = jnp.einsum('bi,bi->b', alpha_i, alpha_j)
-    inner_ij = jnp.einsum('bi,bi->b', alpha_i, beta_j)
-    inner_ji = jnp.einsum('bi,bi->b', beta_i, alpha_j)
-    inner_jj = jnp.einsum('bi,bi->b', beta_i, beta_j)
+    inner_ii = jnp.einsum("bi,bi->b", alpha_i, alpha_j)
+    inner_ij = jnp.einsum("bi,bi->b", alpha_i, beta_j)
+    inner_ji = jnp.einsum("bi,bi->b", beta_i, alpha_j)
+    inner_jj = jnp.einsum("bi,bi->b", beta_i, beta_j)
 
     idx_i = jnp.concatenate(
-        [jnp.array([vid, vid + NV]), vid_i, vid_i, vid_i_next, vid_i_next])
+        [jnp.array([vid, vid + NV]), vid_i, vid_i, vid_i_next, vid_i_next]
+    )
 
     idx_j = jnp.concatenate(
-        [jnp.array([vid, vid + NV]), vid_j, vid_j_next, vid_j, vid_j_next])
+        [jnp.array([vid, vid + NV]), vid_j, vid_j_next, vid_j, vid_j_next]
+    )
 
-    weights = jnp.concatenate([
-        jnp.array([w_sum, w_sum]), -inner_ii * ws, -inner_ij * ws,
-        -inner_ji * ws, -inner_jj * ws
-    ])
+    weights = jnp.concatenate(
+        [
+            jnp.array([w_sum, w_sum]),
+            -inner_ii * ws,
+            -inner_ij * ws,
+            -inner_ji * ws,
+            -inner_jj * ws,
+        ]
+    )
 
-    mass = jnp.concatenate([
-        jnp.array([m_sum, m_sum]), inner_ii * ms, inner_ij * ms, inner_ji * ms,
-        inner_jj * ms
-    ])
+    mass = jnp.concatenate(
+        [
+            jnp.array([m_sum, m_sum]),
+            inner_ii * ms,
+            inner_ij * ms,
+            inner_ji * ms,
+            inner_jj * ms,
+        ]
+    )
 
     return idx_i, idx_j, weights, mass
 
@@ -409,22 +436,21 @@ def tangent_to_rotation(tangent, normal):
     return jnp.stack([tangent, bitangent, normal], -1)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # enable 64 bit precision
     # from jax.config import config
     # config.update("jax_enable_x64", True)
 
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('input', type=str, help='Path to input file.')
-    parser.add_argument('--out_path',
-                        type=str,
-                        default='../results',
-                        help='Path to output folder.')
+    parser.add_argument("input", type=str, help="Path to input file.")
+    parser.add_argument(
+        "--out_path", type=str, default="../results", help="Path to output folder."
+    )
     args = parser.parse_args()
 
     model_path = args.input
-    model_name = model_path.split('/')[-1].split('.')[0]
+    model_name = model_path.split("/")[-1].split(".")[0]
     model_out_path = os.path.join(args.out_path, f"{model_name}_ext.obj")
 
     timer = Timer()
@@ -432,13 +458,13 @@ if __name__ == '__main__':
     V, F = igl.read_triangle_mesh(model_path)
     V = normalize_aabb(V)
 
-    timer.log('Load and preprocess mesh')
+    timer.log("Load and preprocess mesh")
 
     # TODO: This implementation is exceedingly complicated and memory inefficient because I attempt to traverse graph like data structure using vmap
     #   Might well just use for loop in the future...
     V, F, E, V2E, E2E, V_boundary, V_nonmanifold = build_traversal_graph(V, F)
 
-    timer.log('Build traversal graph')
+    timer.log("Build traversal graph")
 
     NV = len(V)
     FN, _ = per_face_basis(V[F])
@@ -448,15 +474,16 @@ if __name__ == '__main__':
 
     # Projection matrix to tangent plane (I - n n^T)
     Pv = jnp.repeat(jnp.eye(3)[None, ...], NV, axis=0) - jnp.einsum(
-        'bi,bj->bij', VN, VN)
+        "bi,bj->bij", VN, VN
+    )
 
     # Local coordinate with random tangent vector as basis
     key = jax.random.PRNGKey(0)
-    alpha = jnp.einsum('bij,bi->bj', Pv, jax.random.normal(key, (NV, 3)))
+    alpha = jnp.einsum("bij,bi->bj", Pv, jax.random.normal(key, (NV, 3)))
     alpha = vmap(normalize)(alpha)
     beta = vmap(jnp.cross)(alpha, VN)
 
-    timer.log('Build local coordinate frame')
+    timer.log("Build local coordinate frame")
 
     idx_i, idx_j, weights, mass = smooth(Ws, V2E, E, E2E, FA, alpha, beta, NV)
 
@@ -472,15 +499,15 @@ if __name__ == '__main__':
     weights = np.float64(weights[valid_mask])
     mass = np.float64(mass[valid_mask])
 
-    timer.log('Build stiffness and mass entries')
+    timer.log("Build stiffness and mass entries")
 
-    A = scipy.sparse.coo_array((weights, (idx_i, idx_j)),
-                               shape=(2 * NV, 2 * NV)).tocsc()
+    A = scipy.sparse.coo_array(
+        (weights, (idx_i, idx_j)), shape=(2 * NV, 2 * NV)
+    ).tocsc()
 
-    M = scipy.sparse.coo_array((mass, (idx_i, idx_j)),
-                               shape=(2 * NV, 2 * NV)).tocsc()
+    M = scipy.sparse.coo_array((mass, (idx_i, idx_j)), shape=(2 * NV, 2 * NV)).tocsc()
 
-    timer.log('Build sparse system')
+    timer.log("Build sparse system")
 
     # Generalized eigenproblem
     # Reference: Algorithm 2 in Globally Optimal Direction Fields by Knöppel et al.
@@ -495,16 +522,16 @@ if __name__ == '__main__':
     a = X[:NV, 0]
     b = X[NV:, 0]
 
-    timer.log('Solve (Generalized eigenproblem)')
+    timer.log("Solve (Generalized eigenproblem)")
 
     # representation vector
     Q = vmap(normalize)(a[:, None] * alpha + b[:, None] * beta)
 
-    timer.log('Project to representation vectors')
+    timer.log("Project to representation vectors")
 
     V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
-    timer.log('Trace flowlines')
+    timer.log("Trace flowlines")
 
     ps.init()
     mesh = ps.register_surface_mesh("mesh", V, F)

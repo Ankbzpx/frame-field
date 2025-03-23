@@ -1,36 +1,57 @@
-import equinox as eqx
-import numpy as np
-import jax
-from jax import jit, numpy as jnp, vmap
-from skimage.measure import marching_cubes
-import igl
 import argparse
 import json
 import os
 
-import model_jax
+from common import (
+    aabb_compute,
+    filter_components,
+    normalize,
+    ps_register_curve_network,
+    rm_unref_vertices,
+    Timer,
+    vis_oct_field,
+    voxel_tet_from_grid_scale,
+    write_triangle_mesh_VC,
+)
 from config import Config
 from config_utils import config_latent, config_model, load_sdf
-from common import (normalize, vis_oct_field, filter_components, Timer,
-                    voxel_tet_from_grid_scale, ps_register_curve_network,
-                    rm_unref_vertices, write_triangle_mesh_VC, aabb_compute)
-from sh_representation import (proj_sh4_to_R3, proj_sh4_to_rotvec, R3_to_repvec,
-                               rotvec_n_to_z, rotvec_to_R3, rotvec_to_R9,
-                               project_n, rot6d_to_R3, R3_to_sh4_zonal,
-                               rotvec_to_sh4, rot6d_to_sh4_zonal, proj_sh4_sdp)
-import pymeshlab
+import model_jax
+from sh_representation import (
+    proj_sh4_sdp,
+    proj_sh4_to_R3,
+    proj_sh4_to_rotvec,
+    project_n,
+    R3_to_repvec,
+    R3_to_sh4_zonal,
+    rot6d_to_R3,
+    rot6d_to_sh4_zonal,
+    rotvec_n_to_z,
+    rotvec_to_R3,
+    rotvec_to_R9,
+    rotvec_to_sh4,
+)
 
-import polyscope as ps
+import equinox as eqx
+import igl
+import jax
+from jax import jit, numpy as jnp, vmap
+import numpy as np
+import pymeshlab
+from skimage.measure import marching_cubes
+
 from icecream import ic
+import polyscope as ps
 
 
 # infer: R^3 -> R
-def voxel_infer(infer,
-                grid_res=512,
-                grid_bl=np.array([-1.0, -1.0, -1.0]),
-                grid_tr=np.array([1.0, 1.0, 1.0]),
-                group_size_mul=1,
-                out_dim=1):
+def voxel_infer(
+    infer,
+    grid_res=512,
+    grid_bl=np.array([-1.0, -1.0, -1.0]),
+    grid_tr=np.array([1.0, 1.0, 1.0]),
+    group_size_mul=1,
+    out_dim=1,
+):
     # Smaller batch is somehow faster
     group_size = group_size_mul * grid_res**2
     iter_size = grid_res**3 // group_size
@@ -46,7 +67,7 @@ def voxel_infer(infer,
 
         query_data = {
             "grid": grid.reshape(iter_size, group_size, 3),
-            "val": jnp.zeros((iter_size, group_size, out_dim))
+            "val": jnp.zeros((iter_size, group_size, out_dim)),
         }
 
         @jit
@@ -56,15 +77,13 @@ def voxel_infer(infer,
             return query_data
 
         query_data = jax.lax.fori_loop(0, iter_size, body_func, query_data)
-        return query_data["val"].reshape(grid_res, grid_res, grid_res,
-                                         out_dim), grid
+        return query_data["val"].reshape(grid_res, grid_res, grid_res, out_dim), grid
 
     return infer_scalar()
 
 
 # infer: R^3 -> R (sdf)
 def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
-
     grid_max_res = 512
 
     if grid_res > grid_max_res:
@@ -73,38 +92,40 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
         interval = (grid_max - grid_min) / div
 
         part_idx = np.arange(div)
-        part_offsets = np.stack(np.meshgrid(part_idx, part_idx, part_idx),
-                                -1).reshape(-1, 3)
+        part_offsets = np.stack(np.meshgrid(part_idx, part_idx, part_idx), -1).reshape(
+            -1, 3
+        )
 
         part_bl = grid_min + part_offsets * interval
         part_tr = grid_min + (part_offsets + 1) * interval
 
         block_list = []
         for i in range(div**3):
-            sdf, _ = voxel_infer(infer,
-                                 grid_max_res,
-                                 grid_bl=part_bl[i],
-                                 grid_tr=part_tr[i])
+            sdf, _ = voxel_infer(
+                infer, grid_max_res, grid_bl=part_bl[i], grid_tr=part_tr[i]
+            )
             block_list.append(np.array(sdf[..., 0]))
 
-        sdf_np = np.stack(block_list).reshape(div, div, div, grid_max_res,
-                                              grid_max_res, grid_max_res)
+        sdf_np = np.stack(block_list).reshape(
+            div, div, div, grid_max_res, grid_max_res, grid_max_res
+        )
         sdf_np = np.transpose(sdf_np, (0, 3, 1, 4, 2, 5)).reshape(
-            grid_res, grid_res, grid_res)
+            grid_res, grid_res, grid_res
+        )
     else:
-        sdf, _ = voxel_infer(infer,
-                             grid_res,
-                             grid_bl=np.array([grid_min, grid_min, grid_min]),
-                             grid_tr=np.array([grid_max, grid_max, grid_max]))
+        sdf, _ = voxel_infer(
+            infer,
+            grid_res,
+            grid_bl=np.array([grid_min, grid_min, grid_min]),
+            grid_tr=np.array([grid_max, grid_max, grid_max]),
+        )
         # This step is surprising slow, gpu to cpu memory copy?
         sdf_np = np.array(sdf[..., 0])
 
     sdf_np = np.swapaxes(sdf_np, 0, 1)
-    spacing = 1. / grid_res
+    spacing = 1.0 / grid_res
     # It outputs inverse VN, even with gradient_direction set to ascent
-    V, F, VN_inv, _ = marching_cubes(sdf_np,
-                                     0.,
-                                     spacing=(spacing, spacing, spacing))
+    V, F, VN_inv, _ = marching_cubes(sdf_np, 0.0, spacing=(spacing, spacing, spacing))
     dim = grid_max - grid_min
     V = dim * (V - np.abs(grid_min) / dim)
     return V, F, -VN_inv
@@ -124,12 +145,9 @@ def meshlab_edge_collapse(save_path, V, F, num_faces):
     return V, F
 
 
-def batch_call(func,
-               input,
-               num_out_args=1,
-               out_map_func=lambda x: [x],
-               group_size=256**2):
-
+def batch_call(
+    func, input, num_out_args=1, out_map_func=lambda x: [x], group_size=256**2
+):
     n_iters = len(input) // group_size
 
     if n_iters == 0:
@@ -146,8 +164,11 @@ def batch_call(func,
             output_ = out_map_func(output_)
 
             for i in range(num_out_args):
-                output[i] = output_[i] if output[
-                    i] is None else jnp.concatenate([output[i], output_[i]])
+                output[i] = (
+                    output_[i]
+                    if output[i] is None
+                    else jnp.concatenate([output[i], output_[i]])
+                )
 
         output = list(output.values())
 
@@ -157,21 +178,22 @@ def batch_call(func,
     return output
 
 
-def eval(cfg: Config,
-         model: model_jax.MLP,
-         latent,
-         grid_res=512,
-         vis_singularity=False,
-         vis_mc=False,
-         vis_smooth=False,
-         vis_flowline=False,
-         save_octa=False,
-         single_object=True,
-         edge_collapse=False,
-         trace_flowline=False,
-         miq=False,
-         interp_tag=''):
-
+def eval(
+    cfg: Config,
+    model: model_jax.MLP,
+    latent,
+    grid_res=512,
+    vis_singularity=False,
+    vis_mc=False,
+    vis_smooth=False,
+    vis_flowline=False,
+    save_octa=False,
+    single_object=True,
+    edge_collapse=False,
+    trace_flowline=False,
+    miq=False,
+    interp_tag="",
+):
     # Map network output to sh4 parameterization
     if cfg.loss_cfg.rot6d:
         param_func = rot6d_to_sh4_zonal
@@ -201,26 +223,24 @@ def eval(cfg: Config,
         def infer_smoothness(x):
             z = latent[None, ...].repeat(len(x), 0)
             jac, _ = model.call_jac_param(x, z, param_func)
-            return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, 'f')
+            return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f")
 
         smoothness, grid_samples = voxel_infer(infer_smoothness)
 
-        timer.log('Infer gradient F-norm')
+        timer.log("Infer gradient F-norm")
 
         ps.init()
-        pc = ps.register_point_cloud('grid_samples',
-                                     grid_samples.reshape(-1, 3),
-                                     point_render_mode='quad')
-        pc.add_scalar_quantity('smoothness',
-                               smoothness.reshape(-1),
-                               enabled=True)
+        pc = ps.register_point_cloud(
+            "grid_samples", grid_samples.reshape(-1, 3), point_render_mode="quad"
+        )
+        pc.add_scalar_quantity("smoothness", smoothness.reshape(-1), enabled=True)
         ps.show()
         exit()
 
     infer_sdf = lambda x: infer(x)[:, 0]
     V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
 
-    timer.log('Extract surface')
+    timer.log("Extract surface")
 
     # if single_object:
     #     # If the output has artifacts, it have large amount of flipped components / ghost geometries
@@ -246,23 +266,24 @@ def eval(cfg: Config,
         # VN = VN[V_id]
         sh4 = vmap(param_func)(aux)
 
-        timer.log('Extract parameterization')
+        timer.log("Extract parameterization")
 
         sh4 = proj_sh4_sdp(sh4)
         sh4_bary = sh4[T].mean(axis=1)
         Rs_bary = proj_sh4_to_R3(sh4_bary)
 
-        timer.log('Project and interpolate SH4')
+        timer.log("Project and interpolate SH4")
 
         TT, TTi = igl.tet_tet_adjacency(T)
-        uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, E2uE, E2T = frame_field_utils.tet_edge_one_ring(
-            T, TT)
+        uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, E2uE, E2T = (
+            frame_field_utils.tet_edge_one_ring(T, TT)
+        )
         uE_singularity_mask = frame_field_utils.tet_frame_singularity(
-            uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum,
-            Rs_bary)
+            uE, uE_boundary_mask, uE_non_manifold_mask, uE2T, uE2T_cumsum, Rs_bary
+        )
         uE_singular = uE[uE_singularity_mask]
 
-        timer.log('Compute singularity')
+        timer.log("Compute singularity")
 
         F_b = igl.boundary_facets(T)
         F_b = np.stack([F_b[:, 2], F_b[:, 1], F_b[:, 0]], -1)
@@ -282,10 +303,10 @@ def eval(cfg: Config,
         # exit()
 
         ps.init()
-        ps.register_surface_mesh('tet boundary', V_b, F_b, enabled=False)
-        ps.register_surface_mesh('mc', V, F)
+        ps.register_surface_mesh("tet boundary", V_b, F_b, enabled=False)
+        ps.register_surface_mesh("mc", V, F)
         if uE_singularity_mask.sum() > 0:
-            ps_register_curve_network('singularity', V_tet, uE_singular)
+            ps_register_curve_network("singularity", V_tet, uE_singular)
         ps.show()
 
         param_path = os.path.join(f"{cfg.out_dir}/{cfg.name}.npz")
@@ -299,10 +320,10 @@ def eval(cfg: Config,
     # Recovery input scale
     # TODO: support latent
     sdf_data = load_sdf(cfg.sdf_paths[0])
-    sur_sample = sdf_data['samples_on_sur']
+    sur_sample = sdf_data["samples_on_sur"]
     pc_center, pc_scale, _ = aabb_compute(sur_sample)
 
-    save_name = f"{cfg.name}_{interp_tag}" if interp_tag != '' else f"{cfg.name}"
+    save_name = f"{cfg.name}_{interp_tag}" if interp_tag != "" else f"{cfg.name}"
 
     # Octahedral field
     if save_octa and len(cfg.mlp_cfgs) > 1:
@@ -315,27 +336,28 @@ def eval(cfg: Config,
         print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
         Rs = proj_func(sh4)
 
-        timer.log('Infer octahedral frames')
+        timer.log("Infer octahedral frames")
 
         V_vis_sup, F_vis_sup = vis_oct_field(Rs, V, 0.64 / grid_res)
         V_vis_sup = V_vis_sup * pc_scale + pc_center
         igl.write_triangle_mesh(
-            os.path.join(cfg.out_dir, f"{save_name}_octa.obj"), V_vis_sup,
-            F_vis_sup)
+            os.path.join(cfg.out_dir, f"{save_name}_octa.obj"), V_vis_sup, F_vis_sup
+        )
 
     V = V * pc_scale + pc_center
     igl.write_triangle_mesh(os.path.join(cfg.out_dir, f"{save_name}.obj"), V, F)
 
     # Quadratic edge collapsing reduces vertex count while preserves original appeal
-    if edge_collapse:
-        # Reduced mesh is preferable for visualization / downstream task
-        V, F = meshlab_edge_collapse(mc_save_path, V, F,
-                                     20000 if no_artifacts else 60000)
+    # if edge_collapse:
+    #     # Reduced mesh is preferable for visualization / downstream task
+    #     V, F = meshlab_edge_collapse(
+    #         mc_save_path, V, F, 20000 if no_artifacts else 60000
+    #     )
 
-        timer.log('Meshlab edge collapsing')
+    #     timer.log("Meshlab edge collapsing")
 
-        qc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
-        igl.write_triangle_mesh(qc_save_path, V, F)
+    #     qc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
+    #     igl.write_triangle_mesh(qc_save_path, V, F)
 
     if miq:
         import frame_field_utils
@@ -351,12 +373,11 @@ def eval(cfg: Config,
 
         Q = vmap(R3_to_repvec)(Rs, FN)
 
-        UV, FUV = frame_field_utils.miq(np.float64(V),
-                                        F,
-                                        np.float64(Q),
-                                        gradient_size=75)
+        UV, FUV = frame_field_utils.miq(
+            np.float64(V), F, np.float64(Q), gradient_size=75
+        )
 
-        timer.log('MIQ')
+        timer.log("MIQ")
 
         from mesh_helper import OBJMesh, write_obj
 
@@ -364,12 +385,11 @@ def eval(cfg: Config,
         mesh.uvs = UV
         mesh.face_uvs_idx = FUV
 
-        write_obj(f'{cfg.out_dir}/{cfg.name}_param.obj', mesh)
+        write_obj(f"{cfg.out_dir}/{cfg.name}_param.obj", mesh)
 
         exit()
 
     if vis_mc:
-
         ps.init()
         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
         # if len(cfg.mlp_cfgs) > 1:
@@ -392,7 +412,7 @@ def eval(cfg: Config,
         V = V - sdf[:, None] * VN
         V = np.array(V)
 
-        timer.log('Project SDF')
+        timer.log("Project SDF")
 
         (_, aux), VN = infer_grad(V)
         sh4 = vmap(param_func)(aux)
@@ -407,17 +427,17 @@ def eval(cfg: Config,
         print(f"Smoothness {smoothness}")
 
         Rs = proj_func(aux)
-        timer.log('Project SO(3)')
+        timer.log("Project SO(3)")
 
         timer.reset()
 
         Q = vmap(R3_to_repvec)(Rs, VN)
 
-        timer.log('Project to representation vectors')
+        timer.log("Project to representation vectors")
 
         V_vis, F_vis, VC_vis = frame_field_utils.trace(V, F, VN, Q, 4000)
 
-        timer.log('Trace flowlines')
+        timer.log("Trace flowlines")
 
         if vis_flowline:
             ps.init()
@@ -428,42 +448,37 @@ def eval(cfg: Config,
             ps.show()
 
         write_triangle_mesh_VC(
-            f"{cfg.out_dir}/{cfg.name}_{interp_tag}stroke.obj", V_vis, F_vis,
-            VC_vis)
+            f"{cfg.out_dir}/{cfg.name}_{interp_tag}stroke.obj", V_vis, F_vis, VC_vis
+        )
 
 
-if __name__ == '__main__':
-
+if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('config', type=str, help='Path to config file.')
-    parser.add_argument('--interp',
-                        type=str,
-                        default='0_1_0',
-                        help='Interpolation progress')
-    parser.add_argument('--vis_singularity',
-                        action='store_true',
-                        help='Visualize octahedron singularity')
-    parser.add_argument('--vis_mc',
-                        action='store_true',
-                        help='Visualize MC mesh only')
-    parser.add_argument('--vis_smooth',
-                        action='store_true',
-                        help='Visualize smoothness')
-    parser.add_argument('--vis_flowline',
-                        action='store_true',
-                        help='Visualize flowline')
-    parser.add_argument('--output',
-                        type=str,
-                        default='output',
-                        help='Output folder')
+    parser.add_argument("config", type=str, help="Path to config file.")
+    parser.add_argument(
+        "--interp", type=str, default="0_1_0", help="Interpolation progress"
+    )
+    parser.add_argument(
+        "--vis_singularity",
+        action="store_true",
+        help="Visualize octahedron singularity",
+    )
+    parser.add_argument("--vis_mc", action="store_true", help="Visualize MC mesh only")
+    parser.add_argument(
+        "--vis_smooth", action="store_true", help="Visualize smoothness"
+    )
+    parser.add_argument(
+        "--vis_flowline", action="store_true", help="Visualize flowline"
+    )
+    parser.add_argument("--output", type=str, default="output", help="Output folder")
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
-    cfg.name = args.config.split('/')[-1].split('.')[0]
+    cfg.name = args.config.split("/")[-1].split(".")[0]
     cfg.out_dir = args.output
 
     latents, latent_dim = config_latent(cfg)
-    tokens = args.interp.split('_')
+    tokens = args.interp.split("_")
     # Interpolate latent
     i = int(tokens[0])
     j = int(tokens[1])
@@ -473,7 +488,15 @@ if __name__ == '__main__':
     model_key = jax.random.PRNGKey(0)
     model = config_model(cfg, model_key, latent_dim)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
-        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model)
+        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
+    )
 
-    eval(cfg, model, latent, args.vis_singularity, args.vis_mc, args.vis_smooth,
-         args.vis_flowline)
+    eval(
+        cfg,
+        model,
+        latent,
+        args.vis_singularity,
+        args.vis_mc,
+        args.vis_smooth,
+        args.vis_flowline,
+    )

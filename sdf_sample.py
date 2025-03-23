@@ -1,26 +1,28 @@
-import numpy as np
-import igl
-from common import normalize, normalize_aabb
-from joblib import Parallel, delayed
-import multiprocessing
 from glob import glob
-from tqdm import tqdm
+import multiprocessing
 import os
 
+from common import normalize, normalize_aabb
+
+import igl
+from joblib import delayed, Parallel
+import numpy as np
 import open3d as o3d
+from tqdm import tqdm
 
 from icecream import ic
 import polyscope as ps
 
 
 class SDFSampler:
-
-    def __init__(self,
-                 model_path,
-                 normalize=False,
-                 surface_ratio=0.6,
-                 close_sample_ratio=0.3,
-                 sigma=5e-2):
+    def __init__(
+        self,
+        model_path,
+        normalize=False,
+        surface_ratio=0.6,
+        close_sample_ratio=0.3,
+        sigma=5e-2,
+    ):
         V, F = igl.read_triangle_mesh(model_path)
         if normalize:
             V = normalize_aabb(V)
@@ -34,8 +36,7 @@ class SDFSampler:
     def sample_sdf_igl(self, x):
         return igl.signed_distance(x, self.V, self.F)[0]
 
-    def sample_importance(self, sample_size, multiplier=10., beta=1.5):
-
+    def sample_importance(self, sample_size, multiplier=10.0, beta=1.5):
         sample_size_full = int(sample_size * multiplier)
         n_surface = int(sample_size_full * self.surface_ratio)
         n_close = int(sample_size_full * self.close_sample_ratio)
@@ -44,31 +45,28 @@ class SDFSampler:
         bary, f_id = igl.random_points_on_mesh(n_surface, self.V, self.F)
         surface_samples = np.sum(bary[..., None] * self.V[self.F[f_id]], 1)
 
-        degen_n = normalize(np.array([1., 1., 1.]))[None, ...]
+        degen_n = normalize(np.array([1.0, 1.0, 1.0]))[None, ...]
         FN = igl.per_face_normals(self.V, self.F, np.float64(degen_n))
 
-        surface_samples += self.sigma * np.random.normal(size=(n_surface,
-                                                               1)) * FN[f_id]
+        surface_samples += self.sigma * np.random.normal(size=(n_surface, 1)) * FN[f_id]
 
         bary, f_id = igl.random_points_on_mesh(n_close, self.V, self.F)
 
         close_samples = np.sum(
-            bary[..., None] * self.V[self.F[f_id]],
-            1) + 2. * self.sigma * np.random.normal(size=(n_close, 3))
+            bary[..., None] * self.V[self.F[f_id]], 1
+        ) + 2.0 * self.sigma * np.random.normal(size=(n_close, 3))
 
         free_samples = np.random.uniform(low=-1.0, high=1.0, size=(n_free, 3))
 
         # Reference: https://github.com/nmwsharp/neural-implicit-queries/blob/c17e4b54f216cefb02d00ddba25c4f15b9873278/src/geometry.py#LL43C1-L43C1
         samples_full = np.vstack([surface_samples, close_samples, free_samples])
-        dist_sq, _, _ = igl.point_mesh_squared_distance(samples_full, self.V,
-                                                        self.F)
+        dist_sq, _, _ = igl.point_mesh_squared_distance(samples_full, self.V, self.F)
         weight = np.exp(-beta * np.sqrt(dist_sq))
         weight = weight / np.sum(weight)
 
-        sample_indices = np.random.choice(np.arange(sample_size_full),
-                                          size=sample_size,
-                                          p=weight,
-                                          replace=False)
+        sample_indices = np.random.choice(
+            np.arange(sample_size_full), size=sample_size, p=weight, replace=False
+        )
         samples = samples_full[sample_indices]
         sdf_vals, _, _ = igl.signed_distance(np.array(samples), self.V, self.F)
 
@@ -102,8 +100,11 @@ class SDFSampler:
         A = sample_per_face_vertices[:, 0]
         B = sample_per_face_vertices[:, 1]
         C = sample_per_face_vertices[:, 2]
-        samples_on_sur = C + (A - C) * sample_bary[:, 0][:, None] + (
-            B - C) * sample_bary[:, 1][:, None]
+        samples_on_sur = (
+            C
+            + (A - C) * sample_bary[:, 0][:, None]
+            + (B - C) * sample_bary[:, 1][:, None]
+        )
 
         FN = np.cross(B - A, C - A)
         FN = normalize(FN)
@@ -116,62 +117,59 @@ class SDFSampler:
 
         splits = len(samples) // 100000
         sdf_vals = Parallel(
-            n_jobs=multiprocessing.cpu_count() - 2, backend='multiprocessing')(
-                delayed(self.sample_sdf_igl)(sample_split)
-                for sample_split in np.array_split(samples, splits, axis=0))
+            n_jobs=multiprocessing.cpu_count() - 2, backend="multiprocessing"
+        )(
+            delayed(self.sample_sdf_igl)(sample_split)
+            for sample_split in np.array_split(samples, splits, axis=0)
+        )
 
         sdf_vals = np.concatenate(sdf_vals)
         return samples, np.array(sdf_vals)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import argparse
 
     # Arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type=str, help='Path to input model.')
-    parser.add_argument('--subfolder',
-                        type=str,
-                        default='',
-                        help='Subfolder path.')
-    parser.add_argument('--sample_size',
-                        type=int,
-                        default=10000,
-                        help='Number of samples.')
+    parser.add_argument("--model_path", type=str, help="Path to input model.")
+    parser.add_argument("--subfolder", type=str, default="", help="Subfolder path.")
+    parser.add_argument(
+        "--sample_size", type=int, default=10000, help="Number of samples."
+    )
     args = parser.parse_args()
 
-    model_base_folder_path = 'data/mesh'
+    model_base_folder_path = "data/mesh"
     subfolder = args.subfolder
 
     if args.model_path is not None:
-        subfolder = '/'.join(args.model_path.split('/')[2:-1])
+        subfolder = "/".join(args.model_path.split("/")[2:-1])
         model_path_list = [args.model_path]
     else:
         model_folder_path = os.path.join(model_base_folder_path, subfolder)
         model_path_list = sorted(
-            glob(os.path.join(model_folder_path, '*.obj')) +
-            glob(os.path.join(model_folder_path, '*.ply')))
+            glob(os.path.join(model_folder_path, "*.obj"))
+            + glob(os.path.join(model_folder_path, "*.ply"))
+        )
 
     # Fix the random seed
     np.random.seed(0)
     sample_size = args.sample_size
 
     if args.model_path is not None:
-        sdf_base_path = os.path.join('data/sdf', subfolder)
+        sdf_base_path = os.path.join("data/sdf", subfolder)
     else:
-        sdf_base_path = os.path.join('data/sdf', subfolder, str(sample_size))
+        sdf_base_path = os.path.join("data/sdf", subfolder, str(sample_size))
 
     if not os.path.exists(sdf_base_path):
         os.makedirs(sdf_base_path)
 
     for model_path in tqdm(model_path_list):
-        model_name = model_path.split('/')[-1].split('.')[0]
-        model_out_path = os.path.join(sdf_base_path,
-                                      f'{model_name}_{sample_size}.ply')
+        model_name = model_path.split("/")[-1].split(".")[0]
+        model_out_path = os.path.join(sdf_base_path, f"{model_name}_{sample_size}.ply")
 
         sampler = SDFSampler(model_path)
-        samples_on_sur, normals_on_sur = sampler.sample_surface_fixed_seed(
-            sample_size)
+        samples_on_sur, normals_on_sur = sampler.sample_surface_fixed_seed(sample_size)
 
         pc_o3d = o3d.geometry.PointCloud()
         pc_o3d.points = o3d.utility.Vector3dVector(samples_on_sur)

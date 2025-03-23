@@ -1,26 +1,26 @@
-import sys
 import os
+import sys
 
-sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
-import torch
-import numpy as np
-import lightning as L
+sys.path.insert(1, os.path.join(sys.path[0], ".."))
 
-from model_pytorch import HashMLP, VanillaMLP, Siren
+import argparse
+import json
 
-from common import vis_oct_field, normalize_aabb
-from jax import vmap, jit
-from jax2torch import jax2torch
+from common import normalize_aabb, vis_oct_field
 from config import Config, LossConfig
 from config_utils import config_training_data, load_sdf
 from sh_representation import R3_to_sh4_zonal
 
-import json
-import argparse
+from jax import jit, vmap
+from jax2torch import jax2torch
+import lightning as L
+from model_pytorch import HashMLP, Siren, VanillaMLP
+import numpy as np
+import torch
 
-import polyscope as ps
 from icecream import ic
+import polyscope as ps
 
 
 def normalize(x):
@@ -43,19 +43,20 @@ def rot6d_to_R3(rot6d):
 
 
 def double_well_potential(x):
-    return 16 * (x - 0.5)**4 - 8 * (x - 0.5)**2 + 1
+    return 16 * (x - 0.5) ** 4 - 8 * (x - 0.5) ** 2 + 1
 
 
 def align_loss(rot6d, normal):
     basis = torch.vmap(rot6d_to_R3)(rot6d)
-    dps = torch.einsum('bij,bi->bj', basis, torch.vmap(normalize)(normal))
+    dps = torch.einsum("bij,bi->bj", basis, torch.vmap(normalize)(normal))
     return double_well_potential(torch.abs(dps)).sum(-1)
 
 
 def align_loss_axis(rot6d, normal):
     basis = torch.vmap(rot6d_to_R3)(rot6d)
-    return 1 - torch.vmap(cosine_similarity)(basis[..., 0],
-                                             torch.vmap(normalize)(normal))
+    return 1 - torch.vmap(cosine_similarity)(
+        basis[..., 0], torch.vmap(normalize)(normal)
+    )
 
 
 def func_param_jax(basis):
@@ -69,7 +70,6 @@ def func_param(rot6d):
 
 
 class HashOcta(L.LightningModule):
-
     def __init__(self):
         super().__init__()
 
@@ -80,13 +80,13 @@ class HashOcta(L.LightningModule):
 
     def training_step(self, batch, batch_idx):
         # On
-        samples_on_sur: torch.Tensor = batch['samples_on_sur'][0]
-        normals_on_sur: torch.Tensor = batch['normals_on_sur'][0]
+        samples_on_sur: torch.Tensor = batch["samples_on_sur"][0]
+        normals_on_sur: torch.Tensor = batch["normals_on_sur"][0]
         aux_on: torch.Tensor = self.octa_mlp(samples_on_sur)
 
         # Off
-        samples_off_sur: torch.Tensor = batch['samples_off_sur'][0]
-        samples_close_sur: torch.Tensor = batch['samples_close_sur'][0]
+        samples_off_sur: torch.Tensor = batch["samples_off_sur"][0]
+        samples_close_sur: torch.Tensor = batch["samples_close_sur"][0]
 
         # Align
         aux_align = aux_on
@@ -97,15 +97,15 @@ class HashOcta(L.LightningModule):
         # samples_smooth = torch.vstack([samples_off_sur, samples_close_sur])
         samples_smooth = samples_on_sur
         eps = 1e-3
-        eps_x = torch.tensor([eps, 0., 0.],
-                             dtype=samples_smooth.dtype,
-                             device=samples_smooth.device)
-        eps_y = torch.tensor([0., eps, 0.],
-                             dtype=samples_smooth.dtype,
-                             device=samples_smooth.device)
-        eps_z = torch.tensor([0., 0., eps],
-                             dtype=samples_smooth.dtype,
-                             device=samples_smooth.device)
+        eps_x = torch.tensor(
+            [eps, 0.0, 0.0], dtype=samples_smooth.dtype, device=samples_smooth.device
+        )
+        eps_y = torch.tensor(
+            [0.0, eps, 0.0], dtype=samples_smooth.dtype, device=samples_smooth.device
+        )
+        eps_z = torch.tensor(
+            [0.0, 0.0, eps], dtype=samples_smooth.dtype, device=samples_smooth.device
+        )
 
         # Forward difference
         param = func_param(self.octa_mlp(samples_smooth))
@@ -128,36 +128,35 @@ class HashOcta(L.LightningModule):
         return optimizer
 
 
-if __name__ == '__main__':
-    torch.set_float32_matmul_precision('high')
+if __name__ == "__main__":
+    torch.set_float32_matmul_precision("high")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--config', type=str, help='Path to config file.')
-    parser.add_argument('--eval', action='store_true', help='Evaluate only')
+    parser.add_argument("--config", type=str, help="Path to config file.")
+    parser.add_argument("--eval", action="store_true", help="Evaluate only")
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
-    cfg.name = args.config.split('/')[-1].split('.')[0]
-    cfg.sdf_paths = [os.path.join('..', path) for path in cfg.sdf_paths]
+    cfg.name = args.config.split("/")[-1].split(".")[0]
+    cfg.sdf_paths = [os.path.join("..", path) for path in cfg.sdf_paths]
 
     model = HashOcta()
 
     if args.eval:
-
         checkpoint_path = "lightning_logs/version_5/checkpoints/epoch=0-step=10000.ckpt"
         checkpoint = torch.load(checkpoint_path, weights_only=True)
-        model.load_state_dict(checkpoint['state_dict'])
+        model.load_state_dict(checkpoint["state_dict"])
         model.cuda()
         model.eval()
 
         sdf_data = load_sdf(cfg.sdf_paths[0])
-        sur_sample = sdf_data['samples_on_sur']
+        sur_sample = sdf_data["samples_on_sur"]
         sur_sample = normalize_aabb(sur_sample)
         x = torch.from_numpy(sur_sample).float().cuda()
         Rs = torch.vmap(rot6d_to_R3)(model.octa_mlp(x)).detach().cpu().numpy()
 
         ps.init()
-        pc_viz = ps.register_point_cloud(f"pc", sur_sample)
+        pc_viz = ps.register_point_cloud("pc", sur_sample)
         pc_viz.add_vector_quantity("v0", Rs[..., 0])
         pc_viz.add_vector_quantity("v1", Rs[..., 1])
         pc_viz.add_vector_quantity("v2", Rs[..., 2])
@@ -165,8 +164,15 @@ if __name__ == '__main__':
 
         exit()
 
-    dataloader = config_training_data(cfg, np.empty(1,), with_jax=False)
+    dataloader = config_training_data(
+        cfg,
+        np.empty(
+            1,
+        ),
+        with_jax=False,
+    )
 
-    trainer = L.Trainer(max_steps=cfg.training.n_steps,
-                        max_epochs=cfg.training.n_epochs)
+    trainer = L.Trainer(
+        max_steps=cfg.training.n_steps, max_epochs=cfg.training.n_epochs
+    )
     trainer.fit(model=model, train_dataloaders=dataloader)

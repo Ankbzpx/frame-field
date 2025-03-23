@@ -1,23 +1,23 @@
-import numpy as np
-from jax import numpy as jnp, vmap, jit
-
 import math
-import pymeshlab
-import igl
-from tqdm import tqdm
 
-from common import write_triangle_mesh_VC, color_map, triangulation, fibonacci_sphere
+from common import color_map, fibonacci_sphere, triangulation, write_triangle_mesh_VC
 from sh_representation import oct_polynomial_zonal_unit_norm
 
-import polyscope as ps
+import igl
+from jax import jit, numpy as jnp, vmap
+import numpy as np
+import pymeshlab
+from tqdm import tqdm
+
 from icecream import ic
+import polyscope as ps
 
-if __name__ == '__main__':
 
+if __name__ == "__main__":
     for xz_scale in tqdm([0.5, 0.75, 0.85, 0.95, 1.0, 1.5, 2.0]):
         save_name = f"octa_{xz_scale}"
-        save_name = save_name.replace('.', '_')
-        save_path = f'tmp/{save_name}.obj'
+        save_name = save_name.replace(".", "_")
+        save_path = f"tmp/{save_name}.obj"
 
         # Note it is slightly different from c_0^2 + c_8^2 = const, but it doesn't affect xz relations
         R = np.diag([xz_scale, 1.0, xz_scale])

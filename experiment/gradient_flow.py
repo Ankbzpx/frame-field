@@ -1,9 +1,17 @@
-import numpy as np
-import jax
-from jax import numpy as jnp, vmap, jit, grad, jacfwd
 from common import normalize
-from sh_representation import oct_polynomial_sh4, oct_polynomial_sh4_unit_norm, oct_polynomial_zonal, oct_polynomial_zonal_unit_norm, oct_polynomial, sh4_canonical
 from loss import double_well_potential
+from sh_representation import (
+    oct_polynomial,
+    oct_polynomial_sh4,
+    oct_polynomial_sh4_unit_norm,
+    oct_polynomial_zonal,
+    oct_polynomial_zonal_unit_norm,
+    sh4_canonical,
+)
+
+import jax
+from jax import grad, jacfwd, jit, numpy as jnp, vmap
+import numpy as np
 
 from icecream import ic
 import polyscope as ps
@@ -20,25 +28,19 @@ def vis_gradient(VN, gradient, local_minimums, scale=1e-2):
     gradient_para, gradient_orth = vmap(decompose)(VN, gradient)
     grad_vis_len, grad_para_vis_len, grad_orth_vis_len = jax.tree_map(
         lambda x: scale * jnp.linalg.norm(x, axis=1).max(),
-        [gradient, gradient_para, gradient_orth])
+        [gradient, gradient_para, gradient_orth],
+    )
 
     ps.init()
-    pc = ps.register_point_cloud('pc', VN, radius=1e-4)
-    pc.add_vector_quantity('gradient',
-                           gradient,
-                           enabled=True,
-                           length=grad_vis_len)
-    pc.add_vector_quantity('gradient_para',
-                           gradient_para,
-                           length=grad_para_vis_len)
-    pc.add_vector_quantity('gradient_orth',
-                           gradient_orth,
-                           length=grad_orth_vis_len)
-    ps.register_point_cloud('local_minimums', local_minimums)
+    pc = ps.register_point_cloud("pc", VN, radius=1e-4)
+    pc.add_vector_quantity("gradient", gradient, enabled=True, length=grad_vis_len)
+    pc.add_vector_quantity("gradient_para", gradient_para, length=grad_para_vis_len)
+    pc.add_vector_quantity("gradient_orth", gradient_orth, length=grad_orth_vis_len)
+    ps.register_point_cloud("local_minimums", local_minimums)
     ps.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Without loss of generality, we choose canonical basis
     sh4 = sh4_canonical
     R = jnp.eye(3)
@@ -50,7 +52,7 @@ if __name__ == '__main__':
 
     @jit
     def loss_basis(VN):
-        dps = jnp.einsum('ij,i->j', R, vmap(normalize)(VN))
+        dps = jnp.einsum("ij,i->j", R, vmap(normalize)(VN))
         return double_well_potential(jnp.abs(dps)).sum(-1)
 
     @jit

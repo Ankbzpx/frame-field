@@ -1,16 +1,17 @@
-import numpy as np
-import trimesh
-import os
 from glob import glob
-from scipy.spatial import cKDTree
-import pandas as pd
-from tqdm import tqdm
+import os
 
 from common import rm_unref_vertices
-import igl
 
-import polyscope as ps
+import igl
+import numpy as np
+import pandas as pd
+from scipy.spatial import cKDTree
+from tqdm import tqdm
+import trimesh
+
 from icecream import ic
+import polyscope as ps
 
 
 # Reference: https://github.com/Chumbyte/DiGS/blob/main/surface_reconstruction/compute_metrics_srb.py
@@ -33,14 +34,18 @@ def compute_metrics(recon_points, gt_points, f1_thr, n_worker=8):
     return chamfer_dist, hausdorff_distance, f_1_score
 
 
-if __name__ == '__main__':
-
-    gt_root = os.path.expandvars('$HOME/dataset/SRB')
-    result_root = os.path.expandvars('$HOME/dataset/SRB')
+if __name__ == "__main__":
+    gt_root = os.path.expandvars("$HOME/dataset/SRB")
+    result_root = os.path.expandvars("$HOME/dataset/SRB")
 
     method_list = [
-        'DGP', 'DiGS', 'neural_singular_hessian', 'ours', 'ours_reg_10',
-        'siren', 'SPR'
+        "DGP",
+        "DiGS",
+        "neural_singular_hessian",
+        "ours",
+        "ours_reg_10",
+        "siren",
+        "SPR",
     ]
 
     seed = 0
@@ -51,9 +56,9 @@ if __name__ == '__main__':
     np.random.seed(seed)
 
     collection = {}
-    metrics_column = ['item', 'chamfer', 'hausdorff', 'f1']
+    metrics_column = ["item", "chamfer", "hausdorff", "f1"]
 
-    gt_folder = os.path.join(gt_root, 'GT')
+    gt_folder = os.path.join(gt_root, "GT")
     model_list = sorted(os.listdir(gt_folder))
     for model in tqdm(model_list):
         gt_mesh: trimesh.Trimesh = trimesh.load(os.path.join(gt_folder, model))
@@ -64,27 +69,28 @@ if __name__ == '__main__':
 
         def append_collection(tag, result_samples):
             chamfer_dist, hausdorff_distance, f_1_score = compute_metrics(
-                result_samples, gt_samples, f1_thr)
+                result_samples, gt_samples, f1_thr
+            )
 
             metrics_frame = pd.DataFrame(
                 [[model_name, chamfer_dist, hausdorff_distance, f_1_score]],
-                columns=metrics_column)
+                columns=metrics_column,
+            )
 
             if tag not in collection:
                 collection[tag] = metrics_frame
             else:
                 collection[tag] = pd.concat([collection[tag], metrics_frame])
 
-        model_name = model.split('.')[0]
+        model_name = model.split(".")[0]
         for method in method_list:
             tag = method
-            result_path = glob(
-                os.path.join(result_root, method, f'{model_name}.*'))[0]
+            result_path = glob(os.path.join(result_root, method, f"{model_name}.*"))[0]
             result_mesh: trimesh.Trimesh = trimesh.load(result_path)
-            if hasattr(result_mesh, 'faces'):
-                result_samples, _ = trimesh.sample.sample_surface(result_mesh,
-                                                                  sample_size,
-                                                                  seed=seed)
+            if hasattr(result_mesh, "faces"):
+                result_samples, _ = trimesh.sample.sample_surface(
+                    result_mesh, sample_size, seed=seed
+                )
                 append_collection(tag, result_samples)
             else:
                 idx_permute = np.random.permutation(len(result_mesh.vertices))
@@ -93,4 +99,4 @@ if __name__ == '__main__':
                 append_collection(tag, result_samples)
 
     for tag, tag_frames in collection.items():
-        tag_frames.to_csv(os.path.join('output', 'metrics_srb', f"{tag}.csv"))
+        tag_frames.to_csv(os.path.join("output", "metrics_srb", f"{tag}.csv"))

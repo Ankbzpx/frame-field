@@ -1,8 +1,15 @@
-from jax import numpy as jnp, jit, vmap
 from common import normalize
-from sh_representation import (oct_polynomial_zonal_unit_norm, rotvec_to_R9,
-                               rotvec_n_to_z, project_n, project_z,
-                               oct_polynomial_sh4_unit_norm, sh4_canonical)
+from sh_representation import (
+    oct_polynomial_sh4_unit_norm,
+    oct_polynomial_zonal_unit_norm,
+    project_n,
+    project_z,
+    rotvec_n_to_z,
+    rotvec_to_R9,
+    sh4_canonical,
+)
+
+from jax import jit, numpy as jnp, vmap
 
 
 @jit
@@ -19,13 +26,13 @@ def eikonal(x, norm=1):
 
 @jit
 def double_well_potential(x):
-    return 16 * (x - 0.5)**4 - 8 * (x - 0.5)**2 + 1
+    return 16 * (x - 0.5) ** 4 - 8 * (x - 0.5) ** 2 + 1
 
 
 @jit
 def align_basis_explicit(basis, normal):
     # Normalization matters here because we want the dot product to be either 0 or 1
-    dps = jnp.einsum('bij,bi->bj', basis, vmap(normalize)(normal))
+    dps = jnp.einsum("bij,bi->bj", basis, vmap(normalize)(normal))
     return double_well_potential(jnp.abs(dps)).sum(-1)
 
 
@@ -54,7 +61,7 @@ def align_sh4_explicit_l2(sh4, normal, xy_scale=1):
 def align_sh4_explicit_cosine(sh4, normal, xy_scale=1):
     R9_zn = vmap(rotvec_to_R9)(vmap(rotvec_n_to_z)(normal))
     sh4_n = vmap(project_n, in_axes=(0, 0, None))(sh4, R9_zn, xy_scale)
-    return (1 - vmap(cosine_similarity)(sh4, sh4_n))
+    return 1 - vmap(cosine_similarity)(sh4, sh4_n)
 
 
 @jit

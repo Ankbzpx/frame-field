@@ -1,20 +1,20 @@
-import igl
 from common import tet_from_grid
-from jax.experimental import sparse
 
-import jax
-from jax import vmap, numpy as jnp, jacfwd, jit, hessian
 import equinox as eqx
+import igl
+import jax
+from jax import hessian, jacfwd, jit, numpy as jnp, vmap
+from jax.experimental import sparse
 from jaxtyping import Array
 
 from icecream import ic
+
 
 # For abstraction convenience
 jax.nn.sin = jnp.sin
 
 
 class MLP(eqx.Module):
-
     def __init__():
         pass
 
@@ -35,11 +35,9 @@ class MLP(eqx.Module):
         return x[1:]
 
     def single_call_grad(self, x, z):
-        return eqx.filter_value_and_grad(self.single_call_split,
-                                         has_aux=True)(x, z)
+        return eqx.filter_value_and_grad(self.single_call_split, has_aux=True)(x, z)
 
     def single_call_jac(self, x, z):
-
         def __single_call(x, z):
             val = self.single_call(x, z)
             return val, val
@@ -47,7 +45,6 @@ class MLP(eqx.Module):
         return jacfwd(__single_call, has_aux=True)(x, z)
 
     def single_call_hessian(self, x, z):
-
         def __single_call(x, z):
             return self.single_call(x, z)[0]
 
@@ -68,7 +65,6 @@ class MLP(eqx.Module):
         return vmap(self.single_call_jac)(x, z)
 
     def call_jac_param(self, x, z, param_func):
-
         def __single_call(x, z):
             (sdf, aux), normal = self.single_call_grad(x, z)
             aux_param = param_func(aux)
@@ -78,7 +74,6 @@ class MLP(eqx.Module):
 
     # WARNING: This is slower than call 'call_hessian' and 'call_grad' separately
     def call_hessian_aux(self, x, z):
-
         def __single_call(x, z):
             (sdf, aux), normal = self.single_call_grad(x, z)
             return normal, ((sdf, aux), normal)
@@ -103,22 +98,25 @@ class Linear(eqx.Module):
     W: Array
     b: Array
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 xavier_init: bool = False):
-
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        xavier_init: bool = False,
+    ):
         if xavier_init:
             self.W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(6. / (in_features + out_features))
+                key, (out_features, in_features), minval=-1.0, maxval=1.0
+            ) * jnp.sqrt(6.0 / (in_features + out_features))
         else:
-            self.W = jax.random.normal(
-                key, (out_features, in_features)) * jnp.sqrt(2. / in_features)
+            self.W = jax.random.normal(key, (out_features, in_features)) * jnp.sqrt(
+                2.0 / in_features
+            )
 
-        self.b = jax.random.uniform(key, (out_features,), minval=-1.,
-                                    maxval=1.) * jnp.sqrt(1 / in_features)
+        self.b = jax.random.uniform(
+            key, (out_features,), minval=-1.0, maxval=1.0
+        ) * jnp.sqrt(1 / in_features)
 
     def __call__(self, x):
         return self.W @ x + self.b
@@ -129,27 +127,31 @@ class StandardMLP(MLP):
     activation: str
     input_scale: float
 
-    def __init__(self,
-                 in_features: int,
-                 hidden_features: int,
-                 hidden_layers: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 activation='elu',
-                 input_scale: float = 1,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        hidden_layers: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        activation="elu",
+        input_scale: float = 1,
+        **kwargs,
+    ):
         keys = jax.random.split(key, hidden_layers + 2)
 
-        xavier_init = activation == 'tanh'
+        xavier_init = activation == "tanh"
         self.activation = activation
         self.input_scale = input_scale
 
-        self.layers = [
-            Linear(in_features, hidden_features, keys[0], xavier_init)
-        ] + [
-            Linear(hidden_features, hidden_features, keys[i + 1], xavier_init)
-            for i in range(hidden_layers)
-        ] + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
+        self.layers = (
+            [Linear(in_features, hidden_features, keys[0], xavier_init)]
+            + [
+                Linear(hidden_features, hidden_features, keys[i + 1], xavier_init)
+                for i in range(hidden_layers)
+            ]
+            + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
+        )
 
 
 class ResMLP(MLP):
@@ -157,27 +159,31 @@ class ResMLP(MLP):
     activation: str
     input_scale: float
 
-    def __init__(self,
-                 in_features: int,
-                 hidden_features: int,
-                 hidden_layers: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 activation='elu',
-                 input_scale: float = 1,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        hidden_layers: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        activation="elu",
+        input_scale: float = 1,
+        **kwargs,
+    ):
         keys = jax.random.split(key, 2 * hidden_layers + 2)
 
-        xavier_init = activation == 'tanh'
+        xavier_init = activation == "tanh"
         self.activation = activation
         self.input_scale = input_scale
 
-        self.layers = [
-            Linear(in_features, hidden_features, keys[0], xavier_init)
-        ] + [
-            Linear(hidden_features, hidden_features, keys[i + 1], xavier_init)
-            for i in range(2 * hidden_layers)
-        ] + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
+        self.layers = (
+            [Linear(in_features, hidden_features, keys[0], xavier_init)]
+            + [
+                Linear(hidden_features, hidden_features, keys[i + 1], xavier_init)
+                for i in range(2 * hidden_layers)
+            ]
+            + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
+        )
 
     def single_call(self, x, z):
         activation = getattr(jax.nn, self.activation)
@@ -202,27 +208,36 @@ class SineLayer(eqx.Module):
     b: Array
     omega_0: Array
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_first: bool = False,
-                 is_last: bool = False,
-                 omega_0: float = 30.):
-
-        self.omega_0 = 1. if is_last else omega_0
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        is_first: bool = False,
+        is_last: bool = False,
+        omega_0: float = 30.0,
+    ):
+        self.omega_0 = 1.0 if is_last else omega_0
 
         if is_first:
-            self.W = jax.random.uniform(key, (out_features, in_features),
-                                        minval=-1.,
-                                        maxval=1.) / in_features
+            self.W = (
+                jax.random.uniform(
+                    key, (out_features, in_features), minval=-1.0, maxval=1.0
+                )
+                / in_features
+            )
         else:
-            self.W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(6 / in_features) / omega_0
+            self.W = (
+                jax.random.uniform(
+                    key, (out_features, in_features), minval=-1.0, maxval=1.0
+                )
+                * jnp.sqrt(6 / in_features)
+                / omega_0
+            )
 
-        self.b = jax.random.uniform(key, (out_features,), minval=-1.,
-                                    maxval=1.) * jnp.sqrt(1 / in_features)
+        self.b = jax.random.uniform(
+            key, (out_features,), minval=-1.0, maxval=1.0
+        ) * jnp.sqrt(1 / in_features)
 
     def __call__(self, x):
         return self.omega_0 * (self.W @ x + self.b)
@@ -234,32 +249,40 @@ class GeomSineLayer(eqx.Module):
     b: Array
     omega_0: float
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_second_last=False,
-                 omega_0: float = 30):
-
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        is_second_last=False,
+        omega_0: float = 30,
+    ):
         # Workaround "Results do not match the reference. This is likely a bug/unexpected loss of precision."
         # FIXME This shouldn't be necessary
         self.omega_0 = jnp.asarray(omega_0)
 
         if is_second_last:
             self.W = 0.5 * jnp.pi * jnp.eye(
-                out_features, in_features) / omega_0 + 1e-3 * jax.random.normal(
-                    key, (out_features, in_features))
+                out_features, in_features
+            ) / omega_0 + 1e-3 * jax.random.normal(key, (out_features, in_features))
             self.b = 0.5 * jnp.pi * jnp.ones(
-                out_features) / omega_0 + 1e-3 * jax.random.normal(
-                    key, (out_features,))
+                out_features
+            ) / omega_0 + 1e-3 * jax.random.normal(key, (out_features,))
         else:
-            self.W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / out_features) / omega_0
+            self.W = (
+                jax.random.uniform(
+                    key, (out_features, in_features), minval=-1.0, maxval=1.0
+                )
+                * jnp.sqrt(3 / out_features)
+                / omega_0
+            )
             # Small Gaussian noise to facilitate learning
-            self.b = jnp.zeros(out_features) + jax.random.uniform(
-                key, (out_features,), minval=-1.,
-                maxval=1.) / (out_features * 1000) / omega_0
+            self.b = (
+                jnp.zeros(out_features)
+                + jax.random.uniform(key, (out_features,), minval=-1.0, maxval=1.0)
+                / (out_features * 1000)
+                / omega_0
+            )
 
     def __call__(self, x):
         return self.omega_0 * (self.W @ x + self.b)
@@ -270,14 +293,15 @@ class MFGILayer(eqx.Module):
     b: Array
     omega_0: Array
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_first: bool = False,
-                 omega_0: float = 30,
-                 low_freq_portion: float = 0.25):
-
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        is_first: bool = False,
+        omega_0: float = 30,
+        low_freq_portion: float = 0.25,
+    ):
         # Workaround " Results do not match the reference. This is likely a bug/unexpected loss of precision."
         # FIXME This shouldn't be necessary
         self.omega_0 = jnp.asarray(omega_0)
@@ -286,30 +310,44 @@ class MFGILayer(eqx.Module):
         high_freq_features = out_features - low_freq_features
 
         if is_first:
-            W_low_freq = jax.random.uniform(
-                key, (low_freq_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features) / omega_0
+            W_low_freq = (
+                jax.random.uniform(
+                    key, (low_freq_features, in_features), minval=-1.0, maxval=1.0
+                )
+                * jnp.sqrt(3 / in_features)
+                / omega_0
+            )
             W_high_freq = jax.random.uniform(
-                key, (high_freq_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features)
+                key, (high_freq_features, in_features), minval=-1.0, maxval=1.0
+            ) * jnp.sqrt(3 / in_features)
 
             self.W = jnp.vstack([W_low_freq, W_high_freq])
         else:
             # TODO 1e-3 in paper, but 5e-4 in code. Why scales down?
-            W = jax.random.uniform(
-                key, (out_features, in_features), minval=-1.,
-                maxval=1.) * jnp.sqrt(3 / in_features) / omega_0 * 5e-4
+            W = (
+                jax.random.uniform(
+                    key, (out_features, in_features), minval=-1.0, maxval=1.0
+                )
+                * jnp.sqrt(3 / in_features)
+                / omega_0
+                * 5e-4
+            )
 
             # FIXME Handle out of bound cases
             self.W = W.at[:low_freq_features, :low_freq_features].set(
-                jax.random.uniform(key, (low_freq_features, low_freq_features),
-                                   minval=-1.,
-                                   maxval=1.) * jnp.sqrt(3 / in_features) /
-                omega_0)
+                jax.random.uniform(
+                    key, (low_freq_features, low_freq_features), minval=-1.0, maxval=1.0
+                )
+                * jnp.sqrt(3 / in_features)
+                / omega_0
+            )
 
-        self.b = jnp.zeros(out_features) + jax.random.uniform(
-            key, (out_features,), minval=-1.,
-            maxval=1.) / (out_features * 1000) / omega_0
+        self.b = (
+            jnp.zeros(out_features)
+            + jax.random.uniform(key, (out_features,), minval=-1.0, maxval=1.0)
+            / (out_features * 1000)
+            / omega_0
+        )
 
     def __call__(self, x):
         return self.omega_0 * (self.W @ x + self.b)
@@ -319,12 +357,10 @@ class GeoSineLast(eqx.Module):
     W: Array
     b: Array
 
-    def __init__(self, in_features: int, out_features: int,
-                 key: jax.random.PRNGKey):
-
-        self.W = -jnp.ones(
-            (out_features, in_features)) + 1e-5 * jax.random.normal(
-                key, (out_features, in_features))
+    def __init__(self, in_features: int, out_features: int, key: jax.random.PRNGKey):
+        self.W = -jnp.ones((out_features, in_features)) + 1e-5 * jax.random.normal(
+            key, (out_features, in_features)
+        )
         self.b = jnp.ones(out_features) * in_features
 
     def __call__(self, x):
@@ -337,84 +373,115 @@ class Siren(MLP):
     input_scale: float
     r_sphere: bool
 
-    def __init__(self,
-                 in_features: int,
-                 hidden_features: int,
-                 hidden_layers: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 first_omega_0: float = 30,
-                 hidden_omega_0: float = 30,
-                 input_scale: float = 1,
-                 init_method='default',
-                 **kwargs):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        hidden_layers: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        first_omega_0: float = 30,
+        hidden_omega_0: float = 30,
+        input_scale: float = 1,
+        init_method="default",
+        **kwargs,
+    ):
         keys = jax.random.split(key, hidden_layers + 2)
         self.input_scale = input_scale
-        self.activation = 'sin'
+        self.activation = "sin"
 
-        if init_method == 'geom':
+        if init_method == "geom":
             self.r_sphere = True
-            self.layers = [
-                GeomSineLayer(in_features,
-                              hidden_features,
-                              keys[0],
-                              omega_0=first_omega_0),
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[1 + i],
-                              omega_0=hidden_omega_0)
-                for i in range(hidden_layers - 1)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[-2],
-                              omega_0=hidden_omega_0,
-                              is_second_last=True)
-            ] + [GeoSineLast(hidden_features, out_features, keys[-1])]
-        elif init_method == 'mfgi':
+            self.layers = (
+                [
+                    GeomSineLayer(
+                        in_features, hidden_features, keys[0], omega_0=first_omega_0
+                    ),
+                ]
+                + [
+                    GeomSineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[1 + i],
+                        omega_0=hidden_omega_0,
+                    )
+                    for i in range(hidden_layers - 1)
+                ]
+                + [
+                    GeomSineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[-2],
+                        omega_0=hidden_omega_0,
+                        is_second_last=True,
+                    )
+                ]
+                + [GeoSineLast(hidden_features, out_features, keys[-1])]
+            )
+        elif init_method == "mfgi":
             self.r_sphere = True
-            self.layers = [
-                MFGILayer(in_features,
-                          hidden_features,
-                          keys[0],
-                          is_first=True,
-                          omega_0=first_omega_0)
-            ] + [
-                MFGILayer(hidden_features,
-                          hidden_features,
-                          keys[1],
-                          is_first=False,
-                          omega_0=hidden_omega_0)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[2 + i],
-                              omega_0=hidden_omega_0)
-                for i in range(hidden_layers - 2)
-            ] + [
-                GeomSineLayer(hidden_features,
-                              hidden_features,
-                              keys[-2],
-                              omega_0=hidden_omega_0,
-                              is_second_last=True)
-            ] + [GeoSineLast(hidden_features, out_features, keys[-1])]
+            self.layers = (
+                [
+                    MFGILayer(
+                        in_features,
+                        hidden_features,
+                        keys[0],
+                        is_first=True,
+                        omega_0=first_omega_0,
+                    )
+                ]
+                + [
+                    MFGILayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[1],
+                        is_first=False,
+                        omega_0=hidden_omega_0,
+                    )
+                ]
+                + [
+                    GeomSineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[2 + i],
+                        omega_0=hidden_omega_0,
+                    )
+                    for i in range(hidden_layers - 2)
+                ]
+                + [
+                    GeomSineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[-2],
+                        omega_0=hidden_omega_0,
+                        is_second_last=True,
+                    )
+                ]
+                + [GeoSineLast(hidden_features, out_features, keys[-1])]
+            )
         else:
             self.r_sphere = False
-            self.layers = [
-                SineLayer(in_features,
-                          hidden_features,
-                          keys[0],
-                          is_first=True,
-                          omega_0=first_omega_0)
-            ] + [
-                SineLayer(hidden_features,
-                          hidden_features,
-                          keys[i + 1],
-                          omega_0=hidden_omega_0) for i in range(hidden_layers)
-            ] + [
-                SineLayer(hidden_features, out_features, keys[-1], is_last=True)
-            ]
+            self.layers = (
+                [
+                    SineLayer(
+                        in_features,
+                        hidden_features,
+                        keys[0],
+                        is_first=True,
+                        omega_0=first_omega_0,
+                    )
+                ]
+                + [
+                    SineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[i + 1],
+                        omega_0=hidden_omega_0,
+                    )
+                    for i in range(hidden_layers)
+                ]
+                + [SineLayer(hidden_features, out_features, keys[-1], is_last=True)]
+            )
 
     def single_call(self, x, z):
         x = jnp.hstack([self.input_scale * x, z])
@@ -436,11 +503,13 @@ class LipLinear(Linear):
     b: Array
     c: Array
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 xavier_init: bool = False):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        xavier_init: bool = False,
+    ):
         super().__init__(in_features, out_features, key, xavier_init)
         self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
 
@@ -462,15 +531,16 @@ class LipSineLayer(SineLayer):
     c: Array
     c_scale: float
 
-    def __init__(self,
-                 in_features: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 is_first: bool = False,
-                 is_last: bool = False,
-                 omega_0: float = 1):
-        super().__init__(in_features, out_features, key, is_first, is_last,
-                         omega_0)
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        is_first: bool = False,
+        is_last: bool = False,
+        omega_0: float = 1,
+    ):
+        super().__init__(in_features, out_features, key, is_first, is_last, omega_0)
         self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
         if is_first:
             self.c_scale = 1.0
@@ -485,8 +555,8 @@ class LipSineLayer(SineLayer):
 
     def __call__(self, x):
         return self.omega_0 * (
-            self.weight_normalization(self.W, jax.nn.softplus(self.c)) @ x +
-            self.b)
+            self.weight_normalization(self.W, jax.nn.softplus(self.c)) @ x + self.b
+        )
 
     def lipschitz(self):
         # Scale based on omega_0, otherwise the first layer has different regularization speed than the rest when omega_0 > 1
@@ -498,46 +568,58 @@ class LipMLP(MLP):
     activation: str
     input_scale: float
 
-    def __init__(self,
-                 in_features: int,
-                 hidden_features: int,
-                 hidden_layers: int,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 first_omega_0: float = 1,
-                 hidden_omega_0: float = 1,
-                 activation='tanh',
-                 input_scale: float = 1,
-                 **kwargs):
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        hidden_layers: int,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        first_omega_0: float = 1,
+        hidden_omega_0: float = 1,
+        activation="tanh",
+        input_scale: float = 1,
+        **kwargs,
+    ):
         keys = jax.random.split(key, hidden_layers + 2)
 
         self.activation = activation
         self.input_scale = input_scale
 
-        if activation != 'sin':
-            xavier_init = activation == 'tanh'
-            self.layers = [
-                LipLinear(in_features, hidden_features, keys[0], xavier_init)
-            ] + [
-                LipLinear(hidden_features, hidden_features, keys[i + 1],
-                          xavier_init) for i in range(hidden_layers)
-            ] + [
-                LipLinear(hidden_features, out_features, keys[-1], xavier_init)
-            ]
+        if activation != "sin":
+            xavier_init = activation == "tanh"
+            self.layers = (
+                [LipLinear(in_features, hidden_features, keys[0], xavier_init)]
+                + [
+                    LipLinear(
+                        hidden_features, hidden_features, keys[i + 1], xavier_init
+                    )
+                    for i in range(hidden_layers)
+                ]
+                + [LipLinear(hidden_features, out_features, keys[-1], xavier_init)]
+            )
         else:
-            self.layers = [
-                LipSineLayer(in_features,
-                             hidden_features,
-                             keys[0],
-                             is_first=True,
-                             omega_0=first_omega_0)
-            ] + [
-                LipSineLayer(hidden_features,
-                             hidden_features,
-                             keys[i + 1],
-                             omega_0=hidden_omega_0)
-                for i in range(hidden_layers)
-            ] + [LipLinear(hidden_features, out_features, keys[-1], False)]
+            self.layers = (
+                [
+                    LipSineLayer(
+                        in_features,
+                        hidden_features,
+                        keys[0],
+                        is_first=True,
+                        omega_0=first_omega_0,
+                    )
+                ]
+                + [
+                    LipSineLayer(
+                        hidden_features,
+                        hidden_features,
+                        keys[i + 1],
+                        omega_0=hidden_omega_0,
+                    )
+                    for i in range(hidden_layers)
+                ]
+                + [LipLinear(hidden_features, out_features, keys[-1], False)]
+            )
 
     # Lipschitz loss
     # Reference: https://github.com/ml-for-gp/jaxgptoolbox/blob/7048aada5db1e6603a3d13fb1bc1ee2c61762985/demos/lipschitz_mlp/model.py#L82
@@ -569,7 +651,6 @@ class MLPComposer(MLP):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
     def single_call_hessian(self, x, z):
-
         def __single_call(x, z):
             return self.mlps[0].single_call(x, z)[0]
 
@@ -579,12 +660,12 @@ class MLPComposer(MLP):
 @jit
 def curl(jac):
     return jnp.array(
-        [jac[2, 1] - jac[1, 2], jac[0, 2] - jac[2, 0], jac[1, 0] - jac[0, 1]])
+        [jac[2, 1] - jac[1, 2], jac[0, 2] - jac[2, 0], jac[1, 0] - jac[0, 1]]
+    )
 
 
 # This is wrong because tangent vectors are not the curl of a vector potential
 class MLPComposerCurl(MLPComposer):
-
     def __init__(self, key: jax.random.PRNGKey, mlp_types, mlp_cfgs):
         super().__init__(key, mlp_types, mlp_cfgs)
 
@@ -593,8 +674,9 @@ class MLPComposerCurl(MLPComposer):
         (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
         jac, vec_potential = self.mlps[1].single_call_jac(x, z)
         tangent = curl(jac)
-        aux = jnp.hstack([normal, tangent] +
-                         [mlp.single_call(x, z) for mlp in self.mlps[2:]])
+        aux = jnp.hstack(
+            [normal, tangent] + [mlp.single_call(x, z) for mlp in self.mlps[2:]]
+        )
         return (sdf, aux), normal, vec_potential
 
     def single_call_grad(self, x, z):
@@ -605,7 +687,6 @@ class MLPComposerCurl(MLPComposer):
         return jnp.hstack([sdf, aux])
 
     def call_jac_param(self, x, z, param_func):
-
         def __single_call(x, z):
             (sdf, aux), normal, vec_potential = self._single_call_grad(x, z)
             potential = jax.lax.stop_gradient(jnp.linalg.norm(vec_potential))
@@ -621,12 +702,14 @@ class RegularGrid(MLP):
     grid_val: Array
     L: Array
 
-    def __init__(self,
-                 out_features: int,
-                 key: jax.random.PRNGKey,
-                 res=100,
-                 input_scale: float = 1,
-                 **kwargs):
+    def __init__(
+        self,
+        out_features: int,
+        key: jax.random.PRNGKey,
+        res=100,
+        input_scale: float = 1,
+        **kwargs,
+    ):
         self.input_scale = input_scale
         self.res = res
 
@@ -641,7 +724,8 @@ class RegularGrid(MLP):
     def single_call(self, x, z):
         axis = jnp.linspace(-1.0, 1.0, self.res)
         interp = jax.scipy.interpolate.RegularGridInterpolator(
-            (axis, axis, axis), self.grid_val)
+            (axis, axis, axis), self.grid_val
+        )
         return interp(self.input_scale * jnp.array([x[1], x[0], x[2]]))[0]
 
     def get_aux_loss(self):
