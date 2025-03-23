@@ -12,3 +12,4 @@ plots
 *.blend
 visualization/blender/*.ply
 lightning_logs
+.vscode
