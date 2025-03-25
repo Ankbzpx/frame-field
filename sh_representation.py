@@ -103,7 +103,7 @@ def sh4_z(theta):
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 # Also see: https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
 @jit
-def rotvec_n_to_z(n):
+def rotvec_n_to_z_raw(n):
     n = normalize(n)
     z = jnp.array([0, 0, 1])
     axis = jnp.cross(n, z)
@@ -111,6 +111,31 @@ def rotvec_n_to_z(n):
     # sin(theta) = |n x z|, cos(theta) = n . z
     angle = jnp.arctan2(axis_norm, n[2])
     return angle * (axis / axis_norm)
+
+
+@jit
+def rotvec_n_to_z(n):
+    n = normalize(n)
+    axis = jnp.array([n[1], -n[0], 0])
+    sin_theta = jnp.linalg.norm(axis)
+    close_z = sin_theta < 1e-8
+    angle = jax.lax.cond(
+        close_z, rotvec_n_to_z_angle_approx, rotvec_n_to_z_angle_exact, n, sin_theta
+    )
+    return angle * axis
+
+
+@jit
+def rotvec_n_to_z_angle_exact(n, sin_theta):
+    return jnp.arccos(n[2]) / sin_theta
+
+
+@jit
+def rotvec_n_to_z_angle_approx(n, sin_theta):
+    # theta -> 0
+    #   cos(theta) \approx 1 - theta^2 / 2
+    #   sin(theta) \approx theta - theta^3 / 6
+    return 1 / (1 - 2 * (1 - n[2]) / 6)
 
 
 @jit
