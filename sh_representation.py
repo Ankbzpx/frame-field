@@ -2,6 +2,8 @@ from common import normalize, Timer
 
 import jax
 from jax import grad, jit, numpy as jnp, value_and_grad, vmap
+import jax.scipy.spatial
+import jax.scipy.spatial.transform
 import numpy as np
 import optax
 
@@ -155,16 +157,19 @@ def R3_to_repvec(R, vn):
     return R[:, idx]
 
 
-# JAX has no logm implementation yet
+# TODO: Verify if it is still true
 # **IMPORTANT** Do NOT use it for interpolation (i.e. Karcher mean)
 # https://math.stackexchange.com/questions/1972695/converting-from-rotation-matrix-to-axis-angle-with-no-ambiguity
 @jit
 def R3_to_rotvec(R):
-    u = jnp.linalg.eigh(R)[1][:, 2]
-    theta = jnp.arccos(0.5 * (jnp.trace(R) - 1))
-    u_test = jnp.array([R[2, 1] - R[1, 2], R[0, 2] - R[2, 0], R[1, 0] - R[0, 1]])
-    dp = jnp.dot(u, u_test)
-    return jnp.where(dp > 0, theta * u, -theta * u)
+    rot = jax.scipy.spatial.transform.Rotation.from_matrix(R)
+    return rot.as_rotvec()
+
+
+@jit
+def quaternion_to_rotvec(q):
+    rot = jax.scipy.spatial.transform.Rotation.from_quat(q)
+    return rot.as_rotvec()
 
 
 # Note the phi, theta have different convention as in rendering
@@ -385,6 +390,20 @@ def project_z(sh4, xy_scale):
 @jit
 def project_n(sh4, R9_zn, xy_scale):
     return R9_zn.T @ project_z(R9_zn @ sh4, xy_scale)
+
+
+@jit
+def project_z_scaled(sh4):
+    sh4_proj = sh4_z_4 + Bz.T @ (normalize(Bz @ sh4))
+    # SH bands are odd dimensions
+    # Negative scaling can only result from reflection, i.e. O3 rather than SO3
+    c = jax.lax.stop_gradient(jnp.maximum(1e-2, jnp.dot(sh4_proj, sh4)))
+    return c * sh4_proj
+
+
+@jit
+def project_n_scaled(sh4, R9_zn):
+    return R9_zn.T @ project_z_scaled(R9_zn @ sh4)
 
 
 # Implement "On the Continuity of Rotation Representations in Neural Networks" by Zhou et al.

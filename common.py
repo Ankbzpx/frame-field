@@ -675,3 +675,24 @@ def fibonacci_sphere(samples):
 
     xyz = np.array(points)
     return xyz
+
+
+# Copied from: https://marcalexa.github.io/superfibonacci/
+def super_fibonacci(n):
+    phi = np.sqrt(2.0)
+    psi = 1.533751168755204288118041
+
+    Q = np.empty(shape=(n, 4), dtype=float)
+
+    for i in range(n):
+        s = i + 0.5
+        r = np.sqrt(s / n)
+        R = np.sqrt(1.0 - s / n)
+        alpha = 2.0 * np.pi * s / phi
+        beta = 2.0 * np.pi * s / psi
+        Q[i, 0] = r * np.sin(alpha)
+        Q[i, 1] = r * np.cos(alpha)
+        Q[i, 2] = R * np.sin(beta)
+        Q[i, 3] = R * np.cos(beta)
+
+    return Q

@@ -11,63 +11,21 @@ import pcax
 # config.update("jax_debug_nans", True)
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "0"
 
-from common import normalize
+from common import normalize, super_fibonacci
 from loss import cosine_similarity
 from sh_representation import (
-    Bz,
-    grad,
     project_n,
+    project_n_scaled,
+    quaternion_to_rotvec,
     rotvec_n_to_z,
-    rotvec_n_to_z_raw,
     rotvec_to_R9,
     sh4_canonical,
-    sh4_z,
-    sh4_z_4,
 )
 
 import jax
-from jax import hessian, jacfwd, jit, numpy as jnp, vmap
+from jax import numpy as jnp, vmap
 
-from icecream import ic
 import polyscope as ps
-
-
-def super_fibonacci(n):
-    phi = np.sqrt(2.0)
-    psi = 1.533751168755204288118041
-
-    Q = np.empty(shape=(n, 4), dtype=float)
-
-    for i in range(n):
-        s = i + 0.5
-        r = np.sqrt(s / n)
-        R = np.sqrt(1.0 - s / n)
-        alpha = 2.0 * np.pi * s / phi
-        beta = 2.0 * np.pi * s / psi
-        Q[i, 0] = r * np.sin(alpha)
-        Q[i, 1] = r * np.cos(alpha)
-        Q[i, 2] = R * np.sin(beta)
-        Q[i, 3] = R * np.cos(beta)
-
-    return Q
-
-
-@jit
-def quaternion_to_rotvec(q):
-    rot = jax.scipy.spatial.transform.Rotation(q)
-    return rot.as_rotvec()
-
-
-@jit
-def project_z_scaled(sh4):
-    sh4_proj = sh4_z_4 + Bz.T @ (normalize(Bz @ sh4))
-    c = jnp.dot(sh4_proj, sh4)
-    return c * sh4_proj
-
-
-@jit
-def project_n_scaled(sh4, R9_zn):
-    return R9_zn.T @ project_z_scaled(R9_zn @ sh4)
 
 
 if __name__ == "__main__":
@@ -105,7 +63,7 @@ if __name__ == "__main__":
     # ps.show()
     # exit()
 
-    NS = 100
+    NS = 1000
     key = jax.random.PRNGKey(0)
     r9 = jax.random.normal(key, (NS, 9))
     r9 = vmap(normalize)(r9)
