@@ -9,10 +9,8 @@ from config_utils import config_latent, config_model, config_optim, config_train
 from eval_jax import eval
 from loss import (
     align_basis_explicit,
-    align_basis_functional,
     align_sh4_explicit,
     align_sh4_explicit_cosine,
-    align_sh4_functional,
     eikonal,
 )
 import model_jax
@@ -29,13 +27,10 @@ import jax
 from jax import numpy as jnp, vmap
 from jaxtyping import Array, PyTree
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import optax
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
-
-from icecream import ic
 
 
 matplotlib.use("Agg")
@@ -52,13 +47,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
     writer = SummaryWriter(logdir=os.path.join("checkpoints/runs"))
     optim, opt_state = config_optim(cfg, model)
 
+    # Let's not complicate things
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    align_schedule = optax.linear_schedule(
-        0, cfg.loss_cfg.align, 1, int(cfg.loss_cfg.align_begin * cfg.training.n_steps)
-    )
-    lip_schedule = optax.linear_schedule(
-        0, cfg.loss_cfg.lip, 1, int(cfg.loss_cfg.align_begin * cfg.training.n_steps)
-    )
+    align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
+    lip_schedule = optax.constant_schedule(cfg.loss_cfg.lip)
+
     regularize_schedule = optax.linear_schedule(
         0,
         cfg.loss_cfg.regularize,

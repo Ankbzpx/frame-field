@@ -1,4 +1,4 @@
-from common import normalize, Timer
+from common import normalize
 
 import jax
 from jax import grad, jit, numpy as jnp, value_and_grad, vmap
@@ -7,7 +7,6 @@ import jax.scipy.spatial.transform
 import numpy as np
 import optax
 
-from icecream import ic
 import polyscope as ps
 
 
@@ -105,7 +104,7 @@ def sh4_z(theta):
 # Supplementary of https://dl.acm.org/doi/10.1145/2980179.2982408
 # Also see: https://math.stackexchange.com/questions/180418/calculate-rotation-matrix-to-align-vector-a-to-vector-b-in-3d
 @jit
-def rotvec_n_to_z_raw(n):
+def rotvec_n_to_z(n):
     n = normalize(n)
     z = jnp.array([0, 0, 1])
     axis = jnp.cross(n, z)
@@ -115,8 +114,9 @@ def rotvec_n_to_z_raw(n):
     return angle * (axis / axis_norm)
 
 
+# FIXME: This is supposed to handle singularity but instead causing NaN. Figure out why?
 @jit
-def rotvec_n_to_z(n):
+def rotvec_n_to_z_new(n):
     n = normalize(n)
     axis = jnp.array([n[1], -n[0], 0])
     sin_theta = jnp.linalg.norm(axis)
