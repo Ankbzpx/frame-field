@@ -10,6 +10,8 @@ from loss import (
     align_sh4_explicit_cosine,
     align_sh4_explicit_l2,
     align_sh4_functional,
+    align_sh4_functional_grad,
+    align_sh4_functional_grad_l2,
 )
 from sh_representation import sh4_canonical
 
@@ -28,12 +30,14 @@ if __name__ == "__main__":
     sample_dirs = fibonacci_sphere(randn_size)
     sample_sh4s = jnp.repeat(sh4_canonical[None, ...], randn_size, axis=0)
 
-    loss_tags = ["l1", "l2", "cosine_similarity", "functional"]
+    loss_tags = ["l1", "l2", "cosine_similarity", "functional", "grad_l1", "grad_l2"]
     loss_funcs = [
         align_sh4_explicit,
         align_sh4_explicit_l2,
         align_sh4_explicit_cosine,
         align_sh4_functional,
+        align_sh4_functional_grad,
+        align_sh4_functional_grad_l2,
     ]
 
     colors = (
