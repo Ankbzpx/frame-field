@@ -83,7 +83,7 @@ class OctaGuidedSDF(L.LightningModule):
 
         mlp_cfgs = cfg.mlp_cfgs
         self.sdf_mlp = Siren(**mlp_cfgs[0])
-        self.octa_mlp = HashMLP(3, 256, 1, 3, interpolation="Nearest")
+        self.octa_mlp = HashMLP(3, 256, 1, 3)
         self.cfg: Config = cfg
 
         self.smooth_schedule = jax2torch(

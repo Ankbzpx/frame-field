@@ -1,5 +1,6 @@
 from common import normalize
 from sh_representation import (
+    oct_polynomial_sh4,
     oct_polynomial_sh4_unit_norm,
     oct_polynomial_zonal_unit_norm,
     project_n,
@@ -9,7 +10,9 @@ from sh_representation import (
     sh4_canonical,
 )
 
-from jax import jit, numpy as jnp, vmap
+from jax import grad, jit, numpy as jnp, vmap
+
+from icecream import ic
 
 
 @jit
@@ -69,3 +72,11 @@ def align_sh4_functional(sh4, normal):
     poly_val = vmap(oct_polynomial_sh4_unit_norm)(normal, vmap(normalize)(sh4))
     # poly_val shouldn't exceed 1 but just to be safe
     return jnp.abs(1 - poly_val)
+
+
+@jit
+def align_sh4_functional_grad(sh4, normal):
+    grad_normal = vmap(grad(oct_polynomial_sh4))(
+        vmap(normalize)(normal), vmap(normalize)(sh4)
+    )
+    return vmap(jnp.linalg.norm, in_axes=(0, None))(4 * normal - grad_normal, 2)

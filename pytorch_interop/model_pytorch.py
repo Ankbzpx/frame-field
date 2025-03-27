@@ -236,7 +236,12 @@ class HashMLP(nn.Module):
         hidden_layers,
         out_features,
         input_scale=1.0,
-        interpolation="Nearest",  # "Linear"
+        n_levels=16,
+        n_features_per_level=2,
+        log2_hashmap_size=19,
+        base_resolution=16,
+        per_level_scale=2,
+        interpolation="Linear",
         **kwargs,
     ):
         super().__init__()
@@ -245,11 +250,11 @@ class HashMLP(nn.Module):
 
         hash_cfg = {
             "otype": "HashGrid",
-            "n_levels": 16,
-            "n_features_per_level": 2,
-            "log2_hashmap_size": 15,
-            "base_resolution": 16,
-            "per_level_scale": 1.5,
+            "n_levels": n_levels,
+            "n_features_per_level": n_features_per_level,
+            "log2_hashmap_size": log2_hashmap_size,
+            "base_resolution": base_resolution,
+            "per_level_scale": per_level_scale,
             "interpolation": interpolation,
         }
         self.encoding = tcnn.Encoding(in_features, hash_cfg)

@@ -11,6 +11,7 @@ from loss import (
     align_basis_explicit,
     align_sh4_explicit,
     align_sh4_explicit_cosine,
+    align_sh4_functional_grad,
     eikonal,
 )
 import model_jax
@@ -158,7 +159,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
                     loss_align = align_basis_explicit(basis_align, normal)
                 else:
                     sh4_align = vmap(param_func)(aux)
-                    loss_align = align_sh4_explicit_cosine(sh4_align, normal)
+                    loss_align = align_sh4_functional_grad(sh4_align, normal)
 
                 return loss_align
 
@@ -191,7 +192,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 else:
                     sh4_align = vmap(param_func)(aux)
                     sh4_align = vmap(normalize)(sh4_align)
-                    loss_reg = align_sh4_explicit(sh4_align, normal).mean()
+                    loss_reg = align_sh4_functional_grad(sh4_align, normal).mean()
 
                 return loss_reg
 

@@ -15,9 +15,11 @@ from sh_representation import R3_to_sh4_zonal
 from jax import jit, vmap
 from jax2torch import jax2torch
 import lightning as L
+from lightning.pytorch.callbacks import ModelCheckpoint
 from model_pytorch import HashMLP, Siren, VanillaMLP
 import numpy as np
 import torch
+from torch import autograd
 
 from icecream import ic
 import polyscope as ps
@@ -70,13 +72,14 @@ def func_param(rot6d):
 
 
 class HashOcta(L.LightningModule):
-    def __init__(self):
+    def __init__(self, log2_hashmap_size):
         super().__init__()
 
         # Use rot6d
-        self.octa_mlp = HashMLP(3, 256, 1, 6, interpolation="Nearest")
+        self.octa_mlp = HashMLP(
+            3, 256, 1, 6, log2_hashmap_size=log2_hashmap_size, interpolation="Nearest"
+        )
         # self.octa_mlp = VanillaMLP(3, 256, 4, 6)
-        # self.octa_mlp = HashMLP(3, 256, 1, 6, interpolation="Linear")
 
     def training_step(self, batch, batch_idx):
         # On
@@ -94,9 +97,12 @@ class HashOcta(L.LightningModule):
         loss_align = align_loss(aux_align, normal_align).mean()
 
         # Smooth
-        # samples_smooth = torch.vstack([samples_off_sur, samples_close_sur])
+        # samples_smooth = torch.vstack(
+        #     [samples_on_sur, samples_off_sur, samples_close_sur]
+        # )
         samples_smooth = samples_on_sur
-        eps = 1e-3
+        # Need to figure out how to set epsilon
+        eps = 1e-2
         eps_x = torch.tensor(
             [eps, 0.0, 0.0], dtype=samples_smooth.dtype, device=samples_smooth.device
         )
@@ -119,7 +125,7 @@ class HashOcta(L.LightningModule):
         grad = torch.stack([dx, dy, dz], dim=-1)
         loss_smooth = torch.linalg.matrix_norm(grad).mean()
 
-        loss = loss_align + 0.1 * loss_smooth
+        loss = loss_align + 0.01 * loss_smooth
         self.log("loss", loss, prog_bar=True)
         return loss
 
@@ -137,13 +143,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
-    cfg.name = args.config.split("/")[-1].split(".")[0]
     cfg.sdf_paths = [os.path.join("..", path) for path in cfg.sdf_paths]
 
-    model = HashOcta()
+    log2_hashmap_size = 19
+    model = HashOcta(log2_hashmap_size)
 
     if args.eval:
-        checkpoint_path = "lightning_logs/version_5/checkpoints/epoch=0-step=10000.ckpt"
+        checkpoint_path = os.path.join(
+            "..", cfg.checkpoints_dir, f"{log2_hashmap_size}-v5.ckpt"
+        )
         checkpoint = torch.load(checkpoint_path, weights_only=True)
         model.load_state_dict(checkpoint["state_dict"])
         model.cuda()
@@ -164,6 +172,9 @@ if __name__ == "__main__":
 
         exit()
 
+    checkpoint_callback = ModelCheckpoint(
+        dirpath=os.path.join("..", cfg.checkpoints_dir), filename=f"{log2_hashmap_size}"
+    )
     dataloader = config_training_data(
         cfg,
         np.empty(
@@ -173,6 +184,10 @@ if __name__ == "__main__":
     )
 
     trainer = L.Trainer(
-        max_steps=cfg.training.n_steps, max_epochs=cfg.training.n_epochs
+        max_steps=cfg.training.n_steps,
+        max_epochs=cfg.training.n_epochs,
+        callbacks=[checkpoint_callback],
+        # detect_anomaly=True,
+        precision="bf16",
     )
     trainer.fit(model=model, train_dataloaders=dataloader)
