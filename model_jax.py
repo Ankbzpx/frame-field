@@ -542,10 +542,11 @@ class LipSineLayer(SineLayer):
     ):
         super().__init__(in_features, out_features, key, is_first, is_last, omega_0)
         self.c = jnp.max(jnp.sum(jnp.abs(self.W), axis=1))
-        if is_first:
-            self.c_scale = 1.0
-        else:
-            self.c_scale = 1.0 * omega_0
+
+        # For initial layers, omega_0 equivalently scales weight by the same amount
+        # For rest of layers, scale based on omega_0
+        #   as init weights are shrunk by omega_0 (then pre-multiplied before activation) to amplify gradient magnitude
+        self.c_scale = 1.0 * omega_0
 
     # L-infinity weight normalization
     def weight_normalization(self, W, softplus_c):
@@ -559,8 +560,8 @@ class LipSineLayer(SineLayer):
         )
 
     def lipschitz(self):
-        # Scale based on omega_0, otherwise the first layer has different regularization speed than the rest when omega_0 > 1
-        return self.c_scale * jax.nn.softplus(self.c)
+        # The gradient update of c should match the weight
+        return jax.nn.softplus(self.c_scale * self.c)
 
 
 class LipMLP(MLP):
@@ -575,8 +576,8 @@ class LipMLP(MLP):
         hidden_layers: int,
         out_features: int,
         key: jax.random.PRNGKey,
-        first_omega_0: float = 1,
-        hidden_omega_0: float = 1,
+        first_omega_0: float = 30.0,
+        hidden_omega_0: float = 30.0,
         activation="tanh",
         input_scale: float = 1,
         **kwargs,
@@ -599,6 +600,7 @@ class LipMLP(MLP):
                 + [LipLinear(hidden_features, out_features, keys[-1], xavier_init)]
             )
         else:
+            # With Siren, the initial lipchitz bound should only be scaled by first_omega_0
             self.layers = (
                 [
                     LipSineLayer(
@@ -618,7 +620,15 @@ class LipMLP(MLP):
                     )
                     for i in range(hidden_layers)
                 ]
-                + [LipLinear(hidden_features, out_features, keys[-1], False)]
+                + [
+                    LipSineLayer(
+                        hidden_features,
+                        out_features,
+                        keys[-1],
+                        omega_0=hidden_omega_0,
+                        is_last=True,
+                    )
+                ]
             )
 
     # Lipschitz loss
