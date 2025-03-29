@@ -556,7 +556,7 @@ class LipSineLayer(SineLayer):
 
     def __call__(self, x):
         return self.omega_0 * (
-            self.weight_normalization(self.W, jax.nn.softplus(self.c)) @ x + self.b
+            self.weight_normalization(self.W, self.lipschitz()) @ x + self.b
         )
 
     def lipschitz(self):
@@ -576,7 +576,7 @@ class LipMLP(MLP):
         hidden_layers: int,
         out_features: int,
         key: jax.random.PRNGKey,
-        first_omega_0: float = 30.0,
+        first_omega_0: float = 1.0,
         hidden_omega_0: float = 30.0,
         activation="tanh",
         input_scale: float = 1,
@@ -743,3 +743,13 @@ class RegularGrid(MLP):
         vertex_attri = self.grid_val.reshape(len(L), -1)
         loss_smooth = jnp.trace(vertex_attri.T @ L @ vertex_attri)
         return loss_smooth
+
+
+if __name__ == "__main__":
+    key = jax.random.PRNGKey(0)
+    lipmlp = LipMLP(
+        3, 256, 4, 9, key, activation="sin", first_omega_0=1, hidden_omega_0=30
+    )
+    for idx in range(len(lipmlp.layers)):
+        print(idx, lipmlp.layers[idx].lipschitz())
+    print("Total: ", lipmlp.get_aux_loss())
