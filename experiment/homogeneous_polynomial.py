@@ -1,22 +1,18 @@
 from common import normalize, super_fibonacci
 from loss import (
-    align_sh4_explicit_cosine,
-    align_sh4_explicit_l2,
-    align_sh4_functional_grad,
     cosine_similarity,
 )
 from sh_representation import (
     oct_polynomial_sh4,
-    proj_sh4_sdp,
-    proj_sh4_to_R3,
+    project_n,
     quaternion_to_rotvec,
+    rotvec_n_to_z,
     rotvec_to_R9,
     sh4_canonical,
 )
 
 import jax
-from jax import grad, jit, numpy as jnp, vmap
-import numpy as np
+from jax import grad, numpy as jnp, vmap
 import pcax
 
 from icecream import ic
@@ -30,25 +26,33 @@ def sample_sh4_uniform(N):
     return R9 @ sh4_canonical
 
 
-def align_loss(n, q):
-    return align_sh4_functional_grad(q, n)
+def gradient_map(n, q):
+    return grad(oct_polynomial_sh4)(n, q)
 
 
-def align_loss2(n, q):
-    return align_sh4_explicit_cosine(q, n)
+def loss_func(n, q):
+    grad_n = gradient_map(normalize(n), normalize(q))
+    return 20 - jnp.dot(4 * normalize(n), grad_n)
+
+
+def loss_func2(n, q):
+    R9_zn = rotvec_to_R9(rotvec_n_to_z(n))
+    q_n = project_n(q, R9_zn, 1)
+    return 1 - cosine_similarity(q, q_n)
+    # return jnp.linalg.norm(q - q_n, ord=1)
 
 
 if __name__ == "__main__":
     key = jax.random.PRNGKey(0)
 
-    N = 100000
-    n = jnp.array([0.0, 0.0, 1.0])[None, :]
-    n = jnp.repeat(n, N, axis=0)
+    N = 1000000
+    n = jnp.array([0.0, 0.0, 1.0])
+
     q = jax.random.normal(key, (N, 9))
     # q = vmap(normalize)(q)
 
-    loss1 = align_loss(n, q)
-    loss2 = align_loss2(n, q)
+    loss1 = vmap(loss_func, in_axes=(None, 0))(n, q)
+    loss2 = vmap(loss_func2, in_axes=(None, 0))(n, q)
 
     # Fit a PCA to visualize
     sh4_uniform = sample_sh4_uniform(N)
@@ -68,14 +72,34 @@ if __name__ == "__main__":
 
     exit()
 
-    sh4s = sample_sh4_uniform(N)
-    R3s = proj_sh4_to_R3(sh4s)
+    critical_points = jnp.array(
+        [
+            [0.0, 0.0, 1.0],
+            [0.0, 0.0, -1.0],
+            [0.0, 1.0, 0.0],
+            [0.0, -1.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [-1.0, 0.0, 0.0],
+        ]
+    )
+    loss_critical = vmap(loss_func, in_axes=(0, None))(critical_points, sh4_canonical)
+    loss_critical_grad = -vmap(grad(loss_func), in_axes=(0, None))(
+        critical_points, sh4_canonical
+    )
 
-    v0 = R3s[..., 0]
-    grad_v0 = vmap(grad(oct_polynomial_sh4))(R3s[..., 0], sh4s)
+    ic(loss_critical)
+    ic(loss_critical_grad)
 
-    ic(jnp.linalg.norm(grad_v0, axis=1).mean())
-    ic(5 * jnp.sqrt(21 / np.pi) / 8)
-    ic((3 * 35) / (16 * jnp.sqrt(jnp.pi)))
+    vs = jax.random.normal(key, (N, 3))
+    loss = vmap(loss_func, in_axes=(0, None))(vs, sh4_canonical)
+    loss_grad = -vmap(grad(loss_func), in_axes=(0, None))(vs, sh4_canonical)
+    loss_grad = vmap(normalize)(loss_grad)
 
-    ic(jnp.isclose(v0, vmap(normalize)(grad_v0)).sum(), len(sh4s) * 3)
+    ps.init()
+    ps_viz = ps.register_point_cloud("vs", vs, point_render_mode="quad")
+    ps_viz.add_scalar_quantity("loss", loss, enabled=True)
+    ps_viz.add_vector_quantity("loss_grad", loss_grad, enabled=True)
+    ps_viz = ps.register_point_cloud("critical_points", critical_points)
+    ps_viz.add_scalar_quantity("loss_critical", loss_critical, enabled=True)
+    ps_viz.add_vector_quantity("loss_critical_grad", loss_critical_grad, enabled=True)
+    ps.show()
