@@ -7,6 +7,7 @@ import jax.scipy.spatial.transform
 import numpy as np
 import optax
 
+from icecream import ic
 import polyscope as ps
 
 
@@ -825,8 +826,105 @@ def distance_SO3(R1, R2):
     return jnp.arccos(cos)
 
 
+@jit
+def grad_oct_polynomial_sh4(v, sh4):
+    x = v[0]
+    y = v[1]
+    z = v[2]
+
+    x2 = x * x
+    y2 = y * y
+    z2 = z * z
+
+    x3 = x * x * x
+    y3 = y * y * y
+    z3 = z * z * z
+
+    coeffs = jnp.array(
+        [
+            1.0 / 2.0 * jnp.sqrt(1.0 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(35.0 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(35.0 / 2 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(5.0 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(5.0 / 2.0 / jnp.pi),
+            3.0 / 16.0 * jnp.sqrt(1.0 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(5.0 / 2.0 / jnp.pi),
+            3.0 / 8.0 * jnp.sqrt(5.0 / jnp.pi),
+            3.0 / 4.0 * jnp.sqrt(35.0 / 2 / jnp.pi),
+            3.0 / 16.0 * jnp.sqrt(35.0 / jnp.pi),
+        ]
+    )
+
+    dx = jnp.array(
+        [
+            2.0 * (x2 + y2 + z2) * 2.0 * x,
+            3.0 * x2 * y - y3,
+            6.0 * x * y * z,
+            6.0 * y * z2 - 3.0 * x2 * y - y3,
+            -6.0 * x * y * z,
+            -60.0 * x * z2 + 6.0 * (x2 + y2 + z2) * 2.0 * x,
+            4.0 * z3 - 9.0 * x2 * z - 3.0 * y2 * z,
+            12.0 * x * z2 - 4.0 * x3,
+            3.0 * x2 * z - 3.0 * y2 * z,
+            4.0 * x3 - 12.0 * x * y2,
+        ]
+    )
+
+    dy = jnp.array(
+        [
+            2.0 * (x2 + y2 + z2) * 2.0 * y,
+            x3 - 3.0 * x * y2,
+            3.0 * x2 * z - 3.0 * y2 * z,
+            6.0 * x * z2 - x3 - 3.0 * x * y2,
+            4.0 * z3 - 3.0 * x2 * z - 9.0 * y2 * z,
+            -60.0 * y * z2 + 6.0 * (x2 + y2 + z2) * 2.0 * y,
+            -6.0 * x * y * z,
+            -12.0 * y * z2 + 4.0 * y3,
+            -6.0 * x * y * z,
+            -12.0 * x2 * y + 4.0 * y3,
+        ]
+    )
+
+    dz = jnp.array(
+        [
+            2.0 * (x2 + y2 + z2) * 2.0 * z,
+            0.0,
+            3.0 * x2 * y - y3,
+            12.0 * x * y * z,
+            12.0 * y * z2 - 3.0 * x2 * y - 3.0 * y3,
+            20.0 * z3 - 60.0 * x2 * z - 60.0 * y2 * z + 6.0 * (x2 + y2 + z2) * 2.0 * z,
+            12.0 * x * z2 - 3.0 * x3 - 3.0 * x * y2,
+            12.0 * x2 * z - 12.0 * y2 * z,
+            x3 - 3.0 * x * y2,
+            0.0,
+        ]
+    )
+
+    sh = jnp.hstack([oct_00, sh4])
+    return (
+        jnp.stack(
+            [
+                (coeffs * dx * sh).sum(),
+                (coeffs * dy * sh).sum(),
+                (coeffs * dz * sh).sum(),
+            ]
+        )
+        / oct_poly_scale
+    )
+
+
 if __name__ == "__main__":
     np.random.seed(0)
+
+    n = np.random.randn(1000, 3)
+    q = q = np.random.randn(1000, 9)
+
+    grad_auto = vmap(grad(oct_polynomial_sh4))(n, q)
+    grad_analytical = vmap(grad_oct_polynomial_sh4)(n, q)
+    print(
+        "grad_oct_polynomial_sh4: ", jnp.allclose(grad_auto, grad_analytical, atol=1e-5)
+    )
+
     rotvec = np.random.randn(3)
     sh4 = rotvec_to_sh4(rotvec)
     sh4_zonal = rotvec_to_sh4_zonal(rotvec)
