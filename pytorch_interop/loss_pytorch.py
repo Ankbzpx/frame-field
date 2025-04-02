@@ -1,9 +1,5 @@
-from sh_pytorch import grad_oct_polynomial_sh4
+from sh_pytorch import grad_oct_polynomial_sh4, normalize
 import torch
-
-
-def normalize(x):
-    return x / (torch.linalg.norm(x, dim=-1, keepdim=True) + 1e-8)
 
 
 def align_sh4_functional_grad(sh4, normal):

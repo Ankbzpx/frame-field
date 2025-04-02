@@ -917,7 +917,7 @@ if __name__ == "__main__":
     np.random.seed(0)
 
     n = np.random.randn(1000, 3)
-    q = q = np.random.randn(1000, 9)
+    q = np.random.randn(1000, 9)
 
     grad_auto = vmap(grad(oct_polynomial_sh4))(n, q)
     grad_analytical = vmap(grad_oct_polynomial_sh4)(n, q)

@@ -6,6 +6,10 @@ import torch
 from icecream import ic
 
 
+def normalize(x):
+    return x / (torch.linalg.norm(x, dim=-1, keepdim=True) + 1e-8)
+
+
 sh4_canonical = torch.tensor(
     [0, 0, 0, 0, math.sqrt(7 / 12), 0, 0, 0, math.sqrt(5 / 12)]
 )
@@ -221,3 +225,39 @@ def grad_oct_polynomial_sh4(v, sh4):
         )
         / oct_poly_scale
     )
+
+
+def proj_sh4_to_R3(sh4s_target: torch.Tensor, max_iter=1000):
+    if len(sh4s_target.shape) < 2:
+        sh4s_target = sh4s_target[None, ...]
+
+    # Needs to be normalized
+    sh4s_target = normalize(sh4s_target)
+
+    n_elem = len(sh4s_target)
+
+    torch.random.manual_seed(0)
+    v1 = torch.randn((n_elem, 3), device=sh4s_target.device)
+    v2 = torch.randn((n_elem, 3), device=sh4s_target.device)
+
+    # sqrt(n_elem * eps**2)
+    min_loss = math.sqrt(n_elem) * 1e-8
+
+    loss = 100.0
+    iter = 0
+
+    while loss > min_loss and iter < max_iter:
+        # Power iteration
+        v1_ = grad_oct_polynomial_sh4(v1, sh4s_target)
+        v1_ = normalize(v1_)
+        v2_ = grad_oct_polynomial_sh4(v2, sh4s_target)
+        v2_ = v2_ - (v1_ * v2_).sum(-1)[:, None] * v1_
+        v2_ = normalize(v2_)
+
+        loss = torch.linalg.matrix_norm(v1 - v1_)
+        v1 = v1_
+        v2 = v2_
+        iter += 1
+
+    v3 = torch.cross(v1, v2, dim=-1)
+    return torch.stack([v1, v2, v3], -1)
