@@ -1,6 +1,8 @@
 import os
 import sys
 
+import torch.utils.dlpack
+
 
 sys.path.insert(1, os.path.join(sys.path[0], ".."))
 
@@ -12,6 +14,7 @@ from pathlib import Path
 from common import aabb_compute, Timer, vis_oct_field
 from config import Config
 from config_utils import load_sdf
+from eval_jax import batch_call, extract_surface
 from sh_representation import proj_sh4_to_R3
 
 import igl
@@ -20,16 +23,21 @@ from jax import jit, numpy as jnp, vmap
 from model_pytorch import LipschitzMLP, Siren
 import torch
 import torch.nn.functional as F
-from torch2jax import connect, j2t, t2j
 from train_pytorch import OctaGuidedSDF
-
-
-connect(torch.sin, jnp.sin)
-
-from eval_jax import batch_call, extract_surface
 
 from icecream import ic
 import polyscope as ps
+
+
+def j2t(x_jax):
+    x_torch = torch.utils.dlpack.from_dlpack(jax.dlpack.to_dlpack(x_jax))
+    return x_torch
+
+
+def t2j(x_torch):
+    x_torch = x_torch.contiguous()
+    x_jax = jax.dlpack.from_dlpack(torch.utils.dlpack.to_dlpack(x_torch))
+    return x_jax
 
 
 def eval(

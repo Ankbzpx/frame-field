@@ -1,7 +1,6 @@
 from collections import OrderedDict
 import math
 
-import tinycudann as tcnn
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -226,92 +225,3 @@ class LipschitzMLP(nn.Module):
         for layer in self.layers:
             loss_lip = loss_lip * F.softplus(layer.c)
         return loss_lip
-
-
-class HashMLP(nn.Module):
-    def __init__(
-        self,
-        in_features,
-        hidden_features,
-        hidden_layers,
-        out_features,
-        input_scale=1.0,
-        n_levels=16,
-        n_features_per_level=2,
-        log2_hashmap_size=19,
-        base_resolution=16,
-        per_level_scale=2,
-        interpolation="Linear",
-        **kwargs,
-    ):
-        super().__init__()
-
-        self.input_scale = input_scale
-
-        hash_cfg = {
-            "otype": "HashGrid",
-            "n_levels": n_levels,
-            "n_features_per_level": n_features_per_level,
-            "log2_hashmap_size": log2_hashmap_size,
-            "base_resolution": base_resolution,
-            "per_level_scale": per_level_scale,
-            "interpolation": interpolation,
-        }
-        self.encoding = tcnn.Encoding(in_features, hash_cfg)
-
-        in_dim = hash_cfg["n_levels"] * hash_cfg["n_features_per_level"]
-        self.layers = nn.ModuleList(
-            [nn.Linear(in_dim, hidden_features)]
-            + [
-                nn.Linear(hidden_features, hidden_features)
-                for _ in range(hidden_layers)
-            ]
-            + [nn.Linear(hidden_features, out_features)]
-        )
-
-    def forward(self, x):
-        x = self.input_scale * x
-        x = self.encoding(x).float()
-        for i in range(len(self.layers)):
-            x = self.layers[i](x)
-            if i != len(self.layers) - 1:
-                x = F.relu(x)
-        return x
-
-    def val_and_grad(self, x, eps, func_param=lambda x: x):
-        eps_x = torch.tensor([eps, 0.0, 0.0], dtype=x.dtype, device=x.device)
-        eps_y = torch.tensor([0.0, eps, 0.0], dtype=x.dtype, device=x.device)
-        eps_z = torch.tensor([0.0, 0.0, eps], dtype=x.dtype, device=x.device)
-
-        # Forward difference
-        val = self.octa_mlp(x)
-        param = func_param(val)
-        param_x = func_param(self.octa_mlp(x + eps_x[None, :]))
-        param_y = func_param(self.octa_mlp(x + eps_y[None, :]))
-        param_z = func_param(self.octa_mlp(x + eps_z[None, :]))
-
-        dx = (param_x - param) / eps
-        dy = (param_y - param) / eps
-        dz = (param_z - param) / eps
-        grad = torch.stack([dx, dy, dz], dim=-1)
-
-        return val, grad
-
-
-if __name__ == "__main__":
-    import os
-
-    os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-    from icecream import ic
-
-    x = torch.rand(100, 3).cuda()
-    x.requires_grad_(True)
-    mlp1 = HashMLP(3, 256, 1, 1).cuda()
-    mlp2 = HashMLP(3, 256, 1, 3).cuda()
-
-    y = mlp1(x)
-    z = mlp2(x)
-
-    ic(gradient(y, x).shape)
-    ic(z.shape)

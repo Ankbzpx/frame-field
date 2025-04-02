@@ -23,6 +23,8 @@ from icecream import ic
 
 
 if __name__ == "__main__":
+    torch.set_float32_matmul_precision("high")
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--model", type=str, nargs="*", help="Path to pointcloud files."
@@ -95,6 +97,6 @@ if __name__ == "__main__":
             )
             trainer.fit(model=model, train_dataloaders=dataloader)
 
-        eval(cfg, model, vis_mc=args.vis)
+        eval(cfg, model.cuda(), vis_mc=args.vis)
 
         # exit()
