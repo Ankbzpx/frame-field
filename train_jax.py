@@ -12,6 +12,7 @@ from loss import (
     align_sh4_explicit,
     align_sh4_explicit_cosine,
     align_sh4_functional_grad,
+    align_sh4_functional_grad_analytical,
     eikonal,
 )
 import model_jax
@@ -264,7 +265,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         return model, opt_state, loss_dict
 
     loss_history = {}
-    pbar = tqdm(range(cfg.training.n_steps))
+    pbar = tqdm(range(cfg.training.n_steps), dynamic_ncols=True)
 
     data_iter = iter(data)
     for iteration in pbar:

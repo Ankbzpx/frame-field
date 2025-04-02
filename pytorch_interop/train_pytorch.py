@@ -5,60 +5,16 @@ import sys
 sys.path.insert(1, os.path.join(sys.path[0], ".."))
 
 import argparse
-from functools import partial
 import json
 
-from config import Config, LossConfig
+from config import Config
 from config_utils import config_training_data
 
 import lightning as L
+from loss_pytorch import align_sh4_functional_grad, eikonal
 from model_pytorch import gradient, hessian, Siren, vector_gradient
 import numpy as np
-from sh_torch import align_sh4_functional_grad, normalize, R3_to_sh4_zonal
 import torch
-
-from icecream import ic
-
-
-def eikonal(x):
-    return torch.abs(torch.linalg.norm(x) - 1)
-
-
-def cosine_similarity(x, y):
-    demo = torch.linalg.norm(x) * torch.linalg.norm(y)
-    return torch.dot(x, y) / torch.where(demo > 1e-8, demo, 1e-8)
-
-
-def rot6d_to_R3(rot6d):
-    a0 = rot6d[:3]
-    a1 = rot6d[3:]
-    b0 = normalize(a0)
-    b1 = normalize(a1 - torch.dot(b0, a1) * b0)
-    b2 = torch.linalg.cross(b0, b1)
-    return torch.stack([b0, b1, b2]).T
-
-
-def func_param(rot6d):
-    basis = torch.vmap(rot6d_to_R3)(rot6d)
-    sh4 = R3_to_sh4_zonal(basis)
-    return sh4
-
-
-def eval_param_jac(x, param_fun, eps=1e-3):
-    eps_x = torch.tensor([eps, 0.0, 0.0], dtype=x.dtype, device=x.device)
-    eps_y = torch.tensor([0.0, eps, 0.0], dtype=x.dtype, device=x.device)
-    eps_z = torch.tensor([0.0, 0.0, eps], dtype=x.dtype, device=x.device)
-    # Forward difference
-    param = param_fun(x)
-    param_x = param_fun(x + eps_x[None, :])
-    param_y = param_fun(x + eps_y[None, :])
-    param_z = param_fun(x + eps_z[None, :])
-
-    dx = (param_x - param) / eps
-    dy = (param_y - param) / eps
-    dz = (param_z - param) / eps
-    grad = torch.stack([dx, dy, dz], dim=-1)
-    return grad
 
 
 def linear_schedule(init_value, end_value, transition_steps, transition_begin):
@@ -187,8 +143,8 @@ class OctaGuidedSDF(L.LightningModule):
             loss += loss_hessian
             loss_dict["loss_hessian"] = loss_hessian
 
-        self.log("loss_align", loss_align, prog_bar=True)
-        # self.log_dict(loss_dict, on_step=True, prog_bar=True)
+        self.log("loss", loss, prog_bar=True)
+        self.log_dict(loss_dict, on_step=True)
         return loss
 
     def configure_optimizers(self):

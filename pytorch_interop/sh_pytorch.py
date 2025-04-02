@@ -6,10 +6,6 @@ import torch
 from icecream import ic
 
 
-def normalize(x):
-    return x / (torch.linalg.norm(x, dim=-1, keepdim=True) + 1e-8)
-
-
 sh4_canonical = torch.tensor(
     [0, 0, 0, 0, math.sqrt(7 / 12), 0, 0, 0, math.sqrt(5 / 12)]
 )
@@ -225,8 +221,3 @@ def grad_oct_polynomial_sh4(v, sh4):
         )
         / oct_poly_scale
     )
-
-
-def align_sh4_functional_grad(sh4, normal):
-    grad_normal = grad_oct_polynomial_sh4(normalize(normal), normalize(sh4))
-    return torch.linalg.norm(4 * normal - grad_normal, ord=2, dim=-1)
