@@ -12,6 +12,7 @@ from icecream import ic
 
 # For abstraction convenience
 jax.nn.sin = jnp.sin
+jnp.identity = lambda x: x
 
 
 class MLP(eqx.Module):
@@ -24,6 +25,8 @@ class MLP(eqx.Module):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
                 x = getattr(jax.nn, self.activation)(x)
+
+        x = getattr(jnp, self.final_activation)(x)
         return x
 
     def single_call_split(self, x, z):
@@ -158,6 +161,7 @@ class ResMLP(MLP):
     layers: list[eqx.Module]
     activation: str
     input_scale: float
+    final_activation: str
 
     def __init__(
         self,
@@ -168,6 +172,7 @@ class ResMLP(MLP):
         key: jax.random.PRNGKey,
         activation="elu",
         input_scale: float = 1,
+        final_activation="identity",
         **kwargs,
     ):
         keys = jax.random.split(key, 2 * hidden_layers + 2)
@@ -175,6 +180,7 @@ class ResMLP(MLP):
         xavier_init = activation == "tanh"
         self.activation = activation
         self.input_scale = input_scale
+        self.final_activation = final_activation
 
         self.layers = (
             [Linear(in_features, hidden_features, keys[0], xavier_init)]
@@ -199,6 +205,7 @@ class ResMLP(MLP):
             x = activation(x + out)
 
         x = self.layers[-1](x)
+        x = getattr(jnp, self.final_activation)(x)
         return x
 
 
@@ -372,6 +379,7 @@ class Siren(MLP):
     activation: str
     input_scale: float
     r_sphere: bool
+    final_activation: str
 
     def __init__(
         self,
@@ -384,11 +392,13 @@ class Siren(MLP):
         hidden_omega_0: float = 30,
         input_scale: float = 1,
         init_method="default",
+        final_activation="identity",
         **kwargs,
     ):
         keys = jax.random.split(key, hidden_layers + 2)
         self.input_scale = input_scale
         self.activation = "sin"
+        self.final_activation = final_activation
 
         if init_method == "geom":
             self.r_sphere = True
@@ -494,6 +504,7 @@ class Siren(MLP):
             x = jnp.sign(x) * jnp.sqrt(jnp.abs(x) + 1e-8)
             x = 0.1 * (x - 1.6)
 
+        x = getattr(jnp, self.final_activation)(x)
         return x
 
 
@@ -568,6 +579,7 @@ class LipMLP(MLP):
     layers: list[eqx.Module]
     activation: str
     input_scale: float
+    final_activation: str
 
     def __init__(
         self,
@@ -580,12 +592,14 @@ class LipMLP(MLP):
         hidden_omega_0: float = 30.0,
         activation="tanh",
         input_scale: float = 1,
+        final_activation="identity",
         **kwargs,
     ):
         keys = jax.random.split(key, hidden_layers + 2)
 
         self.activation = activation
         self.input_scale = input_scale
+        self.final_activation = final_activation
 
         if activation != "sin":
             xavier_init = activation == "tanh"

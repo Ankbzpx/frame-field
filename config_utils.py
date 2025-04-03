@@ -28,6 +28,9 @@ def config_latent(cfg: Config):
 
 # IMPORTANT: this function will update cfg
 def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
+    if cfg.udf:
+        cfg.mlps[0].final_activation = "abs"
+
     if len(cfg.mlp_types) == 1:
         cfg.mlps[0].in_features += latent_dim
         return getattr(model_jax, cfg.mlp_types[0])(**cfg.mlp_cfgs[0], key=model_key)

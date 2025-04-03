@@ -8,6 +8,7 @@ class MLPConfig:
     hidden_layers: int = 4
     out_features: int = 1
     activation: str = "elu"
+    final_activation: str = "identity"
     input_scale: float = 1  # spatial scaling
     init_method: str = "default"
 
@@ -58,6 +59,9 @@ class Config:
     name: str = "default"
     out_dir: str = "output"
     checkpoints_dir: str = "checkpoints"
+
+    udf: bool = False
+
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()
 

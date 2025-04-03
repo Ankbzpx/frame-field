@@ -83,7 +83,7 @@ def voxel_infer(
 
 
 # infer: R^3 -> R (sdf)
-def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
+def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0, udf=False):
     grid_max_res = 512
 
     if grid_res > grid_max_res:
@@ -125,7 +125,9 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0):
     sdf_np = np.swapaxes(sdf_np, 0, 1)
     spacing = 1.0 / grid_res
     # It outputs inverse VN, even with gradient_direction set to ascent
-    V, F, VN_inv, _ = marching_cubes(sdf_np, 0.0, spacing=(spacing, spacing, spacing))
+    V, F, VN_inv, _ = marching_cubes(
+        sdf_np, spacing if udf else 0.0, spacing=(spacing, spacing, spacing)
+    )
     dim = grid_max - grid_min
     V = dim * (V - np.abs(grid_min) / dim)
     return V, F, -VN_inv
@@ -238,7 +240,7 @@ def eval(
         exit()
 
     infer_sdf = lambda x: infer(x)[:, 0]
-    V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
+    V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, udf=cfg.udf)
 
     timer.log("Extract surface")
 
