@@ -76,7 +76,6 @@ def align_sh4_functional(sh4, normal):
 
 @jit
 def align_sh4_functional_grad(sh4, normal):
-    grad_normal = vmap(grad(oct_polynomial_sh4))(
-        vmap(normalize)(normal), vmap(normalize)(sh4)
-    )
+    normal = vmap(normalize)(normal)
+    grad_normal = vmap(grad(oct_polynomial_sh4))(normal, vmap(normalize)(sh4))
     return vmap(jnp.linalg.norm, in_axes=(0, None))(4 * normal - grad_normal, 2)

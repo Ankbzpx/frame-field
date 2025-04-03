@@ -221,7 +221,7 @@ def config_training_data(cfg: Config, latents, with_jax=True):
         # https://github.com/google/jax/issues/3382
         import torch.multiprocessing as multiprocessing
 
-        multiprocessing.set_start_method("spawn")
+        multiprocessing.set_start_method("forkserver", force=True)
 
         def seed_worker(worker_id):
             worker_seed = torch.initial_seed() % 2**32

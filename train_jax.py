@@ -12,7 +12,6 @@ from loss import (
     align_sh4_explicit,
     align_sh4_explicit_cosine,
     align_sh4_functional_grad,
-    align_sh4_functional_grad_analytical,
     eikonal,
 )
 import model_jax
