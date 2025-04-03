@@ -242,6 +242,13 @@ def eval(
     infer_sdf = lambda x: infer(x)[:, 0]
     V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, udf=cfg.udf)
 
+    # For UDF, we extract double covering, hence requiring extra processing
+    if cfg.udf:
+        (sdf, _), VN = infer_grad(V)
+        VN = vmap(normalize)(VN)
+        V = V - sdf[:, None] * VN
+        V = np.array(V)
+
     timer.log("Extract surface")
 
     # if single_object:
