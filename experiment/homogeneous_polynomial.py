@@ -4,6 +4,7 @@ from loss import (
 )
 from sh_representation import (
     oct_polynomial_sh4,
+    oct_polynomial_sh4_unit_norm,
     project_n,
     quaternion_to_rotvec,
     rotvec_n_to_z,
@@ -13,6 +14,7 @@ from sh_representation import (
 
 import jax
 from jax import grad, numpy as jnp, vmap
+import numpy as np
 import pcax
 
 from icecream import ic
@@ -43,6 +45,23 @@ def loss_func2(n, q):
 
 
 if __name__ == "__main__":
+    # Experiment scaling
+    s = 5
+    n = s * np.array([0.0, 0.0, 1.0])
+
+    ic(
+        grad(oct_polynomial_sh4)(n, sh4_canonical),
+        4 * jnp.pow(jnp.linalg.norm(s), 3) * normalize(n),
+    )
+    ic(grad(oct_polynomial_sh4)(normalize(n), sh4_canonical), 4 * normalize(n))
+
+    ic(
+        grad(oct_polynomial_sh4, argnums=1)(n, sh4_canonical)
+        / jnp.pow(jnp.linalg.norm(s), 4)
+    )
+    ic(grad(oct_polynomial_sh4_unit_norm, argnums=1)(n, sh4_canonical))
+    exit()
+
     key = jax.random.PRNGKey(0)
 
     N = 1000000
