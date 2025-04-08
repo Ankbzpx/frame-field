@@ -1,4 +1,4 @@
-from common import tet_from_grid
+from common import normalize, tet_from_grid
 
 import equinox as eqx
 import igl
@@ -13,6 +13,7 @@ from icecream import ic
 # For abstraction convenience
 jax.nn.sin = jnp.sin
 jnp.identity = lambda x: x
+jnp.normalize = normalize
 
 
 class MLP(eqx.Module):

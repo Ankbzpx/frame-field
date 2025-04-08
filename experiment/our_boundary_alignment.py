@@ -125,12 +125,14 @@ def J4(v):
 
 @jit
 def eval_A(v):
-    return J4(v).T @ J4(v)
+    # return J4(v).T @ J4(v)
+    return J4(v).T
 
 
 @jit
 def eval_b(v):
-    return 4 * oct_poly_scale * v @ J4(v) - J0(v) @ J4(v)
+    # return 4 * oct_poly_scale * v @ J4(v) - J0(v) @ J4(v)
+    return 4 * oct_poly_scale * v - J0(v)
 
 
 if __name__ == "__main__":
