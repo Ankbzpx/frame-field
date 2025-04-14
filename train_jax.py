@@ -151,21 +151,19 @@ def train(cfg: Config, model: model_jax.MLP, data):
             "loss_eikonal": loss_eikonal,
         }
 
+        sample_weight = jax.lax.stop_gradient(jnp.exp(-1e2 * jnp.abs(pred_on_sur_sdf)))
+
+        def eval_align_loss(normal, aux):
+            if loss_cfg.explicit_basis or loss_cfg.rot6d:
+                basis_align = proj_func(aux)
+                loss_align = align_basis_explicit(basis_align, normal)
+            else:
+                sh4_align = vmap(param_func)(aux)
+                loss_align = align_sh4_functional_grad(sh4_align, normal)
+
+            return loss_align
+
         if loss_cfg.align > 0:
-
-            def eval_align_loss(normal, aux):
-                if loss_cfg.explicit_basis or loss_cfg.rot6d:
-                    basis_align = proj_func(aux)
-                    loss_align = align_basis_explicit(basis_align, normal)
-                else:
-                    sh4_align = vmap(param_func)(aux)
-                    loss_align = align_sh4_functional_grad(sh4_align, normal)
-
-                return loss_align
-
-            sample_weight = jax.lax.stop_gradient(
-                jnp.exp(-1e2 * jnp.abs(pred_on_sur_sdf))
-            )
             normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_on_sur]))
             aux_align = jnp.vstack([aux_on])
             loss_align = (
@@ -184,26 +182,21 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_dict["loss_align"] = loss_align
 
         if loss_cfg.regularize > 0:
-
-            def eval_reg_loss(normal, aux):
-                if loss_cfg.explicit_basis or loss_cfg.rot6d:
-                    basis_reg = proj_func(aux)
-                    loss_reg = align_basis_explicit(basis_reg, normal).mean()
-                else:
-                    sh4_align = vmap(param_func)(aux)
-                    sh4_align = vmap(normalize)(sh4_align)
-                    loss_reg = align_sh4_functional_grad(sh4_align, normal).mean()
-
-                return loss_reg
-
             normal_reg = jnp.vstack([pred_normals_on_sur])
             aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_on]))
-            loss_reg = regularize_weight * jax.lax.cond(
-                regularize_weight > 0,
-                eval_reg_loss,
-                lambda x, y: 0.0,
-                *(normal_reg, aux_reg),
+            loss_reg = (
+                regularize_weight
+                * (
+                    sample_weight
+                    * jax.lax.cond(
+                        regularize_weight > 0,
+                        eval_align_loss,
+                        lambda x, y: jnp.zeros(len(sample_weight)),
+                        *(normal_reg, aux_reg),
+                    )
+                ).mean()
             )
+
             loss += loss_reg
             loss_dict["loss_reg"] = loss_reg
 
