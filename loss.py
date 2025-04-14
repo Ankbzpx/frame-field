@@ -76,7 +76,8 @@ def align_sh4_functional(sh4, normal):
 
 @jit
 def align_sh4_functional_grad_single_call(sh4, normal):
-    grad_normal = grad(oct_polynomial_sh4)(normalize(normal), normalize(sh4))
+    normal = normalize(normal)
+    grad_normal = grad(oct_polynomial_sh4)(normal, normalize(sh4))
     return jnp.linalg.norm(4 * normal - grad_normal, 2)
 
 
