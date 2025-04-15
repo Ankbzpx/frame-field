@@ -129,6 +129,23 @@ def unpack_stiffness(L):
     return E_i, E_j, E_weight
 
 
+# scipy.sparse.block_diag is extremely slow for some reason..
+def block_diag(As):
+    b, n, m = As.shape
+    col_idx = (np.tile(np.arange(m), n)[None, :] + (m * np.arange(b))[:, None]).reshape(
+        -1,
+    )
+    row_idx = (
+        np.repeat(np.arange(n), m)[None, :] + (n * np.arange(b))[:, None]
+    ).reshape(
+        -1,
+    )
+    data = As.reshape(
+        -1,
+    )
+    return scipy.sparse.csc_array((data, (row_idx, col_idx)), shape=(n * b, m * b))
+
+
 # Remove unreference vertices and assign new vertex indices
 def rm_unref_vertices(V, F):
     V_unique, V_unique_idx, V_unique_idx_inv = np.unique(
