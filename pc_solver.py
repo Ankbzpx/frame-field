@@ -193,7 +193,7 @@ def solve_laplace_dirichlet(L, val, idx):
 # (M + tL) x_t = M x_0
 # Natural boundary condition
 def diffuse_natural(L, M, x_0, t):
-    return scipy.sparse.linalg.spsolve(M + t * L, M @ x_0)
+    return frame_field_utils_bind.solve_iterative_cuda(M + t * L, M @ x_0)
 
 
 def update_q(L_unroll, M_unroll, q, n, w_align, delta_t):
@@ -248,7 +248,7 @@ if __name__ == "__main__":
     timer = Timer()
 
     test_pc_path = os.path.expandvars(
-        "$HOME/dataset/p2s/abc/2e-3/00010218_4769314c71814669ba5d3512.ply"
+        "$HOME/dataset/p2s/abc/1e-2/00010218_4769314c71814669ba5d3512.ply"
     )
     pc_o3d = o3d.io.read_point_cloud(test_pc_path)
     V = np.asarray(pc_o3d.points)
@@ -295,25 +295,30 @@ if __name__ == "__main__":
 
     ps.init()
     ps.register_surface_mesh("Octa 0", V_vis_0, F_vis_0, enabled=False)
-    pc_viz = ps.register_point_cloud("V", V[:NV])
+    pc_viz = ps.register_point_cloud("V", V[:NV], radius=1e-4)
     pc_viz.add_vector_quantity("VN 0", VN[:NV])
 
-    w_align = 5.0
-    w_reg = 5.0
-    delta_t = 2.0
+    w_align = 100.0
+    w_reg = 100.0
+    delta_t = 2.5
 
     r = VN
-    q = update_q(L_unroll, M_unroll, q, r, w_align, 5 * delta_t)
-
     n_iters = 10
     for iter in tqdm(range(n_iters)):
-        r = solve_n(M_unroll, M, VN, q, r, w_reg)
-        q = update_q(L_unroll, M_unroll, q, r, w_align, delta_t)
+        q = update_q(
+            L_unroll, M_unroll, q, r, 2 * w_align if iter == 0 else w_align, delta_t
+        )
+        r = update_n(M_unroll, M, VN, q, r, w_reg, delta_t)
 
-        # if iter == n_iters - 1:
-        pc_viz.add_vector_quantity("VN 1", r[:NV])
+        if iter == n_iters - 1:
+            pc_viz.add_vector_quantity("VN 1", r[:NV], enabled=True)
 
-        Rs = proj_sh4_to_R3(q[:NV])
-        V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
-        ps.register_surface_mesh("Octa 1", V_vis, F_vis)
-        ps.show()
+            Rs = proj_sh4_to_R3(q[:NV])
+            V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
+            ps.register_surface_mesh("Octa 1", V_vis, F_vis)
+            ps.show()
+
+    pc_o3d = o3d.geometry.PointCloud()
+    pc_o3d.points = o3d.utility.Vector3dVector(V[:NV])
+    pc_o3d.normals = o3d.utility.Vector3dVector(r[:NV])
+    o3d.io.write_point_cloud("refined.ply", pc_o3d)
