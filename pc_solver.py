@@ -1,5 +1,6 @@
 import os
 import pdb
+import pickle
 
 from common import (
     block_diag,
@@ -19,6 +20,7 @@ from sh_representation import (
     proj_sh4_sdp,
     proj_sh4_to_R3,
     R3_to_repvec,
+    R3_to_rotvec,
     sh4_canonical,
     y_00,
 )
@@ -247,6 +249,8 @@ if __name__ == "__main__":
     np.random.seed(0)
     timer = Timer()
 
+    data = {}
+
     # import open3d as o3d
     # test_pc_path = os.path.expandvars(
     #     "$HOME/dataset/p2s/abc/1e-2/00010218_4769314c71814669ba5d3512.ply"
@@ -262,6 +266,9 @@ if __name__ == "__main__":
     sample_idx = pcu.downsample_point_cloud_poisson_disk(V, 5e-3)
     V = V[sample_idx]
     VN = VN[sample_idx]
+
+    data["V"] = V
+    data["VN"] = VN
 
     timer.log("Load input")
 
@@ -299,6 +306,8 @@ if __name__ == "__main__":
     pc_viz.add_color_quantity("VN 0", VN[:NV])
     # pc_viz.add_vector_quantity("VN 0", VN[:NV])
 
+    data[0] = {"rot": vmap(R3_to_rotvec)(Rs), "vn": VN}
+
     w_align = 100.0
     w_reg = 100.0
     delta_t = 2.5
@@ -311,11 +320,16 @@ if __name__ == "__main__":
         )
         r = update_n(M_unroll, M, VN, q, r, w_reg, delta_t)
 
+        Rs = proj_sh4_to_R3(q[:NV])
+
         if iter == n_iters - 1:
             # pc_viz.add_vector_quantity("VN 1", r[:NV])
             pc_viz.add_color_quantity("VN 1", r[:NV])
-
-            Rs = proj_sh4_to_R3(q[:NV])
             V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
             ps.register_surface_mesh("Octa 1", V_vis, F_vis)
             ps.show()
+
+        data[iter + 1] = {"rot": vmap(R3_to_rotvec)(Rs), "vn": r[:NV]}
+
+    with open("tmp/step_viz.bin", "wb") as f:
+        pickle.dump(data, f)
