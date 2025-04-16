@@ -252,22 +252,14 @@ if __name__ == "__main__":
     )
     pc_o3d = o3d.io.read_point_cloud(test_pc_path)
     V = np.asarray(pc_o3d.points)
-    V = normalize_aabb(V)
+    # V = normalize_aabb(V)
     VN = np.asarray(pc_o3d.normals)
 
     timer.log("Load input")
 
     NV = len(V)
-    # idx = np.random.choice(np.arange(len(V)), NV)
-    # V = V[idx]
-    # VN = VN[idx]
-
-    # timer.log("Downsample")
-
-    # For simplicity, let's start with samples only
-
-    # V_off = sample_V_close(V)
-    V_off = np.random.uniform(-1, 1, (len(V), 3))
+    V_off = sample_V_close(V)
+    # V_off = np.random.uniform(-1, 1, (len(V), 3))
 
     # Estimate VN_close
     kd_tree = scipy.spatial.KDTree(V)
@@ -295,7 +287,7 @@ if __name__ == "__main__":
 
     ps.init()
     ps.register_surface_mesh("Octa 0", V_vis_0, F_vis_0, enabled=False)
-    pc_viz = ps.register_point_cloud("V", V[:NV], radius=1e-4)
+    pc_viz = ps.register_point_cloud("V", V[:NV])
     pc_viz.add_vector_quantity("VN 0", VN[:NV])
 
     w_align = 100.0
@@ -310,15 +302,10 @@ if __name__ == "__main__":
         )
         r = update_n(M_unroll, M, VN, q, r, w_reg, delta_t)
 
-        if iter == n_iters - 1:
-            pc_viz.add_vector_quantity("VN 1", r[:NV], enabled=True)
+        # if iter == n_iters - 1:
+        pc_viz.add_vector_quantity("VN 1", r[:NV])
 
-            Rs = proj_sh4_to_R3(q[:NV])
-            V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
-            ps.register_surface_mesh("Octa 1", V_vis, F_vis)
-            ps.show()
-
-    pc_o3d = o3d.geometry.PointCloud()
-    pc_o3d.points = o3d.utility.Vector3dVector(V[:NV])
-    pc_o3d.normals = o3d.utility.Vector3dVector(r[:NV])
-    o3d.io.write_point_cloud("refined.ply", pc_o3d)
+        Rs = proj_sh4_to_R3(q[:NV])
+        V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
+        ps.register_surface_mesh("Octa 1", V_vis, F_vis)
+        ps.show()
