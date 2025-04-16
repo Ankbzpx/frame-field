@@ -28,7 +28,7 @@ import igl
 import jax
 from jax import grad, jacfwd, jit, numpy as jnp, vmap
 import numpy as np
-import open3d as o3d
+import point_cloud_utils as pcu
 import potpourri3d as pp3d
 import robust_laplacian
 import scipy.sparse
@@ -247,13 +247,21 @@ if __name__ == "__main__":
     np.random.seed(0)
     timer = Timer()
 
-    test_pc_path = os.path.expandvars(
-        "$HOME/dataset/p2s/abc/1e-2/00010218_4769314c71814669ba5d3512.ply"
-    )
-    pc_o3d = o3d.io.read_point_cloud(test_pc_path)
-    V = np.asarray(pc_o3d.points)
-    # V = normalize_aabb(V)
-    VN = np.asarray(pc_o3d.normals)
+    # import open3d as o3d
+    # test_pc_path = os.path.expandvars(
+    #     "$HOME/dataset/p2s/abc/1e-2/00010218_4769314c71814669ba5d3512.ply"
+    # )
+    # pc_o3d = o3d.io.read_point_cloud(test_pc_path)
+    # V = np.asarray(pc_o3d.points)
+    # VN = np.asarray(pc_o3d.normals)
+
+    test_pc_path = "tmp/sample_recon.ply"
+    V, F = igl.read_triangle_mesh(test_pc_path)
+    VN = igl.per_vertex_normals(V, F)
+
+    sample_idx = pcu.downsample_point_cloud_poisson_disk(V, 5e-3)
+    V = V[sample_idx]
+    VN = VN[sample_idx]
 
     timer.log("Load input")
 
@@ -288,7 +296,8 @@ if __name__ == "__main__":
     ps.init()
     ps.register_surface_mesh("Octa 0", V_vis_0, F_vis_0, enabled=False)
     pc_viz = ps.register_point_cloud("V", V[:NV])
-    pc_viz.add_vector_quantity("VN 0", VN[:NV])
+    pc_viz.add_color_quantity("VN 0", VN[:NV])
+    # pc_viz.add_vector_quantity("VN 0", VN[:NV])
 
     w_align = 100.0
     w_reg = 100.0
@@ -302,10 +311,11 @@ if __name__ == "__main__":
         )
         r = update_n(M_unroll, M, VN, q, r, w_reg, delta_t)
 
-        # if iter == n_iters - 1:
-        pc_viz.add_vector_quantity("VN 1", r[:NV])
+        if iter == n_iters - 1:
+            # pc_viz.add_vector_quantity("VN 1", r[:NV])
+            pc_viz.add_color_quantity("VN 1", r[:NV])
 
-        Rs = proj_sh4_to_R3(q[:NV])
-        V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
-        ps.register_surface_mesh("Octa 1", V_vis, F_vis)
-        ps.show()
+            Rs = proj_sh4_to_R3(q[:NV])
+            V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
+            ps.register_surface_mesh("Octa 1", V_vis, F_vis)
+            ps.show()
