@@ -11,10 +11,14 @@ from config import Config
 from config_utils import config_training_data
 
 import lightning as L
-from loss_pytorch import align_sh4_functional_grad, eikonal
 from model_pytorch import gradient, hessian, Siren, vector_gradient
 import numpy as np
+from sh_pytorch import align_sh4_functional_grad
 import torch
+
+
+def eikonal(x):
+    return torch.abs(torch.linalg.norm(x, dim=-1) - 1)
 
 
 def linear_schedule(init_value, end_value, transition_steps, transition_begin):

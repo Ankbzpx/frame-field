@@ -261,3 +261,9 @@ def proj_sh4_to_R3(sh4s_target: torch.Tensor, max_iter=1000):
 
     v3 = torch.cross(v1, v2, dim=-1)
     return torch.stack([v1, v2, v3], -1)
+
+
+def align_sh4_functional_grad(sh4, normal):
+    normal = normalize(normal)
+    grad_normal = grad_oct_polynomial_sh4(normal, normalize(sh4))
+    return torch.linalg.norm(4 * normal - grad_normal, ord=2, dim=-1)

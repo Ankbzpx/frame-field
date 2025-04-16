@@ -253,7 +253,7 @@ if __name__ == "__main__":
 
     # import open3d as o3d
     # test_pc_path = os.path.expandvars(
-    #     "$HOME/dataset/p2s/abc/1e-2/00010218_4769314c71814669ba5d3512.ply"
+    #     "$HOME/dataset/p2s/thingi10k/1e-2/54725.ply"
     # )
     # pc_o3d = o3d.io.read_point_cloud(test_pc_path)
     # V = np.asarray(pc_o3d.points)
@@ -268,7 +268,6 @@ if __name__ == "__main__":
     VN = VN[sample_idx]
 
     data["V"] = V
-    data["VN"] = VN
 
     timer.log("Load input")
 
@@ -306,7 +305,7 @@ if __name__ == "__main__":
     pc_viz.add_color_quantity("VN 0", VN[:NV])
     # pc_viz.add_vector_quantity("VN 0", VN[:NV])
 
-    data[0] = {"rot": vmap(R3_to_rotvec)(Rs), "vn": VN}
+    data[0] = {"q": q[:NV], "vn": VN[:NV]}
 
     w_align = 100.0
     w_reg = 100.0
@@ -329,7 +328,7 @@ if __name__ == "__main__":
             ps.register_surface_mesh("Octa 1", V_vis, F_vis)
             ps.show()
 
-        data[iter + 1] = {"rot": vmap(R3_to_rotvec)(Rs), "vn": r[:NV]}
+        data[iter + 1] = {"q": q[:NV], "vn": r[:NV]}
 
     with open("tmp/step_viz.bin", "wb") as f:
         pickle.dump(data, f)

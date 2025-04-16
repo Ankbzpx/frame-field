@@ -36,7 +36,6 @@ import igl
 import jax
 from jax import jit, numpy as jnp, vmap
 import numpy as np
-import pymeshlab
 from skimage.measure import marching_cubes
 
 from icecream import ic
@@ -142,12 +141,14 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0, udf=False)
 # Reduce face count to speed up visualization
 # TODO: Use edge collapsing like one in Instant meshes
 def meshlab_edge_collapse(save_path, V, F, num_faces):
+    import pymeshlab
+
     m = pymeshlab.Mesh(V, F)
     ms = pymeshlab.MeshSet()
     ms.add_mesh(m, "mesh")
     ms.meshing_decimation_quadric_edge_collapse(targetfacenum=num_faces)
 
-    # I believe there is no other option to pass meshlab mesh back to python
+    # FIXME: read back instead of saving to file
     ms.save_current_mesh(save_path)
     V, F = igl.read_triangle_mesh(save_path)
     return V, F
@@ -196,8 +197,6 @@ def eval(
     vis_smooth=False,
     vis_flowline=False,
     save_octa=False,
-    single_object=True,
-    edge_collapse=False,
     trace_flowline=False,
     miq=False,
     interp_tag="",
@@ -231,19 +230,6 @@ def eval(
 
     timer = Timer()
 
-    if vis_smooth:
-        smoothness, grid_samples = voxel_infer(infer_smoothness)
-
-        timer.log("Infer gradient F-norm")
-
-        ps.init()
-        pc = ps.register_point_cloud(
-            "grid_samples", grid_samples.reshape(-1, 3), point_render_mode="quad"
-        )
-        pc.add_scalar_quantity("smoothness", smoothness.reshape(-1), enabled=True)
-        ps.show()
-        exit()
-
     infer_sdf = lambda x: infer(x)[:, 0]
     V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, udf=cfg.udf)
 
@@ -256,22 +242,15 @@ def eval(
 
     timer.log("Extract surface")
 
-    smoothness = batch_call(infer_smoothness, V)
-    s_max = smoothness.max()
-    s_min = smoothness.min()
-    smoothness = (smoothness - s_min) / (s_max - s_min)
-    qua_idx = (smoothness * len(turbo_colormap_data)).astype(np.int32)
-    qua_idx = np.clip(qua_idx, 0, len(turbo_colormap_data) - 1)
-    smoothness_color = turbo_colormap_data[qua_idx]
-    timer.log("Infer smoothness")
-
-    # if single_object:
-    #     # If the output has artifacts, it have large amount of flipped components / ghost geometries
-    #     V, F, no_artifacts = filter_components(V, F, VN)
-
-    #     timer.log('Filter components')
-    # else:
-    #     no_artifacts = False
+    if vis_smooth:
+        smoothness = batch_call(infer_smoothness, V)
+        s_max = smoothness.max()
+        s_min = smoothness.min()
+        smoothness = (smoothness - s_min) / (s_max - s_min)
+        qua_idx = (smoothness * len(turbo_colormap_data)).astype(np.int32)
+        qua_idx = np.clip(qua_idx, 0, len(turbo_colormap_data) - 1)
+        smoothness_color = turbo_colormap_data[qua_idx]
+        timer.log("Infer smoothness")
 
     if vis_singularity:
         import frame_field_utils
@@ -368,21 +347,12 @@ def eval(
         )
 
     V = V * pc_scale + pc_center
-    write_triangle_mesh_VC(
-        os.path.join(cfg.out_dir, f"{save_name}.obj"), V, F, smoothness_color
-    )
-
-    # Quadratic edge collapsing reduces vertex count while preserves original appeal
-    # if edge_collapse:
-    #     # Reduced mesh is preferable for visualization / downstream task
-    #     V, F = meshlab_edge_collapse(
-    #         mc_save_path, V, F, 20000 if no_artifacts else 60000
-    #     )
-
-    #     timer.log("Meshlab edge collapsing")
-
-    #     qc_save_path = f"{cfg.out_dir}/{cfg.name}_{interp_tag}mc_qc.obj"
-    #     igl.write_triangle_mesh(qc_save_path, V, F)
+    if vis_smooth:
+        write_triangle_mesh_VC(
+            os.path.join(cfg.out_dir, f"{save_name}.obj"), V, F, smoothness_color
+        )
+    else:
+        igl.write_triangle_mesh(os.path.join(cfg.out_dir, f"{save_name}.obj"), V, F)
 
     if miq:
         import frame_field_utils
@@ -520,8 +490,8 @@ if __name__ == "__main__":
         cfg,
         model,
         latent,
-        args.vis_singularity,
-        args.vis_mc,
-        args.vis_smooth,
-        args.vis_flowline,
+        vis_singularity=args.vis_singularity,
+        vis_mc=args.vis_mc,
+        vis_smooth=args.vis_smooth,
+        vis_flowline=args.vis_flowline,
     )
