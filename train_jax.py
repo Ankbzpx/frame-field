@@ -36,6 +36,8 @@ from tqdm import tqdm
 
 matplotlib.use("Agg")
 
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
+
 
 def eval_iter(cfg: Config, model, latent, tag):
     cfg = copy.copy(cfg)
@@ -112,12 +114,16 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 samples_on_sur
             )
 
-            jac_off, ((pred_off_sur_sdf, _), _) = eval_smooth(samples_off_sur)
+            jac_off, ((pred_off_sur_sdf, _), pred_normals_off_sur) = eval_smooth(
+                samples_off_sur
+            )
         else:
             (pred_on_sur_sdf, aux_on), pred_normals_on_sur = model.call_grad(
                 samples_on_sur, latent
             )
-            pred_off_sur_sdf = model(samples_off_sur, latent)[:, 0]
+            (pred_off_sur_sdf, _), pred_normals_off_sur = model.mlps[0].call_grad(
+                samples_off_sur, latent
+            )
 
         # **IMPORTANT** This wrapper is necessary, as jax.lax.cond assumes all callables are python functions (which the equinox module functions are not)
         # More see: https://github.com/patrick-kidger/equinox/issues/119
@@ -143,7 +149,12 @@ def train(cfg: Config, model: model_jax.MLP, data):
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(-1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(pred_normals_on_sur).mean()
+        loss_eikonal = (
+            loss_cfg.eikonal
+            * vmap(eikonal)(
+                jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
+            ).mean()
+        )
         loss = loss_mse + loss_off + loss_eikonal
         loss_dict = {
             "loss_mse": loss_mse,
