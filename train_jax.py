@@ -36,8 +36,6 @@ from tqdm import tqdm
 
 matplotlib.use("Agg")
 
-jax.config.update("jax_default_matmul_precision", "tensorfloat32")
-
 
 def eval_iter(cfg: Config, model, latent, tag):
     cfg = copy.copy(cfg)
