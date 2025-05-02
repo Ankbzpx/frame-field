@@ -1,5 +1,5 @@
 {
-  "mlp_types": ["StandardMLP", "LipMLP"],
+  "mlp_types": ["StandardMLP", "StandardMLP"],
   "mlps": [
     {
       "hidden_features": 64,
@@ -9,20 +9,21 @@
     {
       "hidden_features": 64,
       "hidden_layers": 4,
-      "out_features": 9
+      "out_features": 9,
+      "final_activation": "normalize"
     }
   ],
   "loss_cfg": {
     "on_sur": 3e3,
     "off_sur": 1e2,
-    "unit_norm": 1e2,
-    "align": 3e3,
+    "align": 1e2,
+    "regularize_begin": 0.4,
     "regularize": 1e2,
-    "lip": 1e-4
+    "smooth": 1
   },
   "training": {
     "lr": 5e-4,
     "n_samples": 1024,
-    "n_steps": 5000
+    "n_steps": 10000
   }
 }

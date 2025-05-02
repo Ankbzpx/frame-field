@@ -13,6 +13,7 @@ from loss import (
     align_sh4_explicit_cosine,
     align_sh4_explicit_l2,
     align_sh4_functional,
+    align_sh4_functional_grad,
     cosine_similarity,
     double_well_potential,
     eikonal,
@@ -52,9 +53,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
     opt_state = optim.init(eqx.filter([model], eqx.is_array))
 
     smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    align_schedule = optax.linear_schedule(
-        0, cfg.loss_cfg.align, 1, int(cfg.loss_cfg.align_begin * cfg.training.n_steps)
-    )
+    align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     regularize_schedule = optax.linear_schedule(
         0,
         cfg.loss_cfg.regularize,
@@ -126,14 +125,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
                     loss_align = align_basis_explicit(basis_align, normal)
                 else:
                     sh4_align = vmap(param_func)(aux)
-                    # **VERY IMPORTANT** Enforcing unit norm matters here because our samples are very sparse and separated by a large gap
-                    #   If the two connected components have very distinct norm, the shs of frames in between (the gap) will be interpolated
-                    #   resulting in non-trivial rotation. It is rarely the issue for sufficient dense input
-                    loss_align = (
-                        align_sh4_explicit_cosine(sh4_align, normal)
-                        + 0.1 * vmap(eikonal)(sh4_align).mean()
-                    )
-
+                    loss_align = align_sh4_functional_grad(sh4_align, normal).mean()
                 return loss_align
 
             sample_weight = jax.lax.stop_gradient(
@@ -157,11 +149,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 else:
                     sh4_align = vmap(param_func)(aux)
                     sh4_align = vmap(normalize)(sh4_align)
-                    loss_reg = align_sh4_explicit(sh4_align, normal).mean()
-                    # loss_reg = align_sh4_explicit_l2(sh4_align, normal).mean()
-                    # loss_reg = align_sh4_explicit_cosine(sh4_align,
-                    #                                      normal).mean()
-                    # loss_reg = align_sh4_functional(sh4_align, normal).mean()
+                    loss_reg = align_sh4_functional_grad(sh4_align, normal).mean()
 
                 return loss_reg
 
@@ -303,7 +291,7 @@ if __name__ == "__main__":
     # 1, 2, 3, 4
     # 150, 135, 120, 90, 60, 45, 30
     for gap in [4]:
-        for theta in [90]:
+        for theta in [30]:
             name = f"crease_{gap}_{theta}"
 
             config = json.load(open(args.config))

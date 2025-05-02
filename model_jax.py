@@ -130,6 +130,7 @@ class StandardMLP(MLP):
     layers: list[eqx.Module]
     activation: str
     input_scale: float
+    final_activation: str
 
     def __init__(
         self,
@@ -140,6 +141,7 @@ class StandardMLP(MLP):
         key: jax.random.PRNGKey,
         activation="elu",
         input_scale: float = 1,
+        final_activation="identity",
         **kwargs,
     ):
         keys = jax.random.split(key, hidden_layers + 2)
@@ -147,6 +149,7 @@ class StandardMLP(MLP):
         xavier_init = activation == "tanh"
         self.activation = activation
         self.input_scale = input_scale
+        self.final_activation = final_activation
 
         self.layers = (
             [Linear(in_features, hidden_features, keys[0], xavier_init)]
