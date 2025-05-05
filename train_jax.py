@@ -35,6 +35,7 @@ from tqdm import tqdm
 
 
 matplotlib.use("Agg")
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 
 def eval_iter(cfg: Config, model, latent, tag):
@@ -111,17 +112,13 @@ def train(cfg: Config, model: model_jax.MLP, data):
             jac_on, ((pred_on_sur_sdf, aux_on), pred_normals_on_sur) = eval_smooth(
                 samples_on_sur
             )
-
-            jac_off, ((pred_off_sur_sdf, _), pred_normals_off_sur) = eval_smooth(
-                samples_off_sur
-            )
         else:
             (pred_on_sur_sdf, aux_on), pred_normals_on_sur = model.call_grad(
                 samples_on_sur, latent
             )
-            (pred_off_sur_sdf, _), pred_normals_off_sur = model.mlps[0].call_grad(
-                samples_off_sur, latent
-            )
+        (pred_off_sur_sdf, _), pred_normals_off_sur = model.mlps[0].call_grad(
+            samples_off_sur, latent
+        )
 
         # **IMPORTANT** This wrapper is necessary, as jax.lax.cond assumes all callables are python functions (which the equinox module functions are not)
         # More see: https://github.com/patrick-kidger/equinox/issues/119
@@ -217,11 +214,19 @@ def train(cfg: Config, model: model_jax.MLP, data):
         if loss_cfg.smooth > 0:
 
             def eval_smooth_loss(jac):
-                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f").mean()
+                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f")
 
-            sh4_jac = jnp.vstack([jac_on, jac_off])
-            loss_smooth = smooth_weight * jax.lax.cond(
-                smooth_weight > 0, eval_smooth_loss, lambda x: 0.0, sh4_jac
+            sh4_jac = jnp.vstack([jac_on])
+            loss_smooth = (
+                smooth_weight
+                * (
+                    jax.lax.cond(
+                        smooth_weight > 0,
+                        eval_smooth_loss,
+                        lambda x: jnp.zeros(len(sample_weight)),
+                        sh4_jac,
+                    )
+                ).mean()
             )
             loss += loss_smooth
             loss_dict["loss_smooth"] = loss_smooth
