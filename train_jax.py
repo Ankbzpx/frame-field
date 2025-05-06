@@ -144,12 +144,13 @@ def train(cfg: Config, model: model_jax.MLP, data):
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
         loss_off = loss_cfg.off_sur * jnp.exp(-1e2 * jnp.abs(pred_off_sur_sdf)).mean()
-        loss_eikonal = (
-            loss_cfg.eikonal
-            * vmap(eikonal)(
-                jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
-            ).mean()
-        )
+        # loss_eikonal = (
+        #     loss_cfg.eikonal
+        #     * vmap(eikonal)(
+        #         jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
+        #     ).mean()
+        # )
+        loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(pred_normals_on_sur).mean()
         loss = loss_mse + loss_off + loss_eikonal
         loss_dict = {
             "loss_mse": loss_mse,
@@ -220,7 +221,8 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_smooth = (
                 smooth_weight
                 * (
-                    jax.lax.cond(
+                    sample_weight
+                    * jax.lax.cond(
                         smooth_weight > 0,
                         eval_smooth_loss,
                         lambda x: jnp.zeros(len(sample_weight)),
