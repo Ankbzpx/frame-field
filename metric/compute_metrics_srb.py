@@ -36,17 +36,9 @@ def compute_metrics(recon_points, gt_points, f1_thr, n_worker=8):
 
 if __name__ == "__main__":
     gt_root = os.path.expandvars("$HOME/dataset/SRB")
-    result_root = os.path.expandvars("$HOME/dataset/SRB")
+    result_root = os.path.expandvars("$HOME/dataset/octa_results/SRB_UDF")
 
-    method_list = [
-        "DGP",
-        "DiGS",
-        "neural_singular_hessian",
-        "ours",
-        "ours_reg_10",
-        "siren",
-        "SPR",
-    ]
+    method_list = ["CapUDF", "S2DF", "ours"]
 
     seed = 0
     sample_size = 1000000

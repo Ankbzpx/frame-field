@@ -7,15 +7,7 @@ from icecream import ic
 
 
 if __name__ == "__main__":
-    method_list = [
-        "DGP",
-        "DiGS",
-        "neural_singular_hessian",
-        "ours",
-        "ours_reg_10",
-        "siren",
-        "SPR",
-    ]
+    method_list = ["CapUDF", "S2DF", "ours"]
 
     metrics = ["chamfer", "hausdorff", "f1"]
     metrics_column = [
@@ -51,4 +43,4 @@ if __name__ == "__main__":
 
         collection = append_collection(method, data, collection)
 
-    collection.to_csv(os.path.join("output", "metrics", "collect.csv"))
+    collection.to_csv(os.path.join("output", "metrics", "collect_srb.csv"))
