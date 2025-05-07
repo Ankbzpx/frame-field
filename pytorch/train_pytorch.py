@@ -106,9 +106,10 @@ class OctaGuidedSDF(L.LightningModule):
             "loss_eikonal": loss_eikonal,
         }
 
+        sample_weight = torch.exp(-1e2 * torch.abs(pred_on_sur_sdf.detach()))
+
         # Align
         if align_weight > 0:
-            sample_weight = torch.exp(-1e2 * torch.abs(pred_on_sur_sdf.detach()))
             normal_align = pred_normals_on_sur.detach()
             aux_align = aux_on
             loss_align = (
@@ -126,7 +127,9 @@ class OctaGuidedSDF(L.LightningModule):
             aux_reg = aux_on.detach()
             loss_reg = (
                 regularize_weight
-                * align_sh4_functional_grad(aux_reg, normal_reg).mean()
+                * (
+                    sample_weight * align_sh4_functional_grad(aux_reg, normal_reg)
+                ).mean()
             )
             loss += loss_reg
             loss_dict["loss_reg"] = loss_reg
@@ -135,7 +138,10 @@ class OctaGuidedSDF(L.LightningModule):
             jac_on = vector_gradient(aux_on, samples_on_sur)
             jac_off = vector_gradient(aux_off, samples_off_sur)
             sh4_jac = torch.vstack([jac_on, jac_off])
-            loss_smooth = smooth_weight * torch.linalg.matrix_norm(sh4_jac).mean()
+            loss_smooth = (
+                smooth_weight
+                * (sample_weight * torch.linalg.matrix_norm(sh4_jac)).mean()
+            )
             loss += loss_smooth
             loss_dict["loss_smooth"] = loss_smooth
 
