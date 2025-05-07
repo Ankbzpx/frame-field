@@ -25,6 +25,8 @@ from sh_representation import (
     y_00,
 )
 
+# https://github.com/3DFin/delaunay_geogram?tab=readme-ov-file
+from delaunay_geogram import ParallelDelaunay3D
 import frame_field_utils_bind
 import igl
 import jax
@@ -245,23 +247,85 @@ def solve_n(M_unroll, M, N, q, r, w_reg):
     return r
 
 
+def eval_VN(T, TV, G, u):
+    TVN_int = (G @ u).reshape(3, -1).T
+    TVN_int = vmap(normalize)(TVN_int)
+
+    VN = jnp.zeros((len(u), 3))
+    VN = VN.at[T].add(np.repeat((TV[:, None] * TVN_int)[:, None, :], 4, axis=1))
+    VN = vmap(normalize)(VN)
+    return VN
+
+
+def integrate_poisson(T, L, M, G, n):
+    n = M @ n
+    tn = n[T].mean(1)
+    div_n = G.T @ tn.T.reshape(
+        -1,
+    )
+    u = frame_field_utils_bind.solve_iterative_cuda(-L, div_n)
+    return u
+
+
+def pc_to_mesh(V_on, VN_on, iso_idx=None):
+    # Sample points
+    NV_on = len(V_on)
+
+    # Assume no need to sample
+    if iso_idx is not None:
+        V = V_on
+        VN = VN_on
+    else:
+        iso_idx = np.arange(NV_on)
+        V_close = sample_V_close(V_on)
+        off_scale = 1.2
+        aabb_min = off_scale * V_on.min(0)
+        aabb_max = off_scale * V_on.max(0)
+        V_off = np.random.uniform(aabb_min, aabb_max, (len(V_on), 3))
+
+        V = np.vstack([V_on, V_close, V_off])
+        VN = np.zeros_like(V)
+        VN[:NV_on] = VN_on
+
+    # Trianglulation
+    dt = ParallelDelaunay3D()
+    dt.set_vertices(V)
+    T = dt.cell_to_vertices()
+
+    L = igl.cotmatrix(V, T)
+    G = igl.grad(V, T)
+    M = igl.massmatrix(V, T)
+
+    TV = igl.volume(V, T)
+
+    u = integrate_poisson(T, L, M, G, VN)
+    u -= u[iso_idx].mean()
+    VN = eval_VN(T, TV, G, u)
+    V_recon, F_recon, _, _ = igl.marching_tets(V, T, u, 0)
+    return V_recon, F_recon
+
+
 if __name__ == "__main__":
     np.random.seed(0)
     timer = Timer()
 
     data = {}
 
-    # import open3d as o3d
-    # test_pc_path = os.path.expandvars(
-    #     "$HOME/dataset/p2s/thingi10k/1e-2/54725.ply"
-    # )
-    # pc_o3d = o3d.io.read_point_cloud(test_pc_path)
-    # V = np.asarray(pc_o3d.points)
-    # VN = np.asarray(pc_o3d.normals)
+    import open3d as o3d
 
-    test_pc_path = "tmp/sample_recon.ply"
-    V, F = igl.read_triangle_mesh(test_pc_path)
+    test_pc_path = os.path.expandvars("$HOME/dataset/p2s/thingi10k/1e-2/54725.ply")
+    pc_o3d = o3d.io.read_point_cloud(test_pc_path)
+    V_raw = np.asarray(pc_o3d.points)
+    VN_raw = np.asarray(pc_o3d.normals)
+
+    timer.log("Load input")
+
+    # Integrate initially to fix orientation
+    V, F = pc_to_mesh(V_raw, VN_raw)
     VN = igl.per_vertex_normals(V, F)
+
+    ps.init()
+    ps.register_surface_mesh("Init", V, F)
 
     sample_idx = pcu.downsample_point_cloud_poisson_disk(V, 5e-3)
     V = V[sample_idx]
@@ -269,7 +333,7 @@ if __name__ == "__main__":
 
     data["V"] = V
 
-    timer.log("Load input")
+    timer.log("Init integration")
 
     NV = len(V)
     V_off = sample_V_close(V)
@@ -299,7 +363,6 @@ if __name__ == "__main__":
     Rs = proj_sh4_to_R3(q[:NV])
     V_vis_0, F_vis_0 = vis_oct_field(Rs, V[:NV], 0.01)
 
-    ps.init()
     ps.register_surface_mesh("Octa 0", V_vis_0, F_vis_0, enabled=False)
     pc_viz = ps.register_point_cloud("V", V[:NV])
     pc_viz.add_color_quantity("VN 0", VN[:NV])
@@ -326,9 +389,16 @@ if __name__ == "__main__":
             pc_viz.add_color_quantity("VN 1", r[:NV])
             V_vis, F_vis = vis_oct_field(Rs, V[:NV], 0.01)
             ps.register_surface_mesh("Octa 1", V_vis, F_vis)
-            ps.show()
 
         data[iter + 1] = {"q": q[:NV], "vn": r[:NV]}
 
-    with open("tmp/step_viz.bin", "wb") as f:
-        pickle.dump(data, f)
+    timer.log("Optimization")
+
+    V_refined, F_refined = pc_to_mesh(V[:NV], r[:NV])
+    ps.register_surface_mesh("Final", V_refined, F_refined)
+
+    timer.log("Final integration")
+    ps.show()
+
+    # with open("tmp/step_viz.bin", "wb") as f:
+    #     pickle.dump(data, f)
