@@ -51,6 +51,7 @@ class LossConfig:
     rotvec: bool = False
     rot6d: bool = False
     explicit_basis: bool = False
+    off_eikonal: bool = False
 
 
 @dataclass

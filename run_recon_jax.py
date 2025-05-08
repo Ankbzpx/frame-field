@@ -15,6 +15,12 @@ import jax
 from icecream import ic
 
 
+planar_case = [
+    "00993917_4049b13b8ff84e59b2cfc43a",
+    "00992690_ed0f9f06ad21b92e7ffab606",
+    "81762",
+]
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -51,6 +57,9 @@ if __name__ == "__main__":
         model_name = model.split("/")[-1].split(".")[0]
         name = model_name
         print(name)
+
+        if name in planar_case:
+            config["loss_cfg"]["off_eikonal"] = True
 
         cfg = Config(**config)
         cfg.name = name
