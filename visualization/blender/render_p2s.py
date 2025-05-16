@@ -12,7 +12,7 @@ from icecream import ic
 
 
 def load_template():
-    bpy.ops.wm.open_mainfile(filepath="template.blend")
+    bpy.ops.wm.open_mainfile(filepath="template_tri.blend")
     bpy.data.objects["Camera"].select_set(False)
     bpy.data.objects["spot"].select_set(True)
     bpy.ops.object.delete()

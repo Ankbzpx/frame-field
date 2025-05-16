@@ -347,7 +347,12 @@ if __name__ == "__main__":
         mesh_gt = bt.readNumpyMesh(
             np.float32(V_gt), np.int32(F_gt), location, rotation, scale
         )
-        color_gt = bt.colorObj(bt.derekBlue, 0.5, 1.5, 1.0, 0.0, 0.0)
+        if opt == "dir":
+            color_gt = bt.colorObj(bt.derekBlue, 0.5, 1.5, 1.0, 0.0, 0.0)
+        else:
+            color_gt = bt.colorObj(
+                (0.92549, 0.92549, 0.92549, 1), 0.5, 1.5, 1.0, 0.0, 0.0
+            )
         alpha = 0.2
         transmission = 0.5
         bt.setMat_transparent(mesh_gt, color_gt, alpha, transmission)
@@ -362,7 +367,7 @@ if __name__ == "__main__":
                 np.float32(V_octa), np.int32(F_octa), location, rotation, scale
             )
             color_octa = bt.colorObj(
-                (0.243245, 0.869022, 0.92549, 1), 0.5, 1.0, 1.0, 0.0, 2.0
+                (0.92549, 0.502591, 0.243245, 1), 0.5, 1.0, 1.0, 0.0, 2.0
             )
             bt.setMat_singleColor(mesh_octa, color_octa, 1.0)
 
@@ -401,9 +406,16 @@ if __name__ == "__main__":
 
         bt.shadowThreshold(alphaThreshold=0.05, interpolationMode="CARDINAL")
 
-        # bpy.ops.wm.save_mainfile(filepath=os.getcwd() + "/test.blend")
-        # exit()
-
         tag = f"{count}".zfill(6)
-        bt.renderImage(f"{save_folder}/{tag}.png", cam)
+        save_file_path = f"{save_folder}/{tag}.png"
+        bpy.data.scenes["Scene"].render.filepath = save_file_path
+        bpy.data.scenes["Scene"].camera = cam
+
+        bpy.ops.wm.save_mainfile(filepath=os.getcwd() + f"/{opt}.blend")
+
+        cmd = f"blender -b {opt}.blend -f 0 -- --cycles-device OPTIX"
+        os.system(cmd)
+        os.system(f"mv {save_file_path}0000.png {save_file_path}")
+        os.system(f"rm {opt}.blend")
+
         count += 1
