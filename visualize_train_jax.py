@@ -2,11 +2,12 @@ import argparse
 import copy
 import json
 import os
+import random
 
 from common import normalize
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, config_training_data
-from eval_jax import eval
+from config_utils import config_latent, config_model, config_optim, SDFDataset
+from eval_jax import batch_call, eval
 from loss import (
     align_basis_explicit,
     align_sh4_explicit,
@@ -25,17 +26,22 @@ from sh_representation import (
 
 import equinox as eqx
 import jax
-from jax import numpy as jnp, vmap
+from jax import jit, numpy as jnp, vmap
 from jaxtyping import Array, PyTree
 import matplotlib
 import numpy as np
 import optax
 from tensorboardX import SummaryWriter
+import torch
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
+from icecream import ic
+
+
+jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 matplotlib.use("Agg")
-jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 
 def eval_iter(cfg: Config, model, latent, tag):
@@ -45,15 +51,27 @@ def eval_iter(cfg: Config, model, latent, tag):
     eval(cfg, model, latent, grid_res=256, save_octa=True)
 
 
-def train(cfg: Config, model: model_jax.MLP, data):
+def train(cfg: Config, model: model_jax.MLP, data, input_samples):
     writer = SummaryWriter(logdir=os.path.join("checkpoints/runs"))
     optim, opt_state = config_optim(cfg, model)
 
     # Let's not complicate things
-    smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
+    # smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
     align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     lip_schedule = optax.constant_schedule(cfg.loss_cfg.lip)
 
+    smooth_schedule = optax.linear_schedule(
+        0,
+        cfg.loss_cfg.smooth,
+        1,
+        int(cfg.loss_cfg.smooth_begin * cfg.training.n_steps),
+    )
+    align_schedule = optax.linear_schedule(
+        0,
+        cfg.loss_cfg.align,
+        1,
+        int(cfg.loss_cfg.align_begin * cfg.training.n_steps),
+    )
     regularize_schedule = optax.linear_schedule(
         0,
         cfg.loss_cfg.regularize,
@@ -143,9 +161,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
         # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
         loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
-        loss_off = (
-            loss_cfg.off_sur * jnp.exp(-loss_cfg.eps * jnp.abs(pred_off_sur_sdf)).mean()
-        )
+        loss_off = loss_cfg.off_sur * jnp.exp(-1e2 * jnp.abs(pred_off_sur_sdf)).mean()
 
         if loss_cfg.off_eikonal:
             loss_eikonal = (
@@ -301,12 +317,43 @@ def train(cfg: Config, model: model_jax.MLP, data):
         writer.add_scalars(f"{cfg.name}", loss_dict, iteration)
         pbar.set_postfix({"loss_total": loss_dict["loss_total"]})
 
-        if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
-            eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, "init")
-        # elif iteration % cfg.training.eval_every == 0 and iteration != 0:
+        align_end_iter = int((0.2 + cfg.loss_cfg.align_begin) * cfg.training.n_steps)
+        if iteration == align_end_iter:
+            eqx.tree_serialise_leaves(
+                os.path.join(cfg.checkpoints_dir, f"{cfg.name}_align.eqx"), model
+            )
+
+        regularize_end_iter = int(
+            (0.2 + cfg.loss_cfg.regularize_begin) * cfg.training.n_steps
+        )
+        if iteration == regularize_end_iter:
+            eqx.tree_serialise_leaves(
+                os.path.join(cfg.checkpoints_dir, f"{cfg.name}_regularize.eqx"), model
+            )
+
+        # if iteration % cfg.training.eval_every == 0 and iteration != 0:
         #     eval_latent = jnp.empty((0,))
         #     eval_iter(cfg, model, eval_latent, iteration)
+
+        # @jit
+        # def infer_grad(x):
+        #     z = jnp.empty((len(x), 0))
+        #     (sdf_, aux_), VN_ = model.call_grad(x, z)
+        #     return sdf_, aux_, VN_
+
+        # sdf_input, q_input, vn_input = batch_call(infer_grad, input_samples, 3, lambda x: x)
+
+        # sdf_input = np.asarray(sdf_input)
+        # q_input = np.asarray(q_input)
+        # vn_input = np.asarray(vn_input)
+
+        # data_dump = {
+        #     "sdf": sdf_input,
+        #     "q": q_input,
+        #     "vn": vn_input
+        # }
+        # tag = str(iteration).zfill(6)
+        # np.savez(f"tmp/{tag}.npz", **data_dump)
 
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
@@ -328,6 +375,30 @@ if __name__ == "__main__":
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    data = config_training_data(cfg, latents)
+    np.random.seed(0)
+    dataset = SDFDataset(cfg, latents)
 
-    train(cfg, model, data)
+    g = torch.Generator()
+    g.manual_seed(0)
+
+    # https://github.com/google/jax/issues/3382
+    import torch.multiprocessing as multiprocessing
+
+    multiprocessing.set_start_method("forkserver", force=True)
+
+    def seed_worker(worker_id):
+        worker_seed = torch.initial_seed() % 2**32
+        np.random.seed(worker_seed)
+        random.seed(worker_seed)
+
+    dataloader = DataLoader(
+        dataset,
+        batch_size=1,
+        num_workers=0,
+        worker_init_fn=seed_worker,
+        generator=g,
+    )
+
+    input_samples = dataset.sdf_data_list[0]["samples_on_sur"]
+
+    train(cfg, model, dataloader, input_samples)

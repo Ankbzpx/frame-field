@@ -39,6 +39,8 @@ class LossConfig:
     align_begin: float = 0
     unit_norm: float = 1  # sh4 norm
     lip: float = 0
+    eps: float = 100
+    smooth_begin: float = 0
     smooth: float = 0  # sh4 jac
     regularize: float = 0  # off surface
     regularize_begin: float = 0
