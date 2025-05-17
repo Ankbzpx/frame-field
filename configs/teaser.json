@@ -1,0 +1,26 @@
+{
+  "sdf_paths": ["$HOME/dataset/p2s/thingi10k/1e-2/54725.ply"],
+  "mlp_types": ["Siren", "Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
+    },
+    {
+      "hidden_layers": 4,
+      "out_features": 9,
+      "final_activation": "normalize"
+    }
+  ],
+  "loss_cfg": {
+    "on_sur": 3.5e3,
+    "hessian": 3,
+    "hessian_annealing": 1e-3,
+    "align": 5e1,
+    "align_begin": 0.2,
+    "regularize": 5e1,
+    "regularize_begin": 0.4,
+    "smooth": 2,
+    "smooth_begin": 0.2
+  }
+}
