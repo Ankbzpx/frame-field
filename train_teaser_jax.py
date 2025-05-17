@@ -48,8 +48,8 @@ jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 matplotlib.use("Agg")
 
 
-def sample_plane(size):
-    axis = np.linspace(-1, 1, size)
+def sample_plane(dim):
+    axis = np.linspace(-1, 1, dim)
     xy = np.stack(np.meshgrid(axis, axis), axis=-1).reshape(-1, 2)
     z = np.zeros(len(xy))
     xyz = np.hstack([xy, z[:, None]])
@@ -343,9 +343,9 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
                 os.path.join(cfg.checkpoints_dir, f"{cfg.name}_regularize.eqx"), model
             )
 
-        # if iteration % cfg.training.eval_every == 0 and iteration != 0:
-        #     eval_latent = jnp.empty((0,))
-        #     eval_iter(cfg, model, eval_latent, iteration)
+        if iteration % cfg.training.eval_every == 0 and iteration != 0:
+            eval_latent = jnp.empty((0,))
+            eval_iter(cfg, model, eval_latent, iteration)
 
         # @jit
         # def infer_grad(x):
