@@ -48,7 +48,7 @@ if __name__ == "__main__":
         "neural_singular_hessian",
         "NeurCAD",
         "nksr",
-        "octa_hessian_0_5",
+        "octa_hessian",
         "RFEPS",
         "SALD",
         "siren",

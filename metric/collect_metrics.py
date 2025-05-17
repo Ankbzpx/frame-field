@@ -19,7 +19,7 @@ if __name__ == "__main__":
         "neural_singular_hessian",
         "NeurCAD",
         "nksr",
-        "octa_hessian_0_5",
+        "octa_hessian",
         "RFEPS",
         "SALD",
         "siren",
@@ -69,13 +69,6 @@ if __name__ == "__main__":
                 data = pd.read_csv(csv_path)
 
                 collection = append_collection(tag, data, collection)
-
-                if "hessian" in method:
-                    for case in failure_cases:
-                        # case = int(case) if dataset == 'thingi10k' else case
-                        data = data[data["item"] != case]
-
-                    collection = append_collection(f"{tag}_filter", data, collection)
 
             collection.to_csv(
                 os.path.join(
