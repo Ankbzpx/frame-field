@@ -336,7 +336,15 @@ if __name__ == "__main__":
 
     num_frames = 10000
     count = 0
-    fids = [i for i in range(0, num_frames, 10)] + [num_frames - 1]
+    fids = np.concatenate(
+        [
+            np.arange(0, 2000, 50),
+            np.arange(2000, 2500, 1),
+            np.arange(2500, 4000, 50),
+            np.arange(4000, 5000, 2),
+            np.arange(5000, 10000, 50),
+        ]
+    )
     for fid in fids:
         tag = str(fid).zfill(6)
         frame_data = np.load(os.path.join("../../tmp", f"{tag}.npz"))
