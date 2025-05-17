@@ -1,3 +1,4 @@
+import os
 import random
 
 from common import normalize_aabb
@@ -129,7 +130,7 @@ def progressive_sample_off_surf(
 
 def load_sdf(sdf_path):
     if sdf_path.split(".")[-1] == "ply":
-        pc_o3d = o3d.io.read_point_cloud(sdf_path)
+        pc_o3d = o3d.io.read_point_cloud(os.path.expandvars(sdf_path))
         sdf_data = {
             "samples_on_sur": np.asarray(pc_o3d.points),
             "normals_on_sur": np.asarray(pc_o3d.normals),

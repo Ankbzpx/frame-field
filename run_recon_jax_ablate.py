@@ -46,15 +46,15 @@ if __name__ == "__main__":
         sdf_paths = [model_path]
 
         for smooth in [0.5, 1.0, 2.0, 5.0, 10.0]:
-            for regularize in [25, 50, 100, 200, 500]:
+            for eps in [25, 50, 100, 200, 500]:
                 config = json.load(open(args.config))
                 config["sdf_paths"] = sdf_paths
                 config["loss_cfg"]["smooth"] = smooth
-                config["loss_cfg"]["regularize"] = regularize
+                config["loss_cfg"]["eps"] = eps
 
                 cfg_name = args.config.split("/")[-1].split(".")[0]
                 model_name = model_path.split("/")[-1].split(".")[0]
-                name = f"{model_name}_{smooth}_{regularize}"
+                name = f"{model_name}_{smooth}_{eps}"
                 print(name)
 
                 cfg = Config(**config)

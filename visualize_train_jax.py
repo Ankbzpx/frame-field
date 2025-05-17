@@ -4,10 +4,10 @@ import json
 import os
 import random
 
-from common import normalize
+from common import aabb_compute, normalize, vis_oct_field
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, SDFDataset
-from eval_jax import batch_call, eval
+from config_utils import config_latent, config_model, config_optim, load_sdf, SDFDataset
+from eval_jax import batch_call, eval, extract_surface
 from loss import (
     align_basis_explicit,
     align_sh4_explicit,
@@ -17,6 +17,8 @@ from loss import (
 )
 import model_jax
 from sh_representation import (
+    eulerXYZ_to_R3,
+    proj_sh4_sdp,
     proj_sh4_to_R3,
     rot6d_to_R3,
     rot6d_to_sh4_zonal,
@@ -25,6 +27,7 @@ from sh_representation import (
 )
 
 import equinox as eqx
+import igl
 import jax
 from jax import jit, numpy as jnp, vmap
 from jaxtyping import Array, PyTree
@@ -37,11 +40,20 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 
 from icecream import ic
+import polyscope as ps
 
 
 jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 matplotlib.use("Agg")
+
+
+def sample_plane(size):
+    axis = np.linspace(-1, 1, size)
+    xy = np.stack(np.meshgrid(axis, axis), axis=-1).reshape(-1, 2)
+    z = np.zeros(len(xy))
+    xyz = np.hstack([xy, z[:, None]])
+    return xyz
 
 
 def eval_iter(cfg: Config, model, latent, tag):
@@ -365,6 +377,7 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str, help="Path to config file.")
+    parser.add_argument("--vis_tag", type=str, default="", help="Visualization tag.")
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
@@ -375,30 +388,111 @@ if __name__ == "__main__":
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    np.random.seed(0)
-    dataset = SDFDataset(cfg, latents)
+    tag = args.vis_tag
+    if tag != "":
+        model: model_jax.MLP = eqx.tree_deserialise_leaves(
+            os.path.join(cfg.checkpoints_dir, f"{cfg.name}_{tag}.eqx"), model
+        )
+        gt_path = cfg.sdf_paths[0]
+        gt_path.replace(cfg.sdf_paths[0].split("/")[-2], "gt")
+        V_gt, F_gt = igl.read_triangle_mesh(gt_path)
 
-    g = torch.Generator()
-    g.manual_seed(0)
+        @jit
+        def infer_sdf(x):
+            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
+            return model.mlps[0](x, z)
 
-    # https://github.com/google/jax/issues/3382
-    import torch.multiprocessing as multiprocessing
+        @jit
+        def infer_octa(x):
+            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
+            return model.mlps[1](x, z)
 
-    multiprocessing.set_start_method("forkserver", force=True)
+        sdf_data = load_sdf(cfg.sdf_paths[0])
+        sur_sample = sdf_data["samples_on_sur"]
+        pc_center, pc_scale, _ = aabb_compute(sur_sample)
+        # V_gt = (V_gt - pc_center) / pc_scale
 
-    def seed_worker(worker_id):
-        worker_seed = torch.initial_seed() % 2**32
-        np.random.seed(worker_seed)
-        random.seed(worker_seed)
+        R_obj = eulerXYZ_to_R3(
+            np.deg2rad(9.8842), np.deg2rad(-29.596), np.deg2rad(252.193)
+        )
+        R_plane = eulerXYZ_to_R3(
+            np.deg2rad(76.9152), np.deg2rad(-11.5065), np.deg2rad(43.729)
+        )
+        R_relative = R_obj.T @ R_plane
 
-    dataloader = DataLoader(
-        dataset,
-        batch_size=1,
-        num_workers=0,
-        worker_init_fn=seed_worker,
-        generator=g,
-    )
+        plane_scale = 0.544662309
+        V_plane = np.array(
+            [
+                [-1, -1, 0],
+                [-1, 1, 0],
+                [1, 1, 0],
+                [1, -1, 0],
+            ]
+        )
+        F_plane = np.array([[0, 1, 2], [0, 2, 3]])
+        V_plane = ((plane_scale * V_plane - pc_center) / pc_scale) @ R_relative.T
 
-    input_samples = dataset.sdf_data_list[0]["samples_on_sur"]
+        image_res = 512
+        samples_image = sample_plane(image_res)
+        samples_image = (
+            (plane_scale * samples_image - pc_center) / pc_scale
+        ) @ R_relative.T
+        sdf = infer_sdf(samples_image).reshape(
+            -1,
+        )
 
-    train(cfg, model, dataloader, input_samples)
+        octa_res = 128
+        samples_octa = sample_plane(octa_res)
+        samples_octa = (
+            (plane_scale * samples_octa - pc_center) / pc_scale
+        ) @ R_relative.T
+        octa = infer_octa(samples_octa)
+        octa = proj_sh4_sdp(octa)
+        Rs = proj_sh4_to_R3(octa)
+        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.64 / octa_res)
+
+        V_plane = V_plane * pc_scale + pc_center
+        V_octa = V_octa * pc_scale + pc_center
+        samples_image = samples_image * pc_scale + pc_center
+
+        np.save(f"tmp/{tag}.npy", sdf)
+        igl.write_triangle_mesh(f"tmp/{tag}.obj", np.float64(V_octa), np.int64(F_octa))
+        igl.write_triangle_mesh("tmp/plane.obj", np.float64(V_plane), np.int64(F_plane))
+
+        ps.init()
+        ps.register_surface_mesh("gt", V_gt, F_gt)
+        ps.register_surface_mesh("pl", V_plane, F_plane)
+        ps.register_surface_mesh("octa", V_octa, F_octa)
+        ps.register_point_cloud("samples_image", samples_image).add_scalar_quantity(
+            "sdf", sdf
+        )
+        ps.show()
+
+    else:
+        np.random.seed(0)
+        dataset = SDFDataset(cfg, latents)
+
+        g = torch.Generator()
+        g.manual_seed(0)
+
+        # https://github.com/google/jax/issues/3382
+        import torch.multiprocessing as multiprocessing
+
+        multiprocessing.set_start_method("forkserver", force=True)
+
+        def seed_worker(worker_id):
+            worker_seed = torch.initial_seed() % 2**32
+            np.random.seed(worker_seed)
+            random.seed(worker_seed)
+
+        dataloader = DataLoader(
+            dataset,
+            batch_size=1,
+            num_workers=0,
+            worker_init_fn=seed_worker,
+            generator=g,
+        )
+
+        input_samples = dataset.sdf_data_list[0]["samples_on_sur"]
+
+        train(cfg, model, dataloader, input_samples)
