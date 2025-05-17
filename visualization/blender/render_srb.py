@@ -11,7 +11,7 @@ from icecream import ic
 
 
 if __name__ == "__main__":
-    methods = ["DGP", "DiGS", "neural_singular_hessian", "ours", "ours_reg_10", "siren"]
+    methods = ["CapUDF", "ours", "S2DF"]
 
     models = ["anchor", "daratech", "dc", "gargoyle", "lord_quas"]
     root_folder = os.path.expandvars("$HOME/dataset/SRB")
