@@ -128,6 +128,14 @@ def rotvec_to_R3(rotvec):
 
 
 @jit
+def euler_to_R3(euler_xyz):
+    rot = jax.scipy.spatial.transform.Rotation.from_euler(
+        "xyz", euler_xyz, degrees=True
+    )
+    return rot.as_matrix()
+
+
+@jit
 def normalize(x):
     return x / (jnp.linalg.norm(x) + 1e-8)
 
@@ -341,7 +349,7 @@ if __name__ == "__main__":
         bt.blenderInit(res, res, 100, 1.5)
 
         location = (1.1543, 0.014629, 0.794958)
-        rotation = (0, 0, 60)
+        rotation = (9.8842, -29.596, 252.193)
         scale = (1.377, 1.377, 1.377)
 
         mesh_gt = bt.readNumpyMesh(
@@ -386,10 +394,13 @@ if __name__ == "__main__":
         # ===== VN color
         if opt == "ncolor":
             mesh_pc = bt.readNumpyPoints(V_proj, location, rotation, scale)
-            mesh_pc = bt.setPointColors(mesh_pc, vn)
+            # Shift VN color
+            R_init = euler_to_R3(rotation)
+            R_init = np.asarray(R_init)
+            mesh_pc = bt.setPointColors(mesh_pc, vn @ R_init.T)
             # set material ptColor = (vertex_RGBA, H, S, V_proj, Bright, Contrast)
             ptColor = bt.colorObj([], 0.5, 1.0, 1.0, 0.0, 0.0)
-            ptSize = 0.01
+            ptSize = 0.0075
             bt.setMat_pointCloudColored(mesh_pc, ptColor, ptSize)
 
         camLocation = (3, 0, 1.73566)
