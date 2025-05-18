@@ -48,8 +48,10 @@ jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 matplotlib.use("Agg")
 
 
-def sample_plane(dim):
+def sample_plane(dim, skip_sides=False):
     axis = np.linspace(-1, 1, dim)
+    if skip_sides:
+        axis = axis[1:-1]
     xy = np.stack(np.meshgrid(axis, axis), axis=-1).reshape(-1, 2)
     z = np.zeros(len(xy))
     xyz = np.hstack([xy, z[:, None]])
@@ -368,16 +370,22 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
         # np.savez(f"tmp/{tag}.npz", **data_dump)
 
     eqx.tree_serialise_leaves(
-        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
+        os.path.join(cfg.checkpoints_dir, f"{cfg.name}_final.eqx"), model
     )
 
     return model
 
 
+def apply_T(T, x):
+    A = T[:3, :3]
+    t = T[:3, 3][None, :]
+    return x @ A.T + t
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("config", type=str, help="Path to config file.")
-    parser.add_argument("--vis_tag", type=str, default="", help="Visualization tag.")
+    parser.add_argument("--vis_tag", type=str, help="Visualization tag.")
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
@@ -389,38 +397,58 @@ if __name__ == "__main__":
     model = config_model(cfg, model_key, latent_dim)
 
     tag = args.vis_tag
-    if tag != "":
+    if tag is not None:
         model: model_jax.MLP = eqx.tree_deserialise_leaves(
             os.path.join(cfg.checkpoints_dir, f"{cfg.name}_{tag}.eqx"), model
         )
+
+        latent = jnp.empty((0,))
+        cfg.name = f"{cfg.name}_{tag}"
+        eval(cfg, model, latent, grid_res=512)
+
         gt_path = cfg.sdf_paths[0]
-        gt_path.replace(cfg.sdf_paths[0].split("/")[-2], "gt")
-        V_gt, F_gt = igl.read_triangle_mesh(gt_path)
-
-        @jit
-        def infer_sdf(x):
-            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
-            return model.mlps[0](x, z)
-
-        @jit
-        def infer_octa(x):
-            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
-            return model.mlps[1](x, z)
+        gt_path = gt_path.replace(gt_path.split("/")[-2], "gt")
+        V_gt, F_gt = igl.read_triangle_mesh(os.path.expandvars(gt_path))
 
         sdf_data = load_sdf(cfg.sdf_paths[0])
         sur_sample = sdf_data["samples_on_sur"]
         pc_center, pc_scale, _ = aabb_compute(sur_sample)
-        # V_gt = (V_gt - pc_center) / pc_scale
+        T_normalize = np.eye(4)
+        T_normalize[:3, :3] *= pc_scale
+        T_normalize[:3, 3] = pc_center
+
+        @jit
+        def infer_sdf(x):
+            x = apply_T(jnp.linalg.inv(T_normalize), x)
+            z = latent[None, ...].repeat(len(x), 0)
+            return model.mlps[0](x, z)
+
+        @jit
+        def infer_octa(x):
+            x = apply_T(jnp.linalg.inv(T_normalize), x)
+            z = latent[None, ...].repeat(len(x), 0)
+            return model.mlps[1](x, z)
+
+        R_plane = eulerXYZ_to_R3(
+            np.deg2rad(76.9152), np.deg2rad(19.3204), np.deg2rad(36.4993)
+        )
+        s_plane = np.array([0.143765, 0.143765, 0.143765])
+        t_plane = np.array([1.21634, 0.253752, 1.40811])
+        T_plane = np.eye(4)
+        T_plane[:3, :3] = np.diag(s_plane) @ R_plane
+        T_plane[:3, 3] = t_plane
 
         R_obj = eulerXYZ_to_R3(
             np.deg2rad(9.8842), np.deg2rad(-29.596), np.deg2rad(252.193)
         )
-        R_plane = eulerXYZ_to_R3(
-            np.deg2rad(76.9152), np.deg2rad(-11.5065), np.deg2rad(43.729)
-        )
-        R_relative = R_obj.T @ R_plane
+        s_obj = np.array([1.377, 1.377, 1.377])
+        t_obj = np.array([1.1543, 0.014629, 0.794958])
+        T_obj = np.eye(4)
+        T_obj[:3, :3] = np.diag(s_obj) @ R_obj
+        T_obj[:3, 3] = t_obj
 
-        plane_scale = 0.544662309
+        T_relative = np.linalg.inv(T_obj) @ T_plane
+
         V_plane = np.array(
             [
                 [-1, -1, 0],
@@ -430,42 +458,37 @@ if __name__ == "__main__":
             ]
         )
         F_plane = np.array([[0, 1, 2], [0, 2, 3]])
-        V_plane = ((plane_scale * V_plane - pc_center) / pc_scale) @ R_relative.T
 
         image_res = 512
         samples_image = sample_plane(image_res)
-        samples_image = (
-            (plane_scale * samples_image - pc_center) / pc_scale
-        ) @ R_relative.T
+        samples_image = apply_T(T_relative, samples_image)
         sdf = infer_sdf(samples_image).reshape(
             -1,
         )
 
         octa_res = 128
-        samples_octa = sample_plane(octa_res)
-        samples_octa = (
-            (plane_scale * samples_octa - pc_center) / pc_scale
-        ) @ R_relative.T
+        samples_octa = sample_plane(octa_res, True)
+        samples_octa = apply_T(T_relative, samples_octa)
         octa = infer_octa(samples_octa)
         octa = proj_sh4_sdp(octa)
         Rs = proj_sh4_to_R3(octa)
-        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.64 / octa_res)
+        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.05 / octa_res)
 
-        V_plane = V_plane * pc_scale + pc_center
-        V_octa = V_octa * pc_scale + pc_center
-        samples_image = samples_image * pc_scale + pc_center
-
-        np.save(f"tmp/{tag}.npy", sdf)
-        igl.write_triangle_mesh(f"tmp/{tag}.obj", np.float64(V_octa), np.int64(F_octa))
-        igl.write_triangle_mesh("tmp/plane.obj", np.float64(V_plane), np.int64(F_plane))
+        np.save(f"output/{tag}.npy", sdf)
+        igl.write_triangle_mesh(
+            f"output/{tag}.obj", np.float64(V_octa), np.int64(F_octa)
+        )
+        igl.write_triangle_mesh(
+            "output/plane.obj", np.float64(V_plane), np.int64(F_plane)
+        )
 
         ps.init()
         ps.register_surface_mesh("gt", V_gt, F_gt)
-        ps.register_surface_mesh("pl", V_plane, F_plane)
-        ps.register_surface_mesh("octa", V_octa, F_octa)
+        ps.register_surface_mesh("pl", apply_T(T_relative, V_plane), F_plane)
         ps.register_point_cloud("samples_image", samples_image).add_scalar_quantity(
             "sdf", sdf
         )
+        ps.register_surface_mesh("octa", V_octa, F_octa)
         ps.show()
 
     else:

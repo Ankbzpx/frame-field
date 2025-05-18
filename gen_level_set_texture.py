@@ -1,3 +1,5 @@
+import argparse
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
@@ -5,14 +7,21 @@ import numpy as np
 from icecream import ic
 
 
-sdf = np.load("tmp/align.npy")
-# sdf = np.load("tmp/regularize.npy")
+parser = argparse.ArgumentParser()
+parser.add_argument("vis_tag", type=str, help="Visualization tag.")
+args = parser.parse_args()
+
+tag = args.vis_tag
+
+sdf = np.load(f"output/{tag}.npy")
 dim = int(np.sqrt(len(sdf)))
 sdf = sdf.reshape(dim, dim)
 
-min_level_set = -0.03
+min_level_set = -0.035
 max_level_set = 0.15
-levels = np.concatenate([np.linspace(-0.04, 0, 3)[:-1], np.linspace(0, 0.15, 9)[0:]])
+levels = np.concatenate(
+    [np.linspace(min_level_set, 0, 4)[:-1], np.linspace(0, max_level_set, 12)[0:]]
+)
 division = np.abs(min_level_set) / (max_level_set - min_level_set)
 
 sdf_cm = mpl.colors.LinearSegmentedColormap.from_list(
@@ -20,15 +29,10 @@ sdf_cm = mpl.colors.LinearSegmentedColormap.from_list(
 )
 
 
-plt.figure()
+plt.figure(figsize=(10, 10))
 plt.contourf(sdf, levels=levels, cmap=sdf_cm)
 plt.contour(sdf, levels=levels, colors="black", linewidths=0.1)
 plt.contour(sdf, levels=[0.0], colors="#370544")
 plt.axis("equal")
 plt.axis("off")
-plt.show()
-
-
-exit()
-
-"tmp/regularize.npy"
+plt.savefig(f"output/{tag}.png", bbox_inches="tight", pad_inches=0)

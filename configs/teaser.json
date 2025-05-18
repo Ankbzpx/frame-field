@@ -21,7 +21,6 @@
     "regularize": 5e1,
     "regularize_begin": 0.4,
     "smooth": 2,
-    "smooth_begin": 0.2,
-    "off_eikonal": true
+    "smooth_begin": 0.2
   }
 }
