@@ -402,10 +402,6 @@ if __name__ == "__main__":
             os.path.join(cfg.checkpoints_dir, f"{cfg.name}_{tag}.eqx"), model
         )
 
-        latent = jnp.empty((0,))
-        cfg.name = f"{cfg.name}_{tag}"
-        eval(cfg, model, latent, grid_res=512)
-
         gt_path = cfg.sdf_paths[0]
         gt_path = gt_path.replace(gt_path.split("/")[-2], "gt")
         V_gt, F_gt = igl.read_triangle_mesh(os.path.expandvars(gt_path))
@@ -419,15 +415,16 @@ if __name__ == "__main__":
 
         @jit
         def infer_sdf(x):
-            x = apply_T(jnp.linalg.inv(T_normalize), x)
-            z = latent[None, ...].repeat(len(x), 0)
+            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
             return model.mlps[0](x, z)
 
         @jit
         def infer_octa(x):
-            x = apply_T(jnp.linalg.inv(T_normalize), x)
-            z = latent[None, ...].repeat(len(x), 0)
+            z = jnp.empty((0,))[None, ...].repeat(len(x), 0)
             return model.mlps[1](x, z)
+
+        V, F, _ = extract_surface(infer_sdf, grid_res=512)
+        V = apply_T(T_normalize, V)
 
         R_plane = eulerXYZ_to_R3(
             np.deg2rad(76.9152), np.deg2rad(19.3204), np.deg2rad(36.4993)
@@ -457,39 +454,48 @@ if __name__ == "__main__":
                 [1, -1, 0],
             ]
         )
+        V_plane = apply_T(T_relative, V_plane)
         F_plane = np.array([[0, 1, 2], [0, 2, 3]])
 
         image_res = 512
         samples_image = sample_plane(image_res)
         samples_image = apply_T(T_relative, samples_image)
-        sdf = infer_sdf(samples_image).reshape(
+        sdf = infer_sdf(apply_T(jnp.linalg.inv(T_normalize), samples_image)).reshape(
             -1,
         )
 
-        octa_res = 128
+        octa_res = 32
         samples_octa = sample_plane(octa_res, True)
         samples_octa = apply_T(T_relative, samples_octa)
-        octa = infer_octa(samples_octa)
+        octa = infer_octa(apply_T(jnp.linalg.inv(T_normalize), samples_octa))
         octa = proj_sh4_sdp(octa)
         Rs = proj_sh4_to_R3(octa)
-        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.05 / octa_res)
+        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.06 / octa_res)
+
+        V = apply_T(T_obj, V)
+        V_gt = apply_T(T_obj, V_gt)
+        V_plane = apply_T(T_obj, V_plane)
+        samples_image = apply_T(T_obj, samples_image)
+        V_octa = apply_T(T_obj, V_octa)
 
         np.save(f"output/{tag}.npy", sdf)
         igl.write_triangle_mesh(
-            f"output/{tag}.obj", np.float64(V_octa), np.int64(F_octa)
+            f"output/{tag}_octa.obj", np.float64(V_octa), np.int64(F_octa)
         )
+        igl.write_triangle_mesh(f"output/{tag}.obj", np.float64(V), np.int64(F))
         igl.write_triangle_mesh(
             "output/plane.obj", np.float64(V_plane), np.int64(F_plane)
         )
 
-        ps.init()
-        ps.register_surface_mesh("gt", V_gt, F_gt)
-        ps.register_surface_mesh("pl", apply_T(T_relative, V_plane), F_plane)
-        ps.register_point_cloud("samples_image", samples_image).add_scalar_quantity(
-            "sdf", sdf
-        )
-        ps.register_surface_mesh("octa", V_octa, F_octa)
-        ps.show()
+        # ps.init()
+        # ps.register_surface_mesh("extract", V, F)
+        # ps.register_surface_mesh("gt", V_gt, F_gt)
+        # ps.register_surface_mesh("pl", V_plane, F_plane)
+        # ps.register_point_cloud("samples_image", samples_image).add_scalar_quantity(
+        #     "sdf", sdf
+        # )
+        # ps.register_surface_mesh("octa", V_octa, F_octa)
+        # ps.show()
 
     else:
         np.random.seed(0)
