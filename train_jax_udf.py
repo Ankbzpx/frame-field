@@ -1,6 +1,7 @@
 import argparse
 import copy
 import json
+import math
 import os
 
 from common import normalize
@@ -45,7 +46,7 @@ def eval_iter(cfg: Config, model, latent, tag):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{tag}"
     cfg.out_dir = os.path.join(cfg.out_dir, "debug_iters")
-    eval(cfg, model, latent, grid_res=256, save_octa=False, udf=True)
+    eval(cfg, model, latent, grid_res=256, save_octa=True, udf=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
@@ -122,7 +123,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         }
 
         sample_weight = jax.lax.stop_gradient(
-            jnp.exp(-1e2 * jnp.sqrt(jnp.abs(udf_all / 1000)))
+            jnp.exp(-5e1 * jnp.abs(jnp.sqrt(jnp.abs(udf_all / 1000)) - 6e-3))
         )
 
         def eval_align_loss(normal, aux):
@@ -212,14 +213,15 @@ def train(cfg: Config, model: model_jax.MLP, data):
             loss_history[key][iteration] = loss_dict[key]
 
         writer.add_scalars(f"{cfg.name}", loss_dict, iteration)
-        pbar.set_postfix(loss_dict)
+        pbar.set_postfix({"loss_total": loss_dict["loss_total"]})
 
-        if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
-            eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, "init")
-        # elif iteration % cfg.training.eval_every == 0 and iteration != 0:
+        # if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
         #     eval_latent = jnp.empty((0,))
-        #     eval_iter(cfg, model, eval_latent, iteration)
+        #     eval_iter(cfg, model, eval_latent, "init")
+        # el
+        if iteration % cfg.training.eval_every == 0 and iteration != 0:
+            eval_latent = jnp.empty((0,))
+            eval_iter(cfg, model, eval_latent, iteration)
 
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model

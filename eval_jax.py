@@ -263,8 +263,8 @@ def eval(
                 laplacian_weight=200,
                 learning_rate=5e-5,
                 report_freq=200,
-                bound_min=bound_min[0],
-                bound_max=bound_max[0],
+                # bound_min=bound_min[0],
+                # bound_max=bound_max[0],
                 is_cut=False,
             ).optimize()
             V = ms.vertices

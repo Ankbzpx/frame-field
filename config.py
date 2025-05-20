@@ -55,10 +55,10 @@ class LossConfig:
     explicit_basis: bool = False
     off_eikonal: bool = False
 
-    w_di = 1e2
-    w_neu = 8
-    w_ma = 8.5e-9
-    w_off = 1
+    w_di: float = 1e2
+    w_neu: float = 8
+    w_ma: float = 8.5e-9
+    w_off: float = 1
 
 
 @dataclass
