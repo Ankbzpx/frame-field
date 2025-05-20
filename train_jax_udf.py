@@ -45,7 +45,7 @@ def eval_iter(cfg: Config, model, latent, tag):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{tag}"
     cfg.out_dir = os.path.join(cfg.out_dir, "debug_iters")
-    eval(cfg, model, latent, grid_res=256, save_octa=False, is_udf=True)
+    eval(cfg, model, latent, grid_res=256, save_octa=False, udf=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
@@ -64,12 +64,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
         int(0.2 * cfg.training.n_steps),
         int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps),
     )
-    regularize_schedule = optax.linear_schedule(
-        0,
-        cfg.loss_cfg.regularize,
-        int(0.2 * cfg.training.n_steps),
-        int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps),
-    )
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
@@ -79,8 +73,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
     def loss_func(
         model: model_jax.MLP,
         samples_on_sur: Array,
-        normals_on_sur: Array,
-        samples_off_sur: Array,
         samples_close_sur: Array,
         latent: Array,
         loss_cfg: LossConfig,
@@ -88,7 +80,6 @@ def train(cfg: Config, model: model_jax.MLP, data):
     ):
         smooth_weight = smooth_schedule(step_count)
         align_weight = align_schedule(step_count)
-        regularize_weight = regularize_schedule(step_count)
 
         # Map network output to sh4 parameterization
         if loss_cfg.rot6d:
@@ -102,19 +93,24 @@ def train(cfg: Config, model: model_jax.MLP, data):
             param_func = lambda x: x
             proj_func = proj_sh4_to_R3
 
-        hessians_on = model.mlps[0].call_hessian(samples_on_sur, latent)
-        hessians_close = model.mlps[0].call_hessian(samples_close_sur, latent)
+        samples_all = jnp.vstack([samples_on_sur, samples_close_sur])
+        latents_all = jnp.vstack([latent, latent])
+        hessians_all = model.mlps[0].call_hessian(samples_all, latents_all)
+
+        jac_all, aux_all = model.mlps[1].call_jac(samples_all, latents_all)
 
         (udf_on, _), pred_normals_on_sur = model.mlps[0].call_grad(
             samples_on_sur, latent
         )
-        udf_close = model.mlps[0](samples_close_sur, latent)
+        (udf_close, _), pred_normals_close_sur = model.mlps[0].call_grad(
+            samples_on_sur, latent
+        )
+        udf_all = jnp.concatenate([udf_on, udf_close])
+        pred_normals_all = jnp.vstack([pred_normals_on_sur, pred_normals_close_sur])
 
         loss_di = loss_cfg.w_di * jnp.abs(udf_on).mean()
         loss_neu = loss_cfg.w_neu * vmap(jnp.linalg.norm)(pred_normals_on_sur).mean()
-        loss_ma = loss_cfg.w_ma * (
-            vmap(eval_ma)(hessians_on).mean() + vmap(eval_ma)(hessians_close).mean()
-        )
+        loss_ma = loss_cfg.w_ma * vmap(eval_ma)(hessians_all).mean().mean()
         loss_off = loss_cfg.w_off * jnp.exp(-5e2 * jnp.abs(udf_close)).mean()
 
         loss = loss_di + loss_neu + loss_ma + loss_off
@@ -125,75 +121,58 @@ def train(cfg: Config, model: model_jax.MLP, data):
             "loss_off": loss_off,
         }
 
-        # sample_weight = jax.lax.stop_gradient(jnp.exp(-1e2 * jnp.abs(pred_on_sur_sdf)))
+        sample_weight = jax.lax.stop_gradient(
+            jnp.exp(-1e2 * jnp.sqrt(jnp.abs(udf_all / 1000)))
+        )
 
-        # def eval_align_loss(normal, aux):
-        #     if loss_cfg.explicit_basis or loss_cfg.rot6d:
-        #         basis_align = proj_func(aux)
-        #         loss_align = align_basis_explicit(basis_align, normal)
-        #     else:
-        #         sh4_align = vmap(param_func)(aux)
-        #         loss_align = align_sh4_functional_grad(sh4_align, normal)
+        def eval_align_loss(normal, aux):
+            if loss_cfg.explicit_basis or loss_cfg.rot6d:
+                basis_align = proj_func(aux)
+                loss_align = align_basis_explicit(basis_align, normal)
+            else:
+                sh4_align = vmap(param_func)(aux)
+                loss_align = align_sh4_functional_grad(sh4_align, normal)
 
-        #     return loss_align
+            return loss_align
 
-        # if loss_cfg.align > 0:
-        #     normal_align = jax.lax.stop_gradient(jnp.vstack([pred_normals_on_sur]))
-        #     aux_align = jnp.vstack([aux_on])
-        #     loss_align = (
-        #         align_weight
-        #         * (
-        #             sample_weight
-        #             * jax.lax.cond(
-        #                 align_weight > 0,
-        #                 eval_align_loss,
-        #                 lambda x, y: jnp.zeros(len(sample_weight)),
-        #                 *(normal_align, aux_align),
-        #             )
-        #         ).mean()
-        #     )
-        #     loss += loss_align
-        #     loss_dict["loss_align"] = loss_align
+        if loss_cfg.align > 0:
+            normal_align = pred_normals_all
+            aux_align = aux_all
+            loss_align = (
+                align_weight
+                * (
+                    sample_weight
+                    * jax.lax.cond(
+                        align_weight > 0,
+                        eval_align_loss,
+                        lambda x, y: jnp.zeros(len(sample_weight)),
+                        *(normal_align, aux_align),
+                    )
+                ).mean()
+            )
+            loss += loss_align
+            loss_dict["loss_align"] = loss_align
 
-        # if loss_cfg.regularize > 0:
-        #     normal_reg = jnp.vstack([pred_normals_on_sur])
-        #     aux_reg = jax.lax.stop_gradient(jnp.vstack([aux_on]))
-        #     loss_reg = (
-        #         regularize_weight
-        #         * (
-        #             sample_weight
-        #             * jax.lax.cond(
-        #                 regularize_weight > 0,
-        #                 eval_align_loss,
-        #                 lambda x, y: jnp.zeros(len(sample_weight)),
-        #                 *(normal_reg, aux_reg),
-        #             )
-        #         ).mean()
-        #     )
+        if loss_cfg.smooth > 0:
 
-        #     loss += loss_reg
-        #     loss_dict["loss_reg"] = loss_reg
+            def eval_smooth_loss(jac):
+                return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f")
 
-        # if loss_cfg.smooth > 0:
-
-        #     def eval_smooth_loss(jac):
-        #         return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f")
-
-        #     sh4_jac = jnp.vstack([jac_on])
-        #     loss_smooth = (
-        #         smooth_weight
-        #         * (
-        #             sample_weight
-        #             * jax.lax.cond(
-        #                 smooth_weight > 0,
-        #                 eval_smooth_loss,
-        #                 lambda x: jnp.zeros(len(sample_weight)),
-        #                 sh4_jac,
-        #             )
-        #         ).mean()
-        #     )
-        #     loss += loss_smooth
-        #     loss_dict["loss_smooth"] = loss_smooth
+            sh4_jac = jac_all
+            loss_smooth = (
+                smooth_weight
+                * (
+                    sample_weight
+                    * jax.lax.cond(
+                        smooth_weight > 0,
+                        eval_smooth_loss,
+                        lambda x: jnp.zeros(len(sample_weight)),
+                        sh4_jac,
+                    )
+                ).mean()
+            )
+            loss += loss_smooth
+            loss_dict["loss_smooth"] = loss_smooth
 
         loss_dict["loss_total"] = loss
 
@@ -235,13 +214,12 @@ def train(cfg: Config, model: model_jax.MLP, data):
         writer.add_scalars(f"{cfg.name}", loss_dict, iteration)
         pbar.set_postfix(loss_dict)
 
-        # if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
-        #     eval_latent = jnp.empty((0,))
-        #     eval_iter(cfg, model, eval_latent, "init")
-        # el
-        if iteration % cfg.training.eval_every == 0 and iteration != 0:
+        if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
             eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, iteration)
+            eval_iter(cfg, model, eval_latent, "init")
+        # elif iteration % cfg.training.eval_every == 0 and iteration != 0:
+        #     eval_latent = jnp.empty((0,))
+        #     eval_iter(cfg, model, eval_latent, iteration)
 
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
@@ -263,6 +241,6 @@ if __name__ == "__main__":
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    data = config_training_data(cfg, latents)
+    data = config_training_data(cfg, latents, udf=True)
 
     train(cfg, model, data)
