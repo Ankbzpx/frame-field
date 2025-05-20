@@ -464,13 +464,13 @@ if __name__ == "__main__":
             -1,
         )
 
-        octa_res = 32
+        octa_res = 16
         samples_octa = sample_plane(octa_res, True)
         samples_octa = apply_T(T_relative, samples_octa)
         octa = infer_octa(apply_T(jnp.linalg.inv(T_normalize), samples_octa))
         octa = proj_sh4_sdp(octa)
         Rs = proj_sh4_to_R3(octa)
-        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.06 / octa_res)
+        V_octa, F_octa = vis_oct_field(Rs, samples_octa, 0.05 / octa_res)
 
         V = apply_T(T_obj, V)
         V_gt = apply_T(T_obj, V_gt)

@@ -32,7 +32,7 @@ sdf_cm = mpl.colors.LinearSegmentedColormap.from_list(
 fig = plt.figure(figsize=(10, 10))
 
 plt.contourf(sdf, levels=levels, cmap=sdf_cm)
-plt.contour(sdf, levels=levels, colors="black", linewidths=0.1)
+plt.contour(sdf, levels=levels, colors="#92797C", linestyles="dashed")
 plt.contour(sdf, levels=[0.0], colors="#370544")
 plt.axis("equal")
 plt.axis("off")

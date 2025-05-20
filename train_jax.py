@@ -50,10 +50,22 @@ def train(cfg: Config, model: model_jax.MLP, data):
     optim, opt_state = config_optim(cfg, model)
 
     # Let's not complicate things
-    smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
+    # smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
+    # align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
     lip_schedule = optax.constant_schedule(cfg.loss_cfg.lip)
 
+    smooth_schedule = optax.linear_schedule(
+        0,
+        cfg.loss_cfg.smooth,
+        int(0.2 * cfg.training.n_steps),
+        int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps),
+    )
+    align_schedule = optax.linear_schedule(
+        0,
+        cfg.loss_cfg.align,
+        int(0.2 * cfg.training.n_steps),
+        int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps),
+    )
     regularize_schedule = optax.linear_schedule(
         0,
         cfg.loss_cfg.regularize,
