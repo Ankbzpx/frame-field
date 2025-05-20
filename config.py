@@ -55,6 +55,11 @@ class LossConfig:
     explicit_basis: bool = False
     off_eikonal: bool = False
 
+    w_di = 1e2
+    w_neu = 8
+    w_ma = 8.5e-9
+    w_off = 1
+
 
 @dataclass
 class Config:
@@ -62,8 +67,6 @@ class Config:
     name: str = "default"
     out_dir: str = "output"
     checkpoints_dir: str = "checkpoints"
-
-    udf: bool = False
 
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()

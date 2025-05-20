@@ -84,3 +84,9 @@ def align_sh4_functional_grad_single_call(sh4, normal):
 @jit
 def align_sh4_functional_grad(sh4, normal):
     return vmap(align_sh4_functional_grad_single_call)(sh4, normal)
+
+
+# Reference: https://github.com/chuanxiang-yang/S2DF/blob/a7f17730f0cc95b97422bb0159dbd51948812fe1/models/losses.py#L62
+@jit
+def eval_ma(H, k=1000):
+    return jnp.abs(jnp.linalg.det(H - 2 * k * jnp.eye(3)))

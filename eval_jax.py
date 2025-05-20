@@ -88,7 +88,7 @@ def voxel_infer(
 
 
 # infer: R^3 -> R (sdf)
-def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0, udf=False):
+def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0, iso=0.0):
     grid_max_res = 512
 
     if grid_res > grid_max_res:
@@ -130,9 +130,7 @@ def extract_surface(infer, grid_res=512, grid_min=-1.0, grid_max=1.0, udf=False)
     sdf_np = np.swapaxes(sdf_np, 0, 1)
     spacing = 1.0 / grid_res
     # It outputs inverse VN, even with gradient_direction set to ascent
-    V, F, VN_inv, _ = marching_cubes(
-        sdf_np, spacing if udf else 0.0, spacing=(spacing, spacing, spacing)
-    )
+    V, F, VN_inv, _ = marching_cubes(sdf_np, iso, spacing=(spacing, spacing, spacing))
     dim = grid_max - grid_min
     V = dim * (V - np.abs(grid_min) / dim)
     return V, F, -VN_inv
@@ -200,6 +198,7 @@ def eval(
     trace_flowline=False,
     miq=False,
     interp_tag="",
+    is_udf=False,
 ):
     # Map network output to sh4 parameterization
     if cfg.loss_cfg.rot6d:
@@ -230,15 +229,26 @@ def eval(
 
     timer = Timer()
 
-    infer_sdf = lambda x: infer(x)[:, 0]
-    V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, udf=cfg.udf)
+    if is_udf:
+
+        @jit
+        def udf_map(x):
+            x = jnp.clip(x / 1000, min=1e-10)
+            return jnp.sqrt(x)
+
+        infer_sdf = lambda x: udf_map(infer(x)[:, 0])
+        grid_res = 256
+        V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, iso=6e-3)
+    else:
+        infer_sdf = lambda x: infer(x)[:, 0]
+        V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
 
     # For UDF, we extract double covering, hence requiring extra processing
-    if cfg.udf:
-        (sdf, _), VN = infer_grad(V)
-        VN = vmap(normalize)(VN)
-        V = V - sdf[:, None] * VN
-        V = np.array(V)
+    # if is_udf:
+    #     (sdf, _), VN = infer_grad(V)
+    #     VN = vmap(normalize)(VN)
+    #     V = V - sdf[:, None] * VN
+    #     V = np.array(V)
 
     timer.log("Extract surface")
 
@@ -459,6 +469,7 @@ if __name__ == "__main__":
         help="Visualize octahedron singularity",
     )
     parser.add_argument("--vis_mc", action="store_true", help="Visualize MC mesh only")
+    parser.add_argument("--udf", action="store_true", help="Visualize MC mesh only")
     parser.add_argument(
         "--vis_smooth", action="store_true", help="Visualize smoothness"
     )
@@ -494,4 +505,5 @@ if __name__ == "__main__":
         vis_mc=args.vis_mc,
         vis_smooth=args.vis_smooth,
         vis_flowline=args.vis_flowline,
+        is_udf=args.udf,
     )
