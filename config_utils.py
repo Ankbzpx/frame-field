@@ -29,9 +29,6 @@ def config_latent(cfg: Config):
 
 # IMPORTANT: this function will update cfg
 def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
-    if cfg.udf:
-        cfg.mlps[0].final_activation = "abs"
-
     if len(cfg.mlp_types) == 1:
         cfg.mlps[0].in_features += latent_dim
         return getattr(model_jax, cfg.mlp_types[0])(**cfg.mlp_cfgs[0], key=model_key)
@@ -214,9 +211,68 @@ class SDFDataset(Dataset):
         return sdf_data
 
 
-def config_training_data(cfg: Config, latents, with_jax=True):
+class UDFDataset(Dataset):
+    def __init__(self, cfg: Config, latents):
+        super().__init__()
+
+        n_models = len(cfg.sdf_paths)
+        assert n_models > 0
+
+        self.n_samples = cfg.training.n_samples
+        self.n_steps = cfg.training.n_steps
+
+        # Working on numpy array
+        latents = np.array(latents)
+
+        def sample_sdf_data(sdf_path, latent):
+            sdf_data = load_sdf(sdf_path)
+            samples_on_sur = normalize_aabb(sdf_data["samples_on_sur"])
+            sdf_data["samples_on_sur"] = samples_on_sur
+            sdf_data["latent"] = latent
+            return sdf_data
+
+        self.sdf_data_list = [
+            sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
+        ]
+
+    def __len__(self):
+        return self.n_steps
+
+    def __getitem__(self, index):
+        # VERY IMPORTANT: By default pytorch does not reset numpy seed for each __getitem__ call
+        #   It means even if I fix the batch index in training loop, the results will still be different
+        def sample_data(samples_on_sur, normals_on_sur, latent):
+            idx_permute = np.random.permutation(len(samples_on_sur))
+            idx = idx_permute[: self.n_samples]
+
+            samples_on_sur = samples_on_sur[idx]
+
+            samples_close_sur = samples_on_sur + 0.01 * np.random.randn(
+                len(samples_on_sur), 3
+            )
+
+            latent = np.repeat(latent[None, ...], len(samples_on_sur), axis=0)
+
+            return {
+                "samples_on_sur": samples_on_sur.astype(np.float32),
+                "samples_close_sur": samples_close_sur.astype(np.float32),
+                "latent": latent.astype(np.float32),
+            }
+
+        sdf_data_samples_frag = [
+            sample_data(**sdf_data) for sdf_data in self.sdf_data_list
+        ]
+
+        sdf_data = {}
+        for key in sdf_data_samples_frag[0].keys():
+            sdf_data[key] = np.hstack([frag[key] for frag in sdf_data_samples_frag])
+
+        return sdf_data
+
+
+def config_training_data(cfg: Config, latents, with_jax=True, udf=False):
     np.random.seed(0)
-    dataset = SDFDataset(cfg, latents)
+    dataset = UDFDataset(cfg, latents) if udf else SDFDataset(cfg, latents)
 
     g = torch.Generator()
     g.manual_seed(0)

@@ -198,7 +198,8 @@ def eval(
     trace_flowline=False,
     miq=False,
     interp_tag="",
-    is_udf=False,
+    udf=False,
+    dcudf=False,
 ):
     # Map network output to sh4 parameterization
     if cfg.loss_cfg.rot6d:
@@ -229,26 +230,50 @@ def eval(
 
     timer = Timer()
 
-    if is_udf:
+    if udf:
+        grid_res = 256
+        iso = 6e-3
+
+        sdf_data = load_sdf(cfg.sdf_paths[0])
+        sur_sample = sdf_data["samples_on_sur"]
+        pc_center, pc_scale, _ = aabb_compute(sur_sample)
+
+        # Compute original bound in normalized space
+        bound_max = sur_sample.max(0, keepdims=True)
+        bound_min = sur_sample.min(0, keepdims=True)
+        bound_max = (bound_max - pc_center) / pc_scale
+        bound_min = (bound_min - pc_center) / pc_scale
 
         @jit
-        def udf_map(x):
-            x = jnp.clip(x / 1000, min=1e-10)
-            return jnp.sqrt(x)
+        def infer_udf(x):
+            df = infer(x)[:, 0]
+            df = jnp.clip(df / 1000, min=1e-10)
+            return jnp.sqrt(df)
 
-        infer_sdf = lambda x: udf_map(infer(x)[:, 0])
-        grid_res = 256
-        V, F, VN = extract_surface(infer_sdf, grid_res=grid_res, iso=6e-3)
+        if dcudf:
+            from dcudf.mesh_extraction import dcudf as DCUDF
+
+            from jax2torch import jax2torch
+
+            infer_udf_torch = jax2torch(infer_udf)
+            ms = DCUDF(
+                infer_udf_torch,
+                resolution=grid_res,
+                threshold=iso,
+                laplacian_weight=200,
+                learning_rate=5e-5,
+                report_freq=200,
+                bound_min=bound_min[0],
+                bound_max=bound_max[0],
+                is_cut=False,
+            ).optimize()
+            V = ms.vertices
+            F = ms.faces
+        else:
+            V, F, _ = extract_surface(infer_udf, grid_res=grid_res, iso=iso)
     else:
         infer_sdf = lambda x: infer(x)[:, 0]
-        V, F, VN = extract_surface(infer_sdf, grid_res=grid_res)
-
-    # For UDF, we extract double covering, hence requiring extra processing
-    # if is_udf:
-    #     (sdf, _), VN = infer_grad(V)
-    #     VN = vmap(normalize)(VN)
-    #     V = V - sdf[:, None] * VN
-    #     V = np.array(V)
+        V, F, _ = extract_surface(infer_sdf, grid_res=grid_res)
 
     timer.log("Extract surface")
 
@@ -469,7 +494,8 @@ if __name__ == "__main__":
         help="Visualize octahedron singularity",
     )
     parser.add_argument("--vis_mc", action="store_true", help="Visualize MC mesh only")
-    parser.add_argument("--udf", action="store_true", help="Visualize MC mesh only")
+    parser.add_argument("--udf", action="store_true", help="Extract UDF")
+    parser.add_argument("--dcudf", action="store_true", help="Extract using DCUDF")
     parser.add_argument(
         "--vis_smooth", action="store_true", help="Visualize smoothness"
     )
@@ -505,5 +531,6 @@ if __name__ == "__main__":
         vis_mc=args.vis_mc,
         vis_smooth=args.vis_smooth,
         vis_flowline=args.vis_flowline,
-        is_udf=args.udf,
+        udf=args.udf,
+        dcudf=args.dcudf,
     )
