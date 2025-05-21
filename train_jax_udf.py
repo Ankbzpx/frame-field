@@ -42,11 +42,11 @@ matplotlib.use("Agg")
 jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 
-def eval_iter(cfg: Config, model, latent, tag):
+def eval_iter(cfg: Config, model, latent, tag, save_octa):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{tag}"
     cfg.out_dir = os.path.join(cfg.out_dir, "debug_iters")
-    eval(cfg, model, latent, grid_res=256, save_octa=True, udf=True)
+    eval(cfg, model, latent, grid_res=256, save_octa=save_octa, udf=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data):
@@ -215,13 +215,12 @@ def train(cfg: Config, model: model_jax.MLP, data):
         writer.add_scalars(f"{cfg.name}", loss_dict, iteration)
         pbar.set_postfix({"loss_total": loss_dict["loss_total"]})
 
-        # if iteration == int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps):
-        #     eval_latent = jnp.empty((0,))
-        #     eval_iter(cfg, model, eval_latent, "init")
-        # el
         if iteration % cfg.training.eval_every == 0 and iteration != 0:
             eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, iteration)
+            save_octa = iteration > int(
+                cfg.loss_cfg.regularize_begin * cfg.training.n_steps
+            )
+            eval_iter(cfg, model, eval_latent, iteration, save_octa)
 
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
