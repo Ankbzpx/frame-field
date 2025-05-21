@@ -7,35 +7,63 @@ import numpy as np
 from icecream import ic
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("vis_tag", type=str, help="Visualization tag.")
-args = parser.parse_args()
+for tag in ["00994034_9299b4c10539bb6b50b162d7", "75658", "117"]:
+    sdf = np.load(f"output/{tag}.npy")
+    dim = int(np.sqrt(len(sdf)))
+    sdf = sdf.reshape(dim, dim)
+    # Treat it as unsigned distance field
+    sdf = np.abs(sdf)
 
-tag = args.vis_tag
+    bound = 0.05
+    min_level_set = sdf.min()
+    max_level_set = sdf.max()
 
-sdf = np.load(f"output/{tag}.npy")
-dim = int(np.sqrt(len(sdf)))
-sdf = sdf.reshape(dim, dim)
+    while bound > max_level_set:
+        bound /= 2
 
-min_level_set = -0.035
-max_level_set = 0.15
-levels = np.concatenate(
-    [np.linspace(min_level_set, 0, 4)[:-1], np.linspace(0, max_level_set, 12)[0:]]
-)
-division = np.abs(min_level_set) / (max_level_set - min_level_set)
+    max_offset = max_level_set - bound
 
-sdf_cm = mpl.colors.LinearSegmentedColormap.from_list(
-    "SDF", [(0, "#DBD7C6"), (division, "#743E66"), (1, "#DBD7C6")], N=256
-)
+    levels = np.concatenate(
+        [
+            np.linspace(min_level_set, bound, 4)[:-1],
+            [
+                bound + 0.1 * max_offset,
+                bound + 0.2 * max_offset,
+                max_level_set,
+            ],
+        ]
+    )
 
+    min_division = min_level_set / (max_level_set - min_level_set)
+    bound_division = (bound - min_level_set) / (max_level_set - min_level_set)
 
-fig = plt.figure(figsize=(10, 10))
+    ic(min_division, bound_division)
 
-plt.contourf(sdf, levels=levels, cmap=sdf_cm)
-plt.contour(sdf, levels=levels, colors="#92797C", linestyles="dashed")
-plt.contour(sdf, levels=[0.0], colors="#370544")
-plt.axis("equal")
-plt.axis("off")
-plt.savefig(
-    f"output/{tag}.png", bbox_inches="tight", pad_inches=0, dpi=300, transparent=True
-)
+    sdf_cm = mpl.colors.LinearSegmentedColormap.from_list(
+        "SDF",
+        [
+            (0, "#370544"),
+            (min_division, "#370544"),
+            (bound, "#743E66"),
+            (bound_division, "#C7C1B7"),
+            (1, "#EBEAD6"),
+        ],
+        N=256,
+    )
+
+    fig = plt.figure(figsize=(10, 10))
+
+    plt.contourf(sdf, levels=levels, cmap=sdf_cm)
+    plt.contour(sdf, levels=levels, colors="#92797C", linestyles="dashed")
+    # plt.contour(sdf, levels=[0.0], colors="#370544")
+    plt.axis("equal")
+    plt.axis("off")
+    plt.savefig(
+        f"output/{tag}.png",
+        bbox_inches="tight",
+        pad_inches=0,
+        dpi=300,
+        transparent=True,
+    )
+
+    # exit()
