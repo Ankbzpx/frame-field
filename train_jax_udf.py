@@ -123,7 +123,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         }
 
         sample_weight = jax.lax.stop_gradient(
-            jnp.exp(-5e1 * jnp.abs(jnp.sqrt(jnp.abs(udf_all / 1000)) - 6e-3))
+            jnp.exp(-1e2 * jnp.sqrt(jnp.abs(udf_all / 1000)))
         )
 
         def eval_align_loss(normal, aux):
