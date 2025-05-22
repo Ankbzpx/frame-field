@@ -49,11 +49,12 @@ def train(cfg: Config, model: model_jax.MLP, data):
     writer = SummaryWriter(logdir=os.path.join("checkpoints/runs"))
     optim, opt_state = config_optim(cfg, model)
 
-    # Let's not complicate things
-    # smooth_schedule = optax.constant_schedule(cfg.loss_cfg.smooth)
-    # align_schedule = optax.constant_schedule(cfg.loss_cfg.align)
-    lip_schedule = optax.constant_schedule(cfg.loss_cfg.lip)
-
+    lip_schedule = optax.linear_schedule(
+        0,
+        cfg.loss_cfg.lip,
+        int(0.2 * cfg.training.n_steps),
+        int(cfg.loss_cfg.regularize_begin * cfg.training.n_steps),
+    )
     smooth_schedule = optax.linear_schedule(
         0,
         cfg.loss_cfg.smooth,
