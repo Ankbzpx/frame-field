@@ -12,11 +12,12 @@
     }
   ],
   "loss_cfg": {
+    "on_sur": 3.5e3,
     "hessian": 3,
-    "hessian_annealing": 1e-4,
+    "hessian_annealing": 1e-3,
+    "octa_begin": 0.4,
+    "octa_duration": 0.2,
     "align": 5e1,
-    "regularize": 5e1,
-    "regularize_begin": 0.6,
-    "smooth": 2
+    "smooth": 0.5
   }
 }

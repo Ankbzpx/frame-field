@@ -1,8 +1,6 @@
 from glob import glob
 import os
 
-from common import rm_unref_vertices
-
 import igl
 import numpy as np
 import pandas as pd

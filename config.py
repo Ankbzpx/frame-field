@@ -16,35 +16,39 @@ class MLPConfig:
 @dataclass
 class TrainingConfig:
     lr: float = 5e-5
-    warmup_steps: int = 100
     n_epochs: int = 1
     n_steps: int = 10000  # per epoch
     n_samples: int = 15000  # per step
-    plot_every: int = 500
     eval_every: int = 1000
     seed: int = 2139028991  # 1111111011111101111110111111111
-    close_sample_sigma: float = 5e-2
-    close_sample_ratio: float = 0.25
+    close_sample_sigma: float = 1e-2
     n_input_samples: int = 10000
 
 
 @dataclass(frozen=True)
 class LossConfig:
+    # sdf
     on_sur: float = 7e3
     off_sur: float = 6e2
     normal: float = 1e2
     eikonal: float = 5e1
+    beta: float = 100
 
-    align: float = 0  # sh4
-    align_begin: float = 0
-    unit_norm: float = 1  # sh4 norm
+    # udf
+    w_di: float = 1e2
+    w_neu: float = 8
+    w_ma: float = 8.5e-9
+    w_off: float = 1
+
+    # octa
+    octa_begin: float = 0.4
+    octa_duration: float = 0.2
+    align: float = 0
+    smooth: float = 0
     lip: float = 0
-    eps: float = 100
-    smooth_begin: float = 0
-    smooth: float = 0  # sh4 jac
-    regularize: float = 0  # off surface
-    regularize_begin: float = 0
-    xy_scale: float = 1  # actually sqrt(xy_scale)
+
+    # Initialization
+    init_duration: float = 0.1
     hessian: float = 0
     hessian_annealing: float = 0
     digs: float = 0
@@ -55,11 +59,6 @@ class LossConfig:
     explicit_basis: bool = False
     off_eikonal: bool = False
 
-    w_di: float = 1e2
-    w_neu: float = 8
-    w_ma: float = 8.5e-9
-    w_off: float = 1
-
 
 @dataclass
 class Config:
@@ -67,6 +66,7 @@ class Config:
     name: str = "default"
     out_dir: str = "output"
     checkpoints_dir: str = "checkpoints"
+    udf: bool = False
 
     training: TrainingConfig = TrainingConfig()
     loss_cfg: LossConfig = LossConfig()

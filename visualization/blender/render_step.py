@@ -341,8 +341,7 @@ if __name__ == "__main__":
             np.arange(0, 2000, 50),
             np.arange(2000, 2500, 1),
             np.arange(2500, 4000, 50),
-            np.arange(4000, 5000, 2),
-            np.arange(5000, 10000, 50),
+            np.arange(4000, 10000, 10),
         ]
     )
     for fid in fids:

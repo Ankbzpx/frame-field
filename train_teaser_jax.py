@@ -6,7 +6,7 @@ import random
 
 from common import aabb_compute, normalize, vis_oct_field
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, load_sdf, SDFDataset
+from config_utils import config_latent, config_model, config_optim, DFDataset, load_sdf
 from eval_jax import batch_call, eval, extract_surface
 from loss import (
     align_basis_explicit,
@@ -499,7 +499,7 @@ if __name__ == "__main__":
 
     else:
         np.random.seed(0)
-        dataset = SDFDataset(cfg, latents)
+        dataset = DFDataset(cfg, latents)
 
         g = torch.Generator()
         g.manual_seed(0)

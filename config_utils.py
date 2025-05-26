@@ -62,69 +62,6 @@ def config_optim(cfg: Config, model: model_jax.MLP):
     return optim, opt_state
 
 
-# Estimate aabb scaling
-def eval_data_scale(cfg: Config):
-    def cal_scale(sdf_path):
-        sdf_data = dict(np.load(sdf_path))
-
-        # Assume centered
-        return jnp.max(sdf_data["samples_on_sur"], axis=0)
-
-    scale = jnp.stack([cal_scale(sdf_path) for sdf_path in cfg.sdf_paths]).max(axis=0)
-    return scale
-
-
-# Default matching training sample size
-def progressive_sample_off_surf(
-    cfg: Config,
-    data_key,
-    samples_on_sur,
-    sample_bound,
-    close_sample_sigma,
-    close_sample_ratio=0.25,
-    sigma_scaler_factor=[1.0, 1.0, 1.0],
-):
-    sample_size = cfg.training.n_samples
-    # Progressive sample
-    sigma = sigma_scaler_factor[0] * close_sample_sigma * np.ones(cfg.training.n_steps)
-    sigma[cfg.training.n_steps // 3 :] = sigma_scaler_factor[1] * close_sample_sigma
-    sigma[int(2 * cfg.training.n_steps / 3) :] = (
-        sigma_scaler_factor[2] * close_sample_sigma
-    )
-
-    close_sample_size = int(close_sample_ratio * sample_size)
-    free_sample_size = sample_size - close_sample_size
-
-    close_samples = (
-        sigma[:, None, None]
-        * jax.random.normal(data_key, (cfg.training.n_steps, close_sample_size, 3))
-        + samples_on_sur[:, :close_sample_size]
-    )
-    close_samples = jnp.clip(close_samples, -0.9999, 0.9999)
-
-    free_samples = jax.random.uniform(
-        data_key,
-        (cfg.training.n_steps, free_sample_size, 3),
-        minval=-sample_bound,
-        maxval=sample_bound,
-    )
-
-    samples_off_sur = jnp.concatenate([close_samples, free_samples], axis=1)
-
-    close_samples_mask = jnp.concatenate(
-        [jnp.ones(close_sample_size), jnp.zeros(free_sample_size)]
-    )
-    close_samples_mask = close_samples_mask[None, :].repeat(
-        cfg.training.n_steps, axis=0
-    )
-
-    return {
-        "samples_off_sur": samples_off_sur,
-        "sdf_off_sur": jnp.zeros((cfg.training.n_steps, sample_size)),
-        "close_samples_mask": close_samples_mask,
-    }
-
-
 def load_sdf(sdf_path):
     if sdf_path.split(".")[-1] == "ply":
         pc_o3d = o3d.io.read_point_cloud(os.path.expandvars(sdf_path))
@@ -137,8 +74,8 @@ def load_sdf(sdf_path):
     return sdf_data
 
 
-class SDFDataset(Dataset):
-    def __init__(self, cfg: Config, latents):
+class DFDataset(Dataset):
+    def __init__(self, cfg: Config, latents, udf):
         super().__init__()
 
         n_models = len(cfg.sdf_paths)
@@ -146,6 +83,7 @@ class SDFDataset(Dataset):
 
         self.n_samples = cfg.training.n_samples
         self.n_steps = cfg.training.n_steps
+        self.udf = udf
 
         # Working on numpy array
         latents = np.array(latents)
@@ -177,18 +115,22 @@ class SDFDataset(Dataset):
         def sample_data(samples_on_sur, normals_on_sur, sigmas, latent):
             idx_permute = np.random.permutation(len(samples_on_sur))
             idx = idx_permute[: self.n_samples]
-
             samples_on_sur = samples_on_sur[idx]
-            sigmas = sigmas[idx]
 
             if len(normals_on_sur) > 0:
                 normals_on_sur = normals_on_sur[idx]
 
             samples_off_sur = np.random.uniform(-1, 1, size=(len(samples_on_sur), 3))
 
-            samples_close_sur = samples_on_sur + sigmas * np.random.randn(
-                len(samples_on_sur), 3
-            )
+            if self.udf:
+                samples_close_sur = samples_on_sur + 0.01 * np.random.randn(
+                    len(samples_on_sur), 3
+                )
+            else:
+                sigmas = sigmas[idx]
+                samples_close_sur = samples_on_sur + sigmas * np.random.randn(
+                    len(samples_on_sur), 3
+                )
 
             latent = np.repeat(latent[None, ...], len(samples_on_sur), axis=0)
 
@@ -211,68 +153,9 @@ class SDFDataset(Dataset):
         return sdf_data
 
 
-class UDFDataset(Dataset):
-    def __init__(self, cfg: Config, latents):
-        super().__init__()
-
-        n_models = len(cfg.sdf_paths)
-        assert n_models > 0
-
-        self.n_samples = cfg.training.n_samples
-        self.n_steps = cfg.training.n_steps
-
-        # Working on numpy array
-        latents = np.array(latents)
-
-        def sample_sdf_data(sdf_path, latent):
-            sdf_data = load_sdf(sdf_path)
-            samples_on_sur = normalize_aabb(sdf_data["samples_on_sur"])
-            sdf_data["samples_on_sur"] = samples_on_sur
-            sdf_data["latent"] = latent
-            return sdf_data
-
-        self.sdf_data_list = [
-            sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
-        ]
-
-    def __len__(self):
-        return self.n_steps
-
-    def __getitem__(self, index):
-        # VERY IMPORTANT: By default pytorch does not reset numpy seed for each __getitem__ call
-        #   It means even if I fix the batch index in training loop, the results will still be different
-        def sample_data(samples_on_sur, normals_on_sur, latent):
-            idx_permute = np.random.permutation(len(samples_on_sur))
-            idx = idx_permute[: self.n_samples]
-
-            samples_on_sur = samples_on_sur[idx]
-
-            samples_close_sur = samples_on_sur + 0.01 * np.random.randn(
-                len(samples_on_sur), 3
-            )
-
-            latent = np.repeat(latent[None, ...], len(samples_on_sur), axis=0)
-
-            return {
-                "samples_on_sur": samples_on_sur.astype(np.float32),
-                "samples_close_sur": samples_close_sur.astype(np.float32),
-                "latent": latent.astype(np.float32),
-            }
-
-        sdf_data_samples_frag = [
-            sample_data(**sdf_data) for sdf_data in self.sdf_data_list
-        ]
-
-        sdf_data = {}
-        for key in sdf_data_samples_frag[0].keys():
-            sdf_data[key] = np.hstack([frag[key] for frag in sdf_data_samples_frag])
-
-        return sdf_data
-
-
 def config_training_data(cfg: Config, latents, with_jax=True, udf=False):
     np.random.seed(0)
-    dataset = UDFDataset(cfg, latents) if udf else SDFDataset(cfg, latents)
+    dataset = DFDataset(cfg, latents, udf=udf)
 
     g = torch.Generator()
     g.manual_seed(0)
@@ -304,59 +187,6 @@ def config_training_data(cfg: Config, latents, with_jax=True, udf=False):
         )
 
     return dataloader
-
-
-# FIXME: Use pytorch dataloader
-def config_training_data_param(cfg: Config, data_key, latents):
-    n_models = len(cfg.sdf_paths)
-    assert n_models > 0
-    sample_size = cfg.training.n_samples // n_models
-
-    # Here we uniform sample region slight larger than and of same aspect ratio of aabb
-    sample_bound = 1.25 * eval_data_scale(cfg)
-
-    def sample_sdf_data(sdf_path, latent):
-        sdf_data = load_sdf(sdf_path)
-
-        # Don't need normals
-        del sdf_data["normals_on_sur"]
-
-        def random_batch(x):
-            total_sample_size = len(x)
-            idx = jax.random.choice(
-                data_key,
-                jnp.arange(total_sample_size),
-                (cfg.training.n_steps, sample_size),
-            )
-            return x[idx]
-
-        data = jax.tree_map(lambda x: random_batch(x), sdf_data)
-        data.update(
-            progressive_sample_off_surf(
-                cfg,
-                data_key,
-                data["samples_on_sur"],
-                sample_bound,
-                close_scale=cfg.training.close_scale,
-                # Disable close surface sample because the sampling is performed in parameterization space
-                # --we do not know if they will be mapped to close surface samples in original space
-                close_sample_ratio=0.0,
-            )
-        )
-
-        data["latent"] = (
-            latent[None, None, ...]
-            .repeat(cfg.training.n_steps, axis=0)
-            .repeat(sample_size, axis=1)
-        )
-        return data
-
-    data_frags = [sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)]
-    data = {}
-    for key in data_frags[0].keys():
-        data[key] = jnp.hstack([frag[key] for frag in data_frags])
-
-    return data
 
 
 class ToyDataset(Dataset):

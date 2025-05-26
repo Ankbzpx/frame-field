@@ -7,6 +7,7 @@
     }
   ],
   "loss_cfg": {
-    "hessian": 3
+    "hessian": 3,
+    "hessian_annealing": 1e-4
   }
 }

@@ -26,7 +26,7 @@ import polyscope as ps
 
 
 # S-Density in NeuS, biased
-# FIXME: How to specify a reasonable variance?
+# FIXME: s should be a learned parameter
 @jit
 def s_density(x, s=100):
     return s * jnp.exp(-s * x) / jnp.pow(1 + jnp.exp(-s * x), 2)

@@ -14,9 +14,9 @@
   "loss_cfg": {
     "hessian": 3,
     "hessian_annealing": 1e-4,
+    "octa_begin": 0.6,
+    "octa_duration": 0.2,
     "align": 5e1,
-    "regularize": 5e1,
-    "regularize_begin": 0.6,
     "smooth": 0.5
   }
 }

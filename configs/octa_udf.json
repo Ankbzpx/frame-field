@@ -1,4 +1,5 @@
 {
+  "udf": true,
   "mlp_types": ["Siren", "Siren"],
   "mlps": [
     {
@@ -12,12 +13,13 @@
     }
   ],
   "loss_cfg": {
-    "on_sur": 3.5e3,
-    "hessian": 3,
-    "hessian_annealing": 1e-3,
-    "align": 5e1,
-    "regularize": 5e1,
-    "regularize_begin": 0.4,
-    "smooth": 1
+    "w_di": 1e2,
+    "w_neu": 8,
+    "w_ma": 8.5e-9,
+    "w_off": 1,
+    "octa_begin": 0.4,
+    "octa_duration": 0.2,
+    "align": 8,
+    "smooth": 0.08
   }
 }

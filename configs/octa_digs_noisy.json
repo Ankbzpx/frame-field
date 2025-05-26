@@ -1,5 +1,5 @@
 {
-  "mlp_types": ["Siren", "LipMLP"],
+  "mlp_types": ["Siren", "Siren"],
   "mlps": [
     {
       "hidden_layers": 4,
@@ -7,19 +7,18 @@
       "init_method": "mfgi"
     },
     {
-      "input_scale": 100,
       "hidden_layers": 4,
-      "out_features": 9
+      "out_features": 9,
+      "final_activation": "normalize"
     }
   ],
   "loss_cfg": {
     "on_sur": 3.5e3,
     "digs": 1e2,
     "digs_annealing": 0,
-    "align": 1e2,
-    "align_begin": 0.2,
-    "regularize": 10,
-    "regularize_begin": 0.4,
-    "lip": 1e-6
+    "octa_begin": 0.4,
+    "octa_duration": 0.2,
+    "align": 5e1,
+    "smooth": 0.5
   }
 }

@@ -367,9 +367,6 @@ def eval(
         aux = batch_call(infer, V)[:, 1:]
         sh4 = param_func(aux)
 
-        if cfg.loss_cfg.xy_scale != 1:
-            sh4 = proj_sh4_sdp(sh4)
-
         print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
         Rs = proj_func(sh4)
 
@@ -446,9 +443,6 @@ def eval(
 
         (_, aux), VN = infer_grad(V)
         sh4 = vmap(param_func)(aux)
-
-        if cfg.loss_cfg.xy_scale != 1:
-            sh4 = proj_sh4_sdp(sh4)
 
         print(f"SH4 norm {vmap(jnp.linalg.norm)(sh4).mean()}")
 
