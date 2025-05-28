@@ -45,50 +45,48 @@ if __name__ == "__main__":
     for model_path in model_list:
         sdf_paths = [model_path]
 
-        for smooth in [0.5, 1.0, 2.0, 5.0, 10.0]:
-            for regularize in [25, 50, 100, 200, 500]:
-                config = json.load(open(args.config))
-                config["sdf_paths"] = sdf_paths
-                config["loss_cfg"]["smooth"] = smooth
-                config["loss_cfg"]["regularize"] = regularize
+        for smooth in [0.02, 0.04, 0.08, 0.16, 0.32, 0.8, 1.6, 8]:
+            config = json.load(open(args.config))
+            config["sdf_paths"] = sdf_paths
+            config["loss_cfg"]["smooth"] = smooth
 
-                cfg_name = args.config.split("/")[-1].split(".")[0]
-                model_name = model_path.split("/")[-1].split(".")[0]
-                name = f"{model_name}_{smooth}_{regularize}"
-                print(name)
+            cfg_name = args.config.split("/")[-1].split(".")[0]
+            model_name = model_path.split("/")[-1].split(".")[0]
+            name = f"{model_name}_{smooth}"
+            print(name)
 
-                cfg = Config(**config)
-                cfg.name = name
-                cfg.out_dir = os.path.join(cfg.out_dir, cfg_name, tag)
-                cfg.checkpoints_dir = os.path.join(cfg.checkpoints_dir, cfg_name, tag)
+            cfg = Config(**config)
+            cfg.name = name
+            cfg.out_dir = os.path.join(cfg.out_dir, cfg_name, tag)
+            cfg.checkpoints_dir = os.path.join(cfg.checkpoints_dir, cfg_name, tag)
 
-                if args.skip:
-                    out_file = os.path.join(cfg.out_dir, f"{name}.obj")
-                    if os.path.exists(out_file):
-                        continue
+            if args.skip:
+                out_file = os.path.join(cfg.out_dir, f"{name}.obj")
+                if os.path.exists(out_file):
+                    continue
 
-                model_key, data_key = jax.random.split(
-                    jax.random.PRNGKey(cfg.training.seed), 2
+            model_key, data_key = jax.random.split(
+                jax.random.PRNGKey(cfg.training.seed), 2
+            )
+
+            latents, latent_dim = config_latent(cfg)
+            model = config_model(cfg, model_key, latent_dim)
+
+            if args.eval:
+                model: model_jax.MLP = eqx.tree_deserialise_leaves(
+                    os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
                 )
+            else:
+                data = config_training_data(cfg, latents, udf=cfg.udf)
+                model = train(cfg, model, data, udf=cfg.udf)
 
-                latents, latent_dim = config_latent(cfg)
-                model = config_model(cfg, model_key, latent_dim)
+            tokens = "0_1_0".split("_")
+            # Interpolate latent
+            i = int(tokens[0])
+            j = int(tokens[1])
+            t = float(tokens[2])
+            latent = (1 - t) * latents[i] + t * latents[j]
 
-                if args.eval:
-                    model: model_jax.MLP = eqx.tree_deserialise_leaves(
-                        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
-                    )
-                else:
-                    data = config_training_data(cfg, latents)
-                    model = train(cfg, model, data)
+            eval(cfg, model, latent, vis_mc=args.vis, udf=cfg.udf, dcudf=cfg.udf)
 
-                tokens = "0_1_0".split("_")
-                # Interpolate latent
-                i = int(tokens[0])
-                j = int(tokens[1])
-                t = float(tokens[2])
-                latent = (1 - t) * latents[i] + t * latents[j]
-
-                eval(cfg, model, latent, vis_mc=args.vis)
-
-                # exit()
+            # exit()
