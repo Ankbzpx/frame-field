@@ -167,16 +167,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
                 loss_cfg.off_sur
                 * jnp.exp(-loss_cfg.beta * jnp.abs(pred_off_sur_sdf)).mean()
             )
+
+            loss_eikonal = loss_cfg.eikonal * vmap(eikonal)(pred_normals_on_sur).mean()
             if loss_cfg.off_eikonal:
-                loss_eikonal = (
-                    loss_cfg.eikonal
-                    * vmap(eikonal)(
-                        jnp.vstack([pred_normals_on_sur, pred_normals_off_sur])
-                    ).mean()
-                )
-            else:
-                loss_eikonal = (
-                    loss_cfg.eikonal * vmap(eikonal)(pred_normals_on_sur).mean()
+                loss_eikonal += (
+                    loss_cfg.eikonal * vmap(eikonal)(pred_normals_off_sur).mean()
                 )
 
             loss = loss_mse + loss_off + loss_eikonal
