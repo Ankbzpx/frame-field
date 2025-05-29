@@ -3,7 +3,6 @@ import copy
 import json
 import os
 
-from common import normalize
 from config import Config, LossConfig
 from config_utils import config_latent, config_model, config_optim, config_training_data
 from eval_jax import eval
@@ -34,19 +33,21 @@ import optax
 from tensorboardX import SummaryWriter
 from tqdm import tqdm
 
+from icecream import ic
+
 
 matplotlib.use("Agg")
 jax.config.update("jax_default_matmul_precision", "tensorfloat32")
 
 
-def eval_iter(cfg: Config, model, latent, tag, udf):
+def eval_iter(cfg: Config, model, latent, tag):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{tag}"
     cfg.out_dir = os.path.join(cfg.out_dir, "debug_iters")
-    eval(cfg, model, latent, grid_res=256, udf=udf)
+    eval(cfg, model, latent, grid_res=256)
 
 
-def train(cfg: Config, model: model_jax.MLP, data, udf):
+def train(cfg: Config, model: model_jax.MLP, data):
     writer = SummaryWriter(logdir=os.path.join("checkpoints/runs"))
     optim, opt_state = config_optim(cfg, model)
 
@@ -70,6 +71,10 @@ def train(cfg: Config, model: model_jax.MLP, data, udf):
 
     if not os.path.exists(cfg.checkpoints_dir):
         os.makedirs(cfg.checkpoints_dir)
+
+    # Shorthand
+    udf = cfg.udf
+    schedule_free = cfg.training.schedule_free
 
     @eqx.filter_jit
     @eqx.filter_grad(has_aux=True)
@@ -258,14 +263,36 @@ def train(cfg: Config, model: model_jax.MLP, data, udf):
     def make_step(
         model: model_jax.MLP, opt_state: PyTree, batch: PyTree, loss_cfg: LossConfig
     ):
-        # FIXME: The static index is risky--it depends on the order of optax.chain
-        step_count = opt_state[0].count
+        if schedule_free:
+            step_count = opt_state.step_count
+        else:
+            step_count = opt_state[0].count
+
         grads, loss_dict = loss_func(
             model, **batch, loss_cfg=loss_cfg, step_count=step_count
         )
-        updates, opt_state = optim.update([grads], opt_state, [model])
-        model = eqx.apply_updates([model], updates)[0]
-        return model, opt_state, loss_dict
+        updates, opt_state = optim.update(
+            grads, opt_state, eqx.filter(model, eqx.is_array)
+        )
+        model = eqx.apply_updates(model, updates)
+
+        if schedule_free:
+            # Schedule-free evaluation weights
+            model_eval = optax.contrib.schedule_free_eval_params(
+                opt_state, eqx.filter(model, eqx.is_array)
+            )
+            # Copied from eqx.apply_updates, switch as opposed to update
+            #   leaf nodes are not further travsered
+            model_eval = jax.tree_util.tree_map(
+                lambda u, p: p if u is None else u,
+                model_eval,
+                model,
+                is_leaf=lambda x: x is None,
+            )
+        else:
+            model_eval = model
+
+        return model, opt_state, loss_dict, model_eval
 
     loss_history = {}
     pbar = tqdm(range(cfg.training.n_steps), dynamic_ncols=True)
@@ -274,7 +301,9 @@ def train(cfg: Config, model: model_jax.MLP, data, udf):
     for iteration in pbar:
         batch = next(data_iter)
         batch = jax.tree.map(lambda x: x.numpy()[0], batch)
-        model, opt_state, loss_dict = make_step(model, opt_state, batch, cfg.loss_cfg)
+        model, opt_state, loss_dict, model_eval = make_step(
+            model, opt_state, batch, cfg.loss_cfg
+        )
 
         if np.isnan(loss_dict["loss_total"]):
             print("NaN occurred!")
@@ -292,16 +321,16 @@ def train(cfg: Config, model: model_jax.MLP, data, udf):
 
         if iteration == int(cfg.loss_cfg.octa_begin * cfg.training.n_steps):
             eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, "init", udf=udf)
+            eval_iter(cfg, model_eval, eval_latent, "init")
         # elif iteration % cfg.training.eval_every == 0 and iteration != 0:
         #     eval_latent = jnp.empty((0,))
-        #     eval_iter(cfg, model, eval_latent, iteration)
+        #     eval_iter(cfg, model_eval, eval_latent, iteration)
 
     eqx.tree_serialise_leaves(
-        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
+        os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model_eval
     )
 
-    return model
+    return model_eval
 
 
 if __name__ == "__main__":
@@ -317,6 +346,6 @@ if __name__ == "__main__":
     latents, latent_dim = config_latent(cfg)
     model = config_model(cfg, model_key, latent_dim)
 
-    data = config_training_data(cfg, latents, udf=cfg.udf)
+    data = config_training_data(cfg, latents)
 
-    train(cfg, model, data, udf=cfg.udf)
+    train(cfg, model, data)

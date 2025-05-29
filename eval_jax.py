@@ -198,7 +198,6 @@ def eval(
     trace_flowline=False,
     miq=False,
     interp_tag="",
-    udf=False,
     dcudf=False,
 ):
     # Map network output to sh4 parameterization
@@ -230,7 +229,7 @@ def eval(
 
     timer = Timer()
 
-    if udf:
+    if cfg.udf:
         grid_res = 256
         iso = 6e-3
 
@@ -488,7 +487,6 @@ if __name__ == "__main__":
         help="Visualize octahedron singularity",
     )
     parser.add_argument("--vis_mc", action="store_true", help="Visualize MC mesh only")
-    parser.add_argument("--udf", action="store_true", help="Extract UDF")
     parser.add_argument("--dcudf", action="store_true", help="Extract using DCUDF")
     parser.add_argument(
         "--vis_smooth", action="store_true", help="Visualize smoothness"
@@ -525,6 +523,5 @@ if __name__ == "__main__":
         vis_mc=args.vis_mc,
         vis_smooth=args.vis_smooth,
         vis_flowline=args.vis_flowline,
-        udf=args.udf,
         dcudf=args.dcudf,
     )

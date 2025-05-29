@@ -47,17 +47,11 @@ def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
 
 
 def config_optim(cfg: Config, model: model_jax.MLP):
-    # Matters for querying the step count
-    lr_scheduler = optax.constant_schedule(cfg.training.lr)
-
-    chain = [
-        optax.scale_by_adam(),
-        optax.scale_by_learning_rate(lr_scheduler),
-        optax.clip_by_global_norm(10.0),  # Gradient clipping is not necessary
-    ]
-
-    optim = optax.chain(*chain)
-    opt_state = optim.init(eqx.filter([model], eqx.is_array))
+    if cfg.training.schedule_free:
+        optim = optax.contrib.schedule_free_adamw(cfg.training.lr)
+    else:
+        optim = optax.adam(cfg.training.lr)
+    opt_state = optim.init(eqx.filter(model, eqx.is_array))
 
     return optim, opt_state
 
@@ -153,9 +147,9 @@ class DFDataset(Dataset):
         return sdf_data
 
 
-def config_training_data(cfg: Config, latents, with_jax=True, udf=False):
+def config_training_data(cfg: Config, latents, with_jax=True):
     np.random.seed(0)
-    dataset = DFDataset(cfg, latents, udf=udf)
+    dataset = DFDataset(cfg, latents, udf=cfg.udf)
 
     g = torch.Generator()
     g.manual_seed(0)

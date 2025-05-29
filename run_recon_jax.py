@@ -81,8 +81,8 @@ if __name__ == "__main__":
                 os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
             )
         else:
-            data = config_training_data(cfg, latents, udf=cfg.udf)
-            model = train(cfg, model, data, udf=cfg.udf)
+            data = config_training_data(cfg, latents)
+            model = train(cfg, model, data)
 
         tokens = "0_1_0".split("_")
         # Interpolate latent
@@ -91,6 +91,6 @@ if __name__ == "__main__":
         t = float(tokens[2])
         latent = (1 - t) * latents[i] + t * latents[j]
 
-        eval(cfg, model, latent, vis_mc=args.vis, udf=cfg.udf, dcudf=cfg.udf)
+        eval(cfg, model, latent, vis_mc=args.vis, dcudf=cfg.udf)
 
         # exit()

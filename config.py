@@ -23,6 +23,7 @@ class TrainingConfig:
     seed: int = 2139028991  # 1111111011111101111110111111111
     close_sample_sigma: float = 1e-2
     n_input_samples: int = 10000
+    schedule_free: bool = False
 
 
 @dataclass(frozen=True)
