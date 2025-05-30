@@ -59,7 +59,6 @@ if __name__ == "__main__":
     seed = 0
     sample_size = 1000000
     f1_percent = 5e-3
-    filter_thr = 0.075
 
     np.random.seed(seed)
 
