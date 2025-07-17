@@ -19,7 +19,18 @@ import polyscope as ps
 if __name__ == "__main__":
     np.random.seed(0)
 
-    V, F = igl.read_triangle_mesh("data/toy/30.obj")
+    theta = np.deg2rad(27.5)
+    V = np.array(
+        [
+            [-1, 1, 0],
+            [-1, -1, 0],
+            [0, 1, 0],
+            [0, -1, 0],
+            [-np.cos(theta), 1, np.sin(theta)],
+            [-np.cos(theta), -1, np.sin(theta)],
+        ]
+    )
+    F = np.array([[0, 2, 1], [1, 2, 3], [4, 5, 2], [5, 3, 2]])
 
     crease = trimesh.Trimesh(V, F)
     VN = np.array(crease.face_normals)
@@ -36,7 +47,7 @@ if __name__ == "__main__":
     vis_latent = jnp.empty((len(vis_samples), 0))
 
     key = jax.random.PRNGKey(0)
-    model = Siren(3, 256, 4, 9, key, final_activation="normalize")
+    model = Siren(3, 256, 4, 9, key, final_activation="normalize", input_scale=1e-2)
 
     lr = 5e-5
     optim = optax.adam(lr)
