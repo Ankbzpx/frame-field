@@ -1,5 +1,7 @@
+import argparse
+
 from common import normalize_aabb, vis_oct_field
-from loss import align_sh4_functional_grad
+from loss import align_sh4_explicit, align_sh4_functional_grad
 from model_jax import Siren
 from sh_representation import proj_sh4_to_R3
 
@@ -19,7 +21,16 @@ import polyscope as ps
 if __name__ == "__main__":
     np.random.seed(0)
 
-    theta = np.deg2rad(27.5)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("theta", type=float, help="Dihedral angle in degree.")
+    args = parser.parse_args()
+
+    # 15, 30, 45, 60, 75, 105, 120, 135, 150, 165
+    theta = np.deg2rad(args.theta)
+    # Simulate zooming it
+    zoom_in_factor = 5e-3
+    beta = 100
+
     V = np.array(
         [
             [-1, 1, 0],
@@ -34,20 +45,37 @@ if __name__ == "__main__":
 
     crease = trimesh.Trimesh(V, F)
     VN = np.array(crease.face_normals)
+    # Uniform on surface
     samples, fids = trimesh.sample.sample_surface_even(crease, 10000)
     sample_normals = VN[fids]
     latent = jnp.empty((len(samples), 0))
 
+    # Laplace along height
+    sample_sdfs = np.random.laplace(0, 1 / beta, len(samples))
+    # Under MC, it should gives the same effect as if apply weight under uniform sampling
+    samples += sample_sdfs[:, None] * sample_normals
+
     viz_size = 16
-    axis = jnp.linspace(-0.25, 0.25, viz_size)
+    axis = jnp.linspace(-0.5, 0.5, viz_size)
     xx, yy = jnp.meshgrid(axis, axis)
     xx -= 0.15
     yy += 0.15
     vis_samples = jnp.stack([xx, jnp.zeros_like(xx), yy], axis=-1).reshape(-1, 3)
     vis_latent = jnp.empty((len(vis_samples), 0))
 
+    # ps.init()
+    # ps.register_point_cloud("vis_samples", vis_samples)
+    # ps.register_surface_mesh("ms", V, F)
+    # ps.register_point_cloud("Samples", samples).add_vector_quantity(
+    #     "Sample_normals", sample_normals, enabled=True
+    # )
+    # ps.show()
+    # exit()
+
     key = jax.random.PRNGKey(0)
-    model = Siren(3, 256, 4, 9, key, final_activation="normalize", input_scale=1e-2)
+    model = Siren(
+        3, 256, 4, 9, key, final_activation="normalize", input_scale=zoom_in_factor
+    )
 
     lr = 5e-5
     optim = optax.adam(lr)
@@ -89,10 +117,6 @@ if __name__ == "__main__":
     R3 = proj_sh4_to_R3(sh4)
     V_vis, F_vis = vis_oct_field(R3, vis_samples, 0.01)
     V[:, 1] *= 0.1
-
-    # sh4 = model(samples, latent)
-    # R3 = proj_sh4_to_R3(sh4)
-    # V_vis, F_vis = vis_oct_field(R3, samples, 0.01)
 
     ps.init()
     ps.register_surface_mesh("ms", V, F)
