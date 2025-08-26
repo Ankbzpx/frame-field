@@ -73,6 +73,51 @@ def eval_sdf(dir, dist):
     return sdf
 
 
+@jit
+def debug_weight(sdf, inv_s=32 * 2**4):
+    prev_sdf, next_sdf = sdf[:-1], sdf[1:]
+    prev_cdf = jax.nn.sigmoid(prev_sdf * inv_s)
+    next_cdf = jax.nn.sigmoid(next_sdf * inv_s)
+    alpha = jnp.clip((prev_cdf - next_cdf) / (prev_cdf + 1e-5), 0.0, 1.0)
+    weight = alpha * jnp.cumprod(1 - alpha)
+    return weight
+
+
+def debug_intersects(dirs, dists):
+    sdfs = vmap(eval_sdf)(dirs, dists)
+    weights = vmap(debug_weight)(sdfs)
+    idx_pick = jnp.argmax(weights, 1)
+    dists_pick = jnp.take_along_axis(dists, idx_pick[:, None], axis=1)
+    samples = origin[None, :] + dists_pick * dirs
+    # samples = samples[idx_pick > 0]
+
+    weights_pick = jnp.take_along_axis(weights, idx_pick[:, None], axis=1)[:, 0]
+    # weights_pick = weights_pick[idx_pick > 0]
+
+    ps.init()
+    ps.register_point_cloud("samples", samples).add_scalar_quantity(
+        "weights_pick", weights_pick, enabled=True
+    )
+
+    d_weight = weights[13286]
+    d_weight = jnp.concat([jnp.zeros_like(d_weight[:1]), d_weight])
+    pc_viz = ps.register_point_cloud(
+        "ray", (origin[None, None, :] + dists[:, :, None] * dirs[:, None, :])[13286]
+    )
+    pc_viz.add_scalar_quantity("debug_weight", d_weight, enabled=True)
+    pc_viz.add_scalar_quantity("sdf", sdfs[12773])
+
+    d_weight = weights[12773]
+    d_weight = jnp.concat([jnp.zeros_like(d_weight[:1]), d_weight])
+    pc_viz = ps.register_point_cloud(
+        "ray2", (origin[None, None, :] + dists[:, :, None] * dirs[:, None, :])[12773]
+    )
+    pc_viz.add_scalar_quantity("debug_weight", d_weight, enabled=True)
+    pc_viz.add_scalar_quantity("sdf", sdfs[12773])
+
+    ps.show()
+
+
 def debug_samples(dirs, dists):
     sdfs = vmap(eval_sdf)(dirs, dists)
     debug_mask = (sdfs < 0).sum(1) > 0
@@ -146,7 +191,7 @@ if __name__ == "__main__":
     dists = vmap(sample_ray_coarse)(keys, t_near, t_far)
 
     @jit
-    def sample_dist_fine(dir, dist, num_levels=4):
+    def sample_dist_fine(dir, dist, num_levels=1):
         @jit
         def sample_dist(level, dist):
             inv_s = 32 * 2**level
@@ -180,23 +225,19 @@ if __name__ == "__main__":
     @jit
     # Choose the finest inv_s since we don't hav
     # e network
-    def eval_opacity(dir, dist, inv_s=32 * 2**4):
-        dist = jnp.concat([dist, jnp.array([1e10])])
+    def eval_opacity(dir, dist, inv_s=32 * 2**3):
         samples = origin[None, :] + dist[:, None] * dir[None, :]
         sdf = vmap(sphere_sdf)(samples)
 
-        prev_sdf, next_sdf = sdf[:-1], sdf[1:]
-        mid_sdf = 0.5 * (prev_sdf + next_sdf)
-        prev_dist, next_dist = dist[:-1], dist[1:]
+        gradient = vmap(grad(sphere_sdf))(samples)
+        gradient = vmap(normalize)(gradient)
+        cos_val = (dir[None, :] * gradient).sum(-1)
 
-        cos_val = (next_sdf - prev_sdf) / (next_dist - prev_dist + 1e-5)
-        prev_cos_val = jnp.concat([jnp.zeros_like(cos_val[:1]), cos_val[:-1]])
-        cos_val = jnp.minimum(prev_cos_val, cos_val)
+        dist = jnp.concat([dist, jnp.array([1e10])])
+        dist_intv = dist[1:] - dist[:-1]
 
-        dist_intv = next_dist - prev_dist
-        est_prev_sdf = mid_sdf - cos_val * dist_intv * 0.5
-        est_next_sdf = mid_sdf + cos_val * dist_intv * 0.5
-
+        est_prev_sdf = sdf - cos_val * dist_intv * 0.5
+        est_next_sdf = sdf + cos_val * dist_intv * 0.5
         prev_cdf = jax.nn.sigmoid(est_prev_sdf * inv_s)
         next_cdf = jax.nn.sigmoid(est_next_sdf * inv_s)
         alpha = jnp.clip((prev_cdf - next_cdf) / (prev_cdf + 1e-5), 0.0, 1.0)
