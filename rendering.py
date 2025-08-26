@@ -153,10 +153,20 @@ if __name__ == "__main__":
             samples = origin[None, :] + dist[:, None] * dir[None, :]
             sdf = vmap(sphere_sdf)(samples)
 
-            # For simplicity, we take raw sdf as opposed to numerical approximation
             prev_sdf, next_sdf = sdf[:-1], sdf[1:]
-            prev_cdf = jax.nn.sigmoid(prev_sdf * inv_s)
-            next_cdf = jax.nn.sigmoid(next_sdf * inv_s)
+            mid_sdf = 0.5 * (prev_sdf + next_sdf)
+            prev_dist, next_dist = dist[:-1], dist[1:]
+
+            cos_val = (next_sdf - prev_sdf) / (next_dist - prev_dist + 1e-5)
+            prev_cos_val = jnp.concat([jnp.zeros_like(cos_val[:1]), cos_val[:-1]])
+            cos_val = jnp.minimum(prev_cos_val, cos_val)
+
+            dist_intv = next_dist - prev_dist
+            est_prev_sdf = mid_sdf - cos_val * dist_intv * 0.5
+            est_next_sdf = mid_sdf + cos_val * dist_intv * 0.5
+
+            prev_cdf = jax.nn.sigmoid(est_prev_sdf * inv_s)
+            next_cdf = jax.nn.sigmoid(est_next_sdf * inv_s)
             alpha = jnp.clip((prev_cdf - next_cdf) / (prev_cdf + 1e-5), 0.0, 1.0)
             weight = alpha * jnp.cumprod(1 - alpha)
             return jnp.concat([dist, sample_ray_fine(dist, weight)])
@@ -168,15 +178,27 @@ if __name__ == "__main__":
     dists = vmap(sample_dist_fine)(dirs, dists)
 
     @jit
-    # Choose the finest inv_s since we don't have network
-    def eval_opacity(dir, dist, inv_s=32 * 2**3):
+    # Choose the finest inv_s since we don't hav
+    # e network
+    def eval_opacity(dir, dist, inv_s=32 * 2**4):
         dist = jnp.concat([dist, jnp.array([1e10])])
         samples = origin[None, :] + dist[:, None] * dir[None, :]
         sdf = vmap(sphere_sdf)(samples)
 
         prev_sdf, next_sdf = sdf[:-1], sdf[1:]
-        prev_cdf = jax.nn.sigmoid(prev_sdf * inv_s)
-        next_cdf = jax.nn.sigmoid(next_sdf * inv_s)
+        mid_sdf = 0.5 * (prev_sdf + next_sdf)
+        prev_dist, next_dist = dist[:-1], dist[1:]
+
+        cos_val = (next_sdf - prev_sdf) / (next_dist - prev_dist + 1e-5)
+        prev_cos_val = jnp.concat([jnp.zeros_like(cos_val[:1]), cos_val[:-1]])
+        cos_val = jnp.minimum(prev_cos_val, cos_val)
+
+        dist_intv = next_dist - prev_dist
+        est_prev_sdf = mid_sdf - cos_val * dist_intv * 0.5
+        est_next_sdf = mid_sdf + cos_val * dist_intv * 0.5
+
+        prev_cdf = jax.nn.sigmoid(est_prev_sdf * inv_s)
+        next_cdf = jax.nn.sigmoid(est_next_sdf * inv_s)
         alpha = jnp.clip((prev_cdf - next_cdf) / (prev_cdf + 1e-5), 0.0, 1.0)
         weight = alpha * jnp.cumprod(1 - alpha)
         return weight
