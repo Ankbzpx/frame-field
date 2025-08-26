@@ -3,6 +3,7 @@ import os
 
 from common import normalize, normalize_aabb
 
+import cv2
 import igl
 import jax
 from jax import grad, jit, numpy as jnp, vmap
@@ -63,6 +64,26 @@ def sample_pdf(node, weight, sample_size):
 @jit
 def sphere_sdf(x, radius=0.5):
     return jnp.linalg.norm(x) - radius
+
+
+@jit
+def eval_sdf(dir, dist):
+    samples = origin[None, :] + dist[:, None] * dir[None, :]
+    sdf = vmap(sphere_sdf)(samples)
+    return sdf
+
+
+def debug_samples(dirs, dists):
+    sdfs = vmap(eval_sdf)(dirs, dists)
+    debug_mask = (sdfs < 0).sum(1) > 0
+
+    img = jnp.zeros((res, res)).reshape(
+        -1,
+    )
+    img = img.at[valid_mask].set(debug_mask)
+    img = np.uint(255 * img).reshape(res, res)
+
+    cv2.imwrite("debug.png", img)
 
 
 if __name__ == "__main__":
@@ -146,14 +167,28 @@ if __name__ == "__main__":
 
     dists = vmap(sample_dist_fine)(dirs, dists)
 
-    dist = dists[-1]
-    dir = dirs[-1]
+    @jit
+    # Choose the finest inv_s since we don't have network
+    def eval_opacity(dir, dist, inv_s=32 * 2**3):
+        dist = jnp.concat([dist, jnp.array([1e10])])
+        samples = origin[None, :] + dist[:, None] * dir[None, :]
+        sdf = vmap(sphere_sdf)(samples)
 
-    # Choose the finest one since we don't have network
-    inv_s = 32 * 2**3
+        prev_sdf, next_sdf = sdf[:-1], sdf[1:]
+        prev_cdf = jax.nn.sigmoid(prev_sdf * inv_s)
+        next_cdf = jax.nn.sigmoid(next_sdf * inv_s)
+        alpha = jnp.clip((prev_cdf - next_cdf) / (prev_cdf + 1e-5), 0.0, 1.0)
+        weight = alpha * jnp.cumprod(1 - alpha)
+        return weight
 
-    dist = jnp.concat([dist, jnp.array([1e10])])
-    samples = origin[None, :] + dist[:, None] * dir[None, :]
+    opacity = vmap(eval_opacity)(dirs, dists).sum(-1)
+    img = jnp.zeros((res, res)).reshape(
+        -1,
+    )
+    img = img.at[valid_mask].set(opacity)
+    img = np.uint(255 * img).reshape(res, res)
+
+    cv2.imwrite("test.png", img)
 
     exit()
 
