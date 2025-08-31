@@ -17,7 +17,7 @@
     "w_neu": 8,
     "w_ma": 8.5e-9,
     "w_off": 1,
-    "octa_begin": 0.4,
+    "octa_begin": 0.6,
     "octa_duration": 0.2,
     "align": 8,
     "smooth": 0.08
