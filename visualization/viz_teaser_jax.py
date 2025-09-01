@@ -4,7 +4,7 @@ import os
 
 from common import aabb_compute, vis_oct_field
 from config import Config
-from config_utils import config_latent, config_model, load_sdf
+from config_utils import config_model, load_sdf
 from eval_jax import extract_surface
 import model_jax
 from sh_representation import (
@@ -90,9 +90,8 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     cfg = Config(**json.load(open(args.config)))
-    latents, latent_dim = config_latent(cfg)
     model_key, data_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed), 2)
-    model = config_model(cfg, model_key, latent_dim)
+    model = config_model(cfg, model_key)
 
     for tag, obj_pose, plane_pose, octa_scale in zip(
         tags, obj_poses, plane_poses, octa_scales

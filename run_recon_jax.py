@@ -4,7 +4,7 @@ import json
 import os
 
 from config import Config
-from config_utils import config_latent, config_model, config_training_data
+from config_utils import config_model, config_training_data
 from eval_jax import eval
 import model_jax
 from train_jax import train
@@ -63,25 +63,16 @@ if __name__ == "__main__":
                 continue
 
         model_key, data_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed), 2)
-
-        latents, latent_dim = config_latent(cfg)
-        model = config_model(cfg, model_key, latent_dim)
+        model = config_model(cfg, model_key)
 
         if args.eval:
             model: model_jax.MLP = eqx.tree_deserialise_leaves(
                 os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
             )
         else:
-            data = config_training_data(cfg, latents)
+            data = config_training_data(cfg)
             model = train(cfg, model, data)
 
-        tokens = "0_1_0".split("_")
-        # Interpolate latent
-        i = int(tokens[0])
-        j = int(tokens[1])
-        t = float(tokens[2])
-        latent = (1 - t) * latents[i] + t * latents[j]
-
-        eval(cfg, model, latent, vis_mc=args.vis, dcudf=cfg.udf)
+        eval(cfg, model, vis_mc=args.vis, dcudf=cfg.udf)
 
         # exit()

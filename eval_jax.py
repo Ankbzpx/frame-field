@@ -14,7 +14,7 @@ from common import (
     write_triangle_mesh_VC,
 )
 from config import Config
-from config_utils import config_latent, config_model, load_sdf
+from config_utils import config_model, load_sdf
 import model_jax
 from sh_representation import (
     proj_sh4_sdp,
@@ -188,7 +188,6 @@ def batch_call(
 def eval(
     cfg: Config,
     model: model_jax.MLP,
-    latent,
     grid_res=512,
     vis_singularity=False,
     vis_mc=False,
@@ -213,18 +212,15 @@ def eval(
 
     @jit
     def infer(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        return model(x, z)
+        return model(x)
 
     @jit
     def infer_grad(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        return model.call_grad(x, z)
+        return model.call_grad(x)
 
     @jit
     def infer_smoothness(x):
-        z = latent[None, ...].repeat(len(x), 0)
-        jac, _ = model.call_jac_param(x, z, param_func)
+        jac, _ = model.call_jac_param(x, param_func)
         return vmap(jnp.linalg.norm, in_axes=(0, None))(jac, "f")
 
     timer = Timer()
@@ -354,7 +350,6 @@ def eval(
         os.makedirs(cfg.out_dir)
 
     # Recovery input scale
-    # TODO: support latent
     sdf_data = load_sdf(cfg.sdf_paths[0])
     sur_sample = sdf_data["samples_on_sur"]
     pc_center, pc_scale, _ = aabb_compute(sur_sample)
@@ -501,16 +496,8 @@ if __name__ == "__main__":
     cfg.name = args.config.split("/")[-1].split(".")[0]
     cfg.out_dir = args.output
 
-    latents, latent_dim = config_latent(cfg)
-    tokens = args.interp.split("_")
-    # Interpolate latent
-    i = int(tokens[0])
-    j = int(tokens[1])
-    t = float(tokens[2])
-    latent = (1 - t) * latents[i] + t * latents[j]
-
     model_key = jax.random.PRNGKey(0)
-    model = config_model(cfg, model_key, latent_dim)
+    model = config_model(cfg, model_key)
     model: model_jax.MLP = eqx.tree_deserialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model
     )
@@ -518,7 +505,6 @@ if __name__ == "__main__":
     eval(
         cfg,
         model,
-        latent,
         vis_singularity=args.vis_singularity,
         vis_mc=args.vis_mc,
         vis_smooth=args.vis_smooth,

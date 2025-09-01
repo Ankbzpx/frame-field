@@ -6,7 +6,7 @@ import random
 
 from common import aabb_compute, normalize, vis_oct_field
 from config import Config, LossConfig
-from config_utils import config_latent, config_model, config_optim, DFDataset, load_sdf
+from config_utils import config_model, config_optim, DFDataset, load_sdf
 from eval_jax import batch_call, eval, extract_surface
 from loss import (
     align_basis_explicit,
@@ -58,11 +58,11 @@ def sample_plane(dim, skip_sides=False):
     return xyz
 
 
-def eval_iter(cfg: Config, model, latent, tag):
+def eval_iter(cfg: Config, model, tag):
     cfg = copy.copy(cfg)
     cfg.name = f"{cfg.name}_{tag}"
     cfg.out_dir = os.path.join(cfg.out_dir, "debug_iters")
-    eval(cfg, model, latent, grid_res=256, save_octa=True)
+    eval(cfg, model, grid_res=256, save_octa=True)
 
 
 def train(cfg: Config, model: model_jax.MLP, data, input_samples):
@@ -112,7 +112,6 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
         normals_on_sur: Array,
         samples_off_sur: Array,
         samples_close_sur: Array,
-        latent: Array,
         loss_cfg: LossConfig,
         step_count: int,
     ):
@@ -139,23 +138,23 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
         if loss_cfg.smooth > 0:
 
             def eval_smooth(samples):
-                return model.call_jac_param(samples, latent, param_func)
+                return model.call_jac_param(samples, param_func)
 
             jac_on, ((pred_on_sur_sdf, aux_on), pred_normals_on_sur) = eval_smooth(
                 samples_on_sur
             )
         else:
             (pred_on_sur_sdf, aux_on), pred_normals_on_sur = model.call_grad(
-                samples_on_sur, latent
+                samples_on_sur
             )
         (pred_off_sur_sdf, _), pred_normals_off_sur = model.mlps[0].call_grad(
-            samples_off_sur, latent
+            samples_off_sur
         )
 
         # **IMPORTANT** This wrapper is necessary, as jax.lax.cond assumes all callables are python functions (which the equinox module functions are not)
         # More see: https://github.com/patrick-kidger/equinox/issues/119
         def eval_hessian(samples):
-            return model.call_hessian(samples, latent)
+            return model.call_hessian(samples)
 
         if loss_cfg.hessian > 0:
             hessian_close = jax.lax.cond(
@@ -346,8 +345,7 @@ def train(cfg: Config, model: model_jax.MLP, data, input_samples):
             )
 
         if iteration % cfg.training.eval_every == 0 and iteration != 0:
-            eval_latent = jnp.empty((0,))
-            eval_iter(cfg, model, eval_latent, iteration)
+            eval_iter(cfg, model, iteration)
 
         # @jit
         # def infer_grad(x):
@@ -393,8 +391,7 @@ if __name__ == "__main__":
 
     model_key, data_key = jax.random.split(jax.random.PRNGKey(cfg.training.seed), 2)
 
-    latents, latent_dim = config_latent(cfg)
-    model = config_model(cfg, model_key, latent_dim)
+    model = config_model(cfg, model_key)
 
     tag = args.vis_tag
     if tag is not None:
@@ -499,7 +496,7 @@ if __name__ == "__main__":
 
     else:
         np.random.seed(0)
-        dataset = DFDataset(cfg, latents)
+        dataset = DFDataset(cfg)
 
         g = torch.Generator()
         g.manual_seed(0)

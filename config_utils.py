@@ -19,25 +19,13 @@ from icecream import ic
 import polyscope as ps
 
 
-def config_latent(cfg: Config):
-    n_models = len(cfg.sdf_paths)
-    # Compute (n_models - 1) dim simplex vertices as latent
-    # Reference: https://mathoverflow.net/a/184585
-    q, _ = jnp.linalg.qr(jnp.ones((n_models, 1)), mode="complete")
-    return q[:, 1:], n_models - 1
-
-
 # IMPORTANT: this function will update cfg
-def config_model(cfg: Config, model_key, latent_dim) -> model_jax.MLP:
+def config_model(cfg: Config, model_key) -> model_jax.MLP:
     if len(cfg.mlp_types) == 1:
-        cfg.mlps[0].in_features += latent_dim
         return getattr(model_jax, cfg.mlp_types[0])(**cfg.mlp_cfgs[0], key=model_key)
 
     else:
         MultiMLP = model_jax.MLPComposer
-
-        for mlp_cfg in cfg.mlps:
-            mlp_cfg.in_features += latent_dim
 
         return MultiMLP(
             model_key,
@@ -69,7 +57,7 @@ def load_sdf(sdf_path):
 
 
 class DFDataset(Dataset):
-    def __init__(self, cfg: Config, latents, udf):
+    def __init__(self, cfg: Config, udf):
         super().__init__()
 
         n_models = len(cfg.sdf_paths)
@@ -79,10 +67,7 @@ class DFDataset(Dataset):
         self.n_steps = cfg.training.n_steps
         self.udf = udf
 
-        # Working on numpy array
-        latents = np.array(latents)
-
-        def sample_sdf_data(sdf_path, latent):
+        def sample_sdf_data(sdf_path):
             sdf_data = load_sdf(sdf_path)
             samples_on_sur = normalize_aabb(sdf_data["samples_on_sur"])
             sdf_data["samples_on_sur"] = samples_on_sur
@@ -93,12 +78,9 @@ class DFDataset(Dataset):
             dists, _ = kd_tree.query(samples_on_sur, k=51, workers=-1)
             sigmas = dists[:, -1:]
             sdf_data["sigmas"] = sigmas
-            sdf_data["latent"] = latent
             return sdf_data
 
-        self.sdf_data_list = [
-            sample_sdf_data(*args) for args in zip(cfg.sdf_paths, latents)
-        ]
+        self.sdf_data_list = [sample_sdf_data(sdf_path) for sdf_path in cfg.sdf_paths]
 
     def __len__(self):
         return self.n_steps
@@ -106,7 +88,7 @@ class DFDataset(Dataset):
     def __getitem__(self, index):
         # VERY IMPORTANT: By default pytorch does not reset numpy seed for each __getitem__ call
         #   It means even if I fix the batch index in training loop, the results will still be different
-        def sample_data(samples_on_sur, normals_on_sur, sigmas, latent):
+        def sample_data(samples_on_sur, normals_on_sur, sigmas):
             idx_permute = np.random.permutation(len(samples_on_sur))
             idx = idx_permute[: self.n_samples]
             samples_on_sur = samples_on_sur[idx]
@@ -126,14 +108,11 @@ class DFDataset(Dataset):
                     len(samples_on_sur), 3
                 )
 
-            latent = np.repeat(latent[None, ...], len(samples_on_sur), axis=0)
-
             return {
                 "samples_on_sur": samples_on_sur.astype(np.float32),
                 "normals_on_sur": normals_on_sur.astype(np.float32),
                 "samples_off_sur": samples_off_sur.astype(np.float32),
                 "samples_close_sur": samples_close_sur.astype(np.float32),
-                "latent": latent.astype(np.float32),
             }
 
         sdf_data_samples_frag = [
@@ -147,9 +126,9 @@ class DFDataset(Dataset):
         return sdf_data
 
 
-def config_training_data(cfg: Config, latents, with_jax=True):
+def config_training_data(cfg: Config, with_jax=True):
     np.random.seed(0)
-    dataset = DFDataset(cfg, latents, udf=cfg.udf)
+    dataset = DFDataset(cfg, udf=cfg.udf)
 
     g = torch.Generator()
     g.manual_seed(0)
@@ -184,14 +163,13 @@ def config_training_data(cfg: Config, latents, with_jax=True):
 
 
 class ToyDataset(Dataset):
-    def __init__(self, cfg: Config, samples_on_sur, normals_on_sur, latent):
+    def __init__(self, cfg: Config, samples_on_sur, normals_on_sur):
         super().__init__()
 
         self.n_samples = cfg.training.n_samples
         self.n_steps = cfg.training.n_steps
 
         # Working on numpy array
-        self.latent = np.array(latent[0])
         self.samples_on_sur = samples_on_sur
         self.normals_on_sur = normals_on_sur
 
@@ -207,13 +185,10 @@ class ToyDataset(Dataset):
 
         samples_off_sur = np.random.uniform(-1, 1, size=(len(samples_on_sur), 3))
 
-        latent = np.repeat(self.latent[None, ...], len(samples_on_sur), axis=0)
-
         return {
             "samples_on_sur": samples_on_sur,
             "normals_on_sur": normals_on_sur,
             "samples_off_sur": samples_off_sur,
-            "latent": latent,
         }
 
 

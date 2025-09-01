@@ -20,8 +20,8 @@ class MLP(eqx.Module):
     def __init__():
         pass
 
-    def single_call(self, x, z):
-        x = jnp.hstack([self.input_scale * x, z])
+    def single_call(self, x):
+        x = self.input_scale * x
         for i in range(len(self.layers)):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
@@ -30,68 +30,68 @@ class MLP(eqx.Module):
         x = getattr(jnp, self.final_activation)(x)
         return x
 
-    def single_call_split(self, x, z):
-        x = self.single_call(x, z)
+    def single_call_split(self, x):
+        x = self.single_call(x)
         return x[0], x[1:]
 
-    def single_call_aux(self, x, z):
-        x = self.single_call(x, z)
+    def single_call_aux(self, x):
+        x = self.single_call(x)
         return x[1:]
 
-    def single_call_grad(self, x, z):
-        return eqx.filter_value_and_grad(self.single_call_split, has_aux=True)(x, z)
+    def single_call_grad(self, x):
+        return eqx.filter_value_and_grad(self.single_call_split, has_aux=True)(x)
 
-    def single_call_jac(self, x, z):
-        def __single_call(x, z):
-            val = self.single_call(x, z)
+    def single_call_jac(self, x):
+        def __single_call(x):
+            val = self.single_call(x)
             return val, val
 
-        return jacfwd(__single_call, has_aux=True)(x, z)
+        return jacfwd(__single_call, has_aux=True)(x)
 
-    def single_call_hessian(self, x, z):
-        def __single_call(x, z):
-            return self.single_call(x, z)[0]
+    def single_call_hessian(self, x):
+        def __single_call(x):
+            return self.single_call(x)[0]
 
-        return hessian(__single_call)(x, z)
+        return hessian(__single_call)(x)
 
-    def call_aux(self, x, z):
-        return vmap(self.single_call_aux)(x, z)
+    def call_aux(self, x):
+        return vmap(self.single_call_aux)(x)
 
-    def call_grad(self, x, z):
-        return vmap(self.single_call_grad)(x, z)
+    def call_grad(self, x):
+        return vmap(self.single_call_grad)(x)
 
-    def call_grad_param(self, x, z, param_func):
-        (sdf, aux), normal = vmap(self.single_call_grad)(x, z)
+    def call_grad_param(self, x, param_func):
+        (sdf, aux), normal = vmap(self.single_call_grad)(x)
         aux_param = vmap(param_func)(aux)
         return (sdf, aux_param), normal
 
-    def call_jac(self, x, z):
-        return vmap(self.single_call_jac)(x, z)
+    def call_jac(self, x):
+        return vmap(self.single_call_jac)(x)
 
-    def call_jac_param(self, x, z, param_func):
-        def __single_call(x, z):
-            (sdf, aux), normal = self.single_call_grad(x, z)
+    def call_jac_param(self, x, param_func):
+        def __single_call(x):
+            (sdf, aux), normal = self.single_call_grad(x)
             aux_param = param_func(aux)
             return aux_param, ((sdf, aux), normal)
 
-        return vmap(jacfwd(__single_call, has_aux=True))(x, z)
+        return vmap(jacfwd(__single_call, has_aux=True))(x)
 
     # WARNING: This is slower than call 'call_hessian' and 'call_grad' separately
-    def call_hessian_aux(self, x, z):
-        def __single_call(x, z):
-            (sdf, aux), normal = self.single_call_grad(x, z)
+    def call_hessian_aux(self, x):
+        def __single_call(x):
+            (sdf, aux), normal = self.single_call_grad(x)
             return normal, ((sdf, aux), normal)
 
-        return vmap(jacfwd(__single_call, has_aux=True))(x, z)
+        return vmap(jacfwd(__single_call, has_aux=True))(x)
 
-    def call_hessian(self, x, z):
-        return vmap(self.single_call_hessian)(x, z)
+    def call_hessian(self, x):
+        return vmap(self.single_call_hessian)(x)
 
-    def call_laplacian(self, x, z):
-        return vmap(jnp.trace)(self.call_hessian(x, z))
+    def call_laplacian(self, x):
+        return vmap(jnp.trace)(self.call_hessian(x))
 
-    def __call__(self, x, z):
-        x = vmap(self.single_call)(x, z)
+    def __call__(self, x):
+        x = vmap(self.single_call)(x)
         return x
 
     def get_aux_loss(self):
@@ -195,10 +195,10 @@ class ResMLP(MLP):
             + [Linear(hidden_features, out_features, keys[-1], xavier_init)]
         )
 
-    def single_call(self, x, z):
+    def single_call(self, x):
         activation = getattr(jax.nn, self.activation)
 
-        x = jnp.hstack([self.input_scale * x, z])
+        x = self.input_scale * x
         x = self.layers[0](x)
         x = activation(x)
 
@@ -497,8 +497,8 @@ class Siren(MLP):
                 + [SineLayer(hidden_features, out_features, keys[-1], is_last=True)]
             )
 
-    def single_call(self, x, z):
-        x = jnp.hstack([self.input_scale * x, z])
+    def single_call(self, x):
+        x = self.input_scale * x
         for i in range(len(self.layers)):
             x = self.layers[i](x)
             if i != len(self.layers) - 1:
@@ -669,20 +669,20 @@ class MLPComposer(MLP):
             for (mlp_type, mlp_cfg, subkey) in zip(mlp_types, mlp_cfgs, keys)
         ]
 
-    def single_call(self, x, z):
-        return jnp.concatenate([mlp.single_call(x, z) for mlp in self.mlps])
+    def single_call(self, x):
+        return jnp.concatenate([mlp.single_call(x) for mlp in self.mlps])
 
-    def single_call_aux(self, x, z):
-        return jnp.concatenate([mlp.single_call(x, z) for mlp in self.mlps[1:]])
+    def single_call_aux(self, x):
+        return jnp.concatenate([mlp.single_call(x) for mlp in self.mlps[1:]])
 
     def get_aux_loss(self):
         return jnp.array([mlp.get_aux_loss() for mlp in self.mlps]).sum()
 
-    def single_call_hessian(self, x, z):
-        def __single_call(x, z):
-            return self.mlps[0].single_call(x, z)[0]
+    def single_call_hessian(self, x):
+        def __single_call(x):
+            return self.mlps[0].single_call(x)[0]
 
-        return hessian(__single_call)(x, z)
+        return hessian(__single_call)(x)
 
 
 @jit
@@ -698,30 +698,30 @@ class MLPComposerCurl(MLPComposer):
         super().__init__(key, mlp_types, mlp_cfgs)
 
     # For simplicity, assume the first is sdf, the second is vector potential
-    def _single_call_grad(self, x, z):
-        (sdf, _), normal = self.mlps[0].single_call_grad(x, z)
-        jac, vec_potential = self.mlps[1].single_call_jac(x, z)
+    def _single_call_grad(self, x):
+        (sdf, _), normal = self.mlps[0].single_call_grad(x)
+        jac, vec_potential = self.mlps[1].single_call_jac(x)
         tangent = curl(jac)
         aux = jnp.hstack(
-            [normal, tangent] + [mlp.single_call(x, z) for mlp in self.mlps[2:]]
+            [normal, tangent] + [mlp.single_call(x) for mlp in self.mlps[2:]]
         )
         return (sdf, aux), normal, vec_potential
 
-    def single_call_grad(self, x, z):
-        return self._single_call_grad(x, z)[:-1]
+    def single_call_grad(self, x):
+        return self._single_call_grad(x)[:-1]
 
-    def single_call(self, x, z):
-        (sdf, aux), _ = self.single_call_grad(x, z)
+    def single_call(self, x):
+        (sdf, aux), _ = self.single_call_grad(x)
         return jnp.hstack([sdf, aux])
 
-    def call_jac_param(self, x, z, param_func):
-        def __single_call(x, z):
-            (sdf, aux), normal, vec_potential = self._single_call_grad(x, z)
+    def call_jac_param(self, x, param_func):
+        def __single_call(x):
+            (sdf, aux), normal, vec_potential = self._single_call_grad(x)
             potential = jax.lax.stop_gradient(jnp.linalg.norm(vec_potential))
             aux_param = param_func(aux)
             return aux_param, ((sdf, aux), normal)
 
-        return vmap(jacfwd(__single_call, has_aux=True))(x, z)
+        return vmap(jacfwd(__single_call, has_aux=True))(x)
 
 
 class RegularGrid(MLP):
@@ -749,7 +749,7 @@ class RegularGrid(MLP):
         L = igl.cotmatrix(V, T)
         self.L = sparse.BCOO.from_scipy_sparse(-L)
 
-    def single_call(self, x, z):
+    def single_call(self, x):
         axis = jnp.linspace(-1.0, 1.0, self.res)
         interp = jax.scipy.interpolate.RegularGridInterpolator(
             (axis, axis, axis), self.grid_val
