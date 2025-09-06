@@ -316,6 +316,7 @@ def train(cfg: Config, model: model_jax.MLP, data):
         # elif iteration % cfg.training.eval_every == 0 and iteration != 0:
         #     eval_iter(cfg, model_eval, iteration)
 
+    writer.close()
     eqx.tree_serialise_leaves(
         os.path.join(cfg.checkpoints_dir, f"{cfg.name}.eqx"), model_eval
     )
