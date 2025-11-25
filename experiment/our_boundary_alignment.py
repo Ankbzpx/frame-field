@@ -1,4 +1,10 @@
-from common import normalize, normalize_aabb, unroll_identity_block, vis_oct_field
+from common import (
+    normalize,
+    normalize_aabb,
+    unroll_identity_block,
+    vis_oct_field,
+    write_triangle_mesh_VC,
+)
 from loss import align_sh4_functional_grad
 from sh_representation import (
     eval_sh4_basis,
@@ -144,7 +150,7 @@ if __name__ == "__main__":
     As = vmap(eval_A)(VN)
     bs = vmap(eval_b)(VN)
 
-    A = scipy.sparse.block_diag(As).tocsc()
+    A = scipy.sparse.block_diag(As).T.tocsc()
     b = bs.reshape(
         -1,
     )
@@ -163,7 +169,7 @@ if __name__ == "__main__":
     n = np.concatenate([np.zeros(9 * len(VN)), b])
     # Pad epsilon
     M += scipy.sparse.diags(1e-10 * np.ones(len(n)))
-    x = scipy.sparse.linalg.cg(M, n)[0][: len(b)]
+    x = scipy.sparse.linalg.cg(M, n)[0][: len(VN) * 9]
 
     sh4 = x.reshape(len(VN), 9)
     R3 = proj_sh4_to_R3(sh4)

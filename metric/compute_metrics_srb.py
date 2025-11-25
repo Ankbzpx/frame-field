@@ -33,10 +33,10 @@ def compute_metrics(recon_points, gt_points, f1_thr, n_worker=8):
 
 
 if __name__ == "__main__":
-    gt_root = os.path.expandvars("$HOME/dataset/SRB")
-    result_root = os.path.expandvars("$HOME/dataset/octa_results/SRB_UDF")
+    gt_root = os.path.expandvars("$HOME/dataset/octa_results_cloth")
+    result_root = os.path.expandvars("$HOME/dataset/octa_results_cloth")
 
-    method_list = ["CapUDF", "S2DF", "ours"]
+    method_list = ["octa"]
 
     seed = 0
     sample_size = 1000000
@@ -47,7 +47,7 @@ if __name__ == "__main__":
     collection = {}
     metrics_column = ["item", "chamfer", "hausdorff", "f1"]
 
-    gt_folder = os.path.join(gt_root, "GT")
+    gt_folder = os.path.join(gt_root, "gt")
     model_list = sorted(os.listdir(gt_folder))
     for model in tqdm(model_list):
         gt_mesh: trimesh.Trimesh = trimesh.load(os.path.join(gt_folder, model))
@@ -86,6 +86,8 @@ if __name__ == "__main__":
                 idx = idx_permute[:sample_size]
                 result_samples = result_mesh.vertices[idx]
                 append_collection(tag, result_samples)
+
+    os.makedirs(os.path.join("output", "metrics_srb"), exist_ok=True)
 
     for tag, tag_frames in collection.items():
         tag_frames.to_csv(os.path.join("output", "metrics_srb", f"{tag}.csv"))

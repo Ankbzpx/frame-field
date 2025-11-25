@@ -7,7 +7,7 @@ from icecream import ic
 
 
 if __name__ == "__main__":
-    method_list = ["CapUDF", "S2DF", "ours"]
+    method_list = ["capudf", "s2df", "octa"]
 
     metrics = ["chamfer", "hausdorff", "f1"]
     metrics_column = [

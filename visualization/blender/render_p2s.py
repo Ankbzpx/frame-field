@@ -11,8 +11,8 @@ import open3d as o3d
 from icecream import ic
 
 
-def load_template():
-    bpy.ops.wm.open_mainfile(filepath="template_tri.blend")
+def load_template(filepath="template_tri.blend"):
+    bpy.ops.wm.open_mainfile(filepath=filepath)
     bpy.data.objects["Camera"].select_set(False)
     bpy.data.objects["spot"].select_set(True)
     bpy.ops.object.delete()
@@ -82,9 +82,9 @@ def render_mesh(save_path, mesh_path, location, rotation, scale, face_normals=Fa
 
 # Set face_normals to true for DiGS / NSH to avoid unlit faces
 def render_mesh_numpy(
-    save_path, mesh_path, location, rotation, scale, face_normals=False
+    save_path, mesh_path, location, rotation, scale, face_normals=False, filepath="template_tri.blend"
 ):
-    load_template()
+    load_template(filepath)
     mesh_o3d = o3d.io.read_triangle_mesh(mesh_path)
     V = np.asarray(mesh_o3d.vertices)
     F = np.asarray(mesh_o3d.triangles)

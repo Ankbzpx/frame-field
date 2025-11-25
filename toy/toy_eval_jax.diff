@@ -1,0 +1,43 @@
+diff --git a/eval_jax.py b/eval_jax.py
+index 437747f..b2ed9ca 100644
+--- a/eval_jax.py
++++ b/eval_jax.py
+@@ -354,6 +354,25 @@ def eval(
+     sur_sample = sdf_data["samples_on_sur"]
+     pc_center, pc_scale, _ = aabb_compute(sur_sample)
+ 
++    # Object scale
++    octa_samples = np.load("octa_samples.npy")
++    # Normalized scale
++    octa_samples = (octa_samples - pc_center) / pc_scale
++
++    aux = batch_call(infer, octa_samples)[:, 1:]
++    sh4 = param_func(aux)
++    sh4 = proj_sh4_sdp(sh4)
++    Rs = proj_func(sh4)
++
++    V_vis_octa, F_vis_octa = vis_oct_field(Rs, octa_samples, 0.15 / grid_res)
++    V_vis_octa = V_vis_octa * pc_scale + pc_center
++
++    import trimesh
++    trimesh.Trimesh(V_vis_octa, F_vis_octa).export("octa_frames.obj")
++
++    octa_samples = octa_samples * pc_scale + pc_center
++    np.savez("toy_data.npz", V=octa_samples, R=Rs)
++
+     save_name = f"{cfg.name}_{interp_tag}" if interp_tag != "" else f"{cfg.name}"
+ 
+     # Octahedral field
+@@ -411,7 +430,11 @@ def eval(
+         exit()
+ 
+     if vis_mc:
+-        ps.init()
++        
++        # V, F = igl.read_triangle_mesh("data/mesh/polyhedral.obj")
++
++        # ps.init()
++        # ps.register_surface_mesh("Octa vis", V_vis_octa, F_vis_octa)
+         mesh = ps.register_surface_mesh(f"{cfg.name}", V, F)
+         # if len(cfg.mlp_cfgs) > 1:
+         #     ps.register_surface_mesh('Oct frames supervise', V_vis_sup,
