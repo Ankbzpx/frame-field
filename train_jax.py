@@ -110,13 +110,11 @@ def train(cfg: Config, model: model_jax.MLP, data):
 
         if udf:
             samples_all = jnp.vstack([samples_on_sur, samples_close_sur])
-            hessians_all = model.mlps[0].call_hessian(samples_all)
-            sh4_jac, aux_align = model.mlps[1].call_jac(samples_all)
+            hessians_all = model.call_hessian(samples_all)
+            sh4_jac, aux_align = model.call_jac(samples_all)
 
-            (udf_on, _), pred_normals_on_sur = model.mlps[0].call_grad(samples_on_sur)
-            (udf_close, _), pred_normals_close_sur = model.mlps[0].call_grad(
-                samples_on_sur
-            )
+            (udf_on, _), pred_normals_on_sur = model.call_grad(samples_on_sur)
+            (udf_close, _), pred_normals_close_sur = model.call_grad(samples_on_sur)
             df_align = jnp.concatenate([udf_on, udf_close])
             normal_align = jnp.vstack([pred_normals_on_sur, pred_normals_close_sur])
 
@@ -137,26 +135,26 @@ def train(cfg: Config, model: model_jax.MLP, data):
         else:
             # The python if is determined at tracing time. jax.lax.cond helps reduce computation when weight is scheduled to be 0
             if loss_cfg.smooth > 0:
-                sh4_jac, aux_align = model.mlps[1].call_jac(samples_on_sur)
+                sh4_jac, ((pred_on_sur_sdf, aux_align), pred_normals_on_sur) = (
+                    model.call_jac_param(samples_on_sur, lambda x: x)
+                )
             else:
-                aux_align = model.mlps[1](samples_on_sur)
-
-            (pred_on_sur_sdf, _), pred_normals_on_sur = model.mlps[0].call_grad(
-                samples_on_sur
-            )
+                (pred_on_sur_sdf, aux_align), pred_normals_on_sur = model.call_grad(
+                    samples_on_sur
+                )
 
             df_align = pred_on_sur_sdf
             normal_align = pred_normals_on_sur
 
-            (pred_off_sur_sdf, _), pred_normals_off_sur = model.mlps[0].call_grad(
+            (pred_off_sur_sdf, _), pred_normals_off_sur = model.call_grad(
                 samples_off_sur
             )
 
             if loss_cfg.hessian > 0:
-                hessian_close = model.mlps[0].call_hessian(samples_close_sur)
+                hessian_close = model.call_hessian(samples_close_sur)
 
             if loss_cfg.digs > 0:
-                hessian_off = model.mlps[0].call_hessian(samples_off_sur)
+                hessian_off = model.call_hessian(samples_off_sur)
 
             # https://github.com/vsitzmann/siren/blob/4df34baee3f0f9c8f351630992c1fe1f69114b5f/loss_functions.py#L214
             loss_mse = loss_cfg.on_sur * jnp.abs(pred_on_sur_sdf).mean()
