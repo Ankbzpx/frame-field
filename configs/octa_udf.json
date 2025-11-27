@@ -1,0 +1,25 @@
+{
+  "udf": true,
+  "mlp_types": ["Siren", "Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
+    },
+    {
+      "hidden_layers": 4,
+      "out_features": 9,
+      "final_activation": "normalize"
+    }
+  ],
+  "loss_cfg": {
+    "w_di": 1e2,
+    "w_neu": 8,
+    "w_ma": 8.5e-9,
+    "w_off": 1,
+    "octa_begin": 0.6,
+    "octa_duration": 0.2,
+    "align": 8,
+    "smooth": 0.08
+  }
+}

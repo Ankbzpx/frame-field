@@ -1,0 +1,15 @@
+*.ini
+__pycache__
+results
+data/sdf
+data/mesh/*/*.ply
+data/toy_sdf
+checkpoints
+output
+tmp
+plots
+*.blend1
+*.blend
+visualization/blender/*.ply
+lightning_logs
+.vscode

@@ -1,0 +1,14 @@
+libigl
+scipy
+scikit-image
+equinox
+jaxtyping
+tensorboardX
+matplotlib
+optax
+joblib
+open3d
+polyscope
+icecream
+trimesh
+jax2torch

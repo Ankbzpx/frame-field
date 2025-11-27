@@ -1,0 +1,13 @@
+{
+  "mlp_types": ["Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1
+    }
+  ],
+  "loss_cfg": {
+    "hessian": 3,
+    "hessian_annealing": 1e-4
+  }
+}

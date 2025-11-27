@@ -1,0 +1,23 @@
+{
+  "mlp_types": ["Siren", "Siren"],
+  "mlps": [
+    {
+      "hidden_layers": 4,
+      "out_features": 1,
+      "init_method": "mfgi"
+    },
+    {
+      "hidden_layers": 4,
+      "out_features": 9,
+      "final_activation": "normalize"
+    }
+  ],
+  "loss_cfg": {
+    "digs": 1e2,
+    "digs_annealing": 0,
+    "octa_begin": 0.6,
+    "octa_duration": 0.2,
+    "align": 5e1,
+    "smooth": 0.5
+  }
+}
